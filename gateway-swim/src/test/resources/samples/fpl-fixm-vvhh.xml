@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fx:FlightPlan xmlns:fx="http://www.fixm.aero/flight/4.3"
+               xmlns:fb="http://www.fixm.aero/base/4.3">
+    <fx:flightIdentification>
+        <fx:aircraftIdentification>VJC123</fx:aircraftIdentification>
+    </fx:flightIdentification>
+    <fx:departure>
+        <fx:departureAerodrome>
+            <fb:locationIndicator>VVHH</fb:locationIndicator>
+        </fx:departureAerodrome>
+        <fx:estimatedOffBlockTime>2026-04-15T06:00:00Z</fx:estimatedOffBlockTime>
+    </fx:departure>
+    <fx:arrival>
+        <fx:destinationAerodrome>
+            <fb:locationIndicator>VTBS</fb:locationIndicator>
+        </fx:destinationAerodrome>
+    </fx:arrival>
+    <fx:routeTrajectory>
+        <fx:route>
+            <fx:routeText>VVHH DCT VVDN DCT VTBS</fx:routeText>
+        </fx:route>
+    </fx:routeTrajectory>
+</fx:FlightPlan>

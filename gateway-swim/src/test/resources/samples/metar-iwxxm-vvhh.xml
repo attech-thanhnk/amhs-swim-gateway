@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<iwxxm:METAR xmlns:iwxxm="http://icao.int/iwxxm/3.0"
+             xmlns:aixm="http://www.aixm.aero/schema/5.1.1"
+             xmlns:gml="http://www.opengis.net/gml/3.2"
+             status="NORMAL">
+    <iwxxm:issueTime>
+        <gml:TimeInstant gml:id="issueTime">
+            <gml:timePosition>2026-04-15T00:00:00Z</gml:timePosition>
+        </gml:TimeInstant>
+    </iwxxm:issueTime>
+    <iwxxm:aerodrome>
+        <aixm:AirportHeliport gml:id="ah-vvhh">
+            <aixm:timeSlice>
+                <aixm:AirportHeliportTimeSlice gml:id="ahts-vvhh">
+                    <gml:validTime/>
+                    <aixm:interpretation>SNAPSHOT</aixm:interpretation>
+                    <aixm:locationIndicatorICAO>VVHH</aixm:locationIndicatorICAO>
+                </aixm:AirportHeliportTimeSlice>
+            </aixm:timeSlice>
+        </aixm:AirportHeliport>
+    </iwxxm:aerodrome>
+    <iwxxm:observation>
+        <iwxxm:MeteorologicalAerodromeObservation gml:id="obs">
+            <iwxxm:surfaceWind>
+                <iwxxm:AerodromeSurfaceWindObservation meanWindDirection="090" meanWindSpeed="5" meanWindSpeedOperator="ABOVE"/>
+            </iwxxm:surfaceWind>
+        </iwxxm:MeteorologicalAerodromeObservation>
+    </iwxxm:observation>
+</iwxxm:METAR>
