@@ -40,6 +40,12 @@ public class UpdateRoutingRequest {
             example = "100")
     private Integer priority;
 
+    @Schema(description = "Priority AMHS (SS/DD/FF/GG/KK)", example = "FF")
+    private String priorityAmhs;
+
+    @Schema(description = "Priority SWIM (0-9)", example = "3")
+    private Integer prioritySwim;
+
     @Schema(description = "Enable/disable this rule",
             example = "true")
     private Boolean active;

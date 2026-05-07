@@ -17,7 +17,6 @@ public interface RoutingRepository extends JpaRepository<Routing, Integer> {
       WHERE r.direction = 'OUT'
         AND r.active = true
         AND r.messageType = :type
-      ORDER BY r.priority ASC
       """)
   List<Routing> findBestMatchOut(@Param("type") String type, Pageable pageable);
 
@@ -27,7 +26,6 @@ public interface RoutingRepository extends JpaRepository<Routing, Integer> {
         AND r.active = true
         AND r.receiveTopic = :topic
         AND (r.messageFilter = :filter OR r.messageFilter IS NULL)
-      ORDER BY r.priority ASC
       """)
   List<Routing> findBestMatchIn(@Param("topic") String topic,
       @Param("filter") String filter,

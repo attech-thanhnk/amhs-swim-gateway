@@ -12,3 +12,7 @@ nul
 
 # Logs
 *.log
+
+docs/
+gateway-cp/src/main/resources/
+gateway-cp/.env

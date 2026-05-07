@@ -16,6 +16,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import vn.asg.cp.security.JwtAuthFilter;
 import vn.asg.cp.security.JwtTokenProvider;
+import vn.asg.cp.security.JwtAuthEntryPoint;
 import vn.asg.cp.service.ConfigService;
 
 import java.util.List;
@@ -27,6 +28,7 @@ public class SecurityConfig {
 
     private final JwtTokenProvider tokenProvider;
     private final ConfigService configService;
+    private final JwtAuthEntryPoint authEntryPoint;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -35,13 +37,15 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**", "/error").permitAll()
-                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        .anyRequest().authenticated())
-                .addFilterBefore(new JwtAuthFilter(tokenProvider),
-                        UsernamePasswordAuthenticationFilter.class);
+                //         .requestMatchers("/api/auth/**", "/error").permitAll()
+                //         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
+                //         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                //         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                //         .anyRequest().authenticated())
+                // .addFilterBefore(new JwtAuthFilter(tokenProvider),
+                //         UsernamePasswordAuthenticationFilter.class);
+                            .anyRequest().permitAll()   // 🔥 cho phép toàn bộ  
+                );
 
         return http.build();
     }
@@ -53,15 +57,18 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        return request -> {
-            List<String> origins = configService.getCommaSeparatedConfig("ALLOWED_ORIGINS");
+        List<String> origins = configService.getCommaSeparatedConfig("ALLOWED_ORIGINS");
 
-            CorsConfiguration config = new CorsConfiguration();
-            config.setAllowedOriginPatterns(origins);
-            config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-            config.setAllowedHeaders(List.of("*"));
-            config.setAllowCredentials(true);
-            return config;
-        };
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOriginPatterns(origins);
+        config.setAllowedMethods(List.of("*"));
+        config.setAllowedHeaders(List.of("*"));
+        config.setAllowCredentials(true);
+        config.setExposedHeaders(List.of("Authorization"));
+
+        var source = new org.springframework.web.cors.UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config); // ⭐ QUAN TRỌNG
+
+        return source;
     }
 }

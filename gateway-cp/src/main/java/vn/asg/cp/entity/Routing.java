@@ -62,10 +62,16 @@ public class Routing {
     private String sendTopic;
 
     // ========== COMMON PROPERTIES ==========
-    @Column(name = "priority")
-    @Schema(description = "Priority (0-255, lower = higher priority)",
-            example = "100")
-    private Integer priority = 100;
+    @Column(name = "priority_swim")
+    @Schema(description = "Priority SWIM (0-9, lower = higher priority)",
+            example = "3")
+    private Integer prioritySwim = 3;
+
+    // ========== OUTBOUND DIRECTION (AMHS → SWIM) ==========
+    @Column(name = "priority_amhs")
+    @Schema(description = "Priority AMHS (SS > DD > FF > GG > KK)",
+            example = "FF")
+    private String priorityAmhs = "FF";
 
     @Column(name = "active")
     @Schema(description = "Enable/disable this rule",
