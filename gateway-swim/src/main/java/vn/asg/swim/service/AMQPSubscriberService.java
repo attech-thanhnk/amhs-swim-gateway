@@ -121,6 +121,15 @@ public class AMQPSubscriberService {
         }
         log.info("Received AMQP message: {} from topic: {}", amqpMsgId, queue);
 
+        // --- SELF-MESSAGE FILTER (ECHO CANCELLATION) ---
+        // EUR Doc 047: A producer should ignore its own messages to avoid loops.
+        String originator = amqpMsg.getStringProperty("amhs_originator");
+        String localCentre = vn.asg.converter.config.App.getInstance().getString("CentreDesignator");
+        if (originator != null && localCentre != null && originator.startsWith(localCentre)) {
+            log.info("AMQP message {} is an echo from our own centre ({}). Ignoring.", amqpMsgId, localCentre);
+            return;
+        }
+
         // Deduplication (prevent duplicate processing per spec)
         if (gwinRepository.existsByMessageId(amqpMsgId)) {
             log.warn("AMQP message {} already exists in gwin. Ignoring duplicate.", amqpMsgId);
@@ -276,7 +285,15 @@ public class AMQPSubscriberService {
         gwin.setAmqpProperties(amqpPropertiesJson); // EUR Doc 047: Save all AMQP properties
         gwin.setPriority((byte) Math.min(Math.max(priority, 0), 9));
         gwin.setTime(LocalDateTime.now());
-        gwin.setText(finalContent);
+        gwin.setXmlPayload(finalContent);
+        try {
+            String tac = conversionService.toAmhs(finalContent, subject);
+            gwin.setText(tac);
+        } catch (Exception e) {
+            log.warn("Auto-revert failed for AMQP {}, storing raw XML in text as fallback", amqpMsgId);
+            gwin.setText(finalContent);
+        }
+
         gwin.setBodyType("text");
         gwin.setContentType(contentType);
         gwin.setOrigin(resolved.originator());

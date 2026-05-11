@@ -40,6 +40,9 @@ public class MessageConversionLog {
     @Column(name = "ipm_id", length = 256)
     private String ipmId;
 
+    @Column(name = "mts_id", length = 256)
+    private String mtsId;
+
     @Column(name = "amqp_message_id", length = 256)
     private String amqpMessageId;
 

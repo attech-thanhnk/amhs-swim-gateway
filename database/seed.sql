@@ -101,26 +101,35 @@ INSERT INTO `routing` (`direction`, `receive_topic`, `message_filter`, `recipien
 
 -- ========== CHIỀU OUT (AMHS → SWIM) ==========
 INSERT INTO `routing` (`direction`, `message_type`, `send_topic`, `priority`, `active`, `note`, `created_by`) VALUES
+-- MET Messages
 ('OUT', 'METAR', 'ats/met/metar', 10, 1, 'Gửi IWXXM METAR', 'admin'),
 ('OUT', 'METAR_TEXT', 'ats/met/metar', 10, 1, 'Gửi TAC METAR', 'admin'),
+('OUT', 'SPECI', 'ats/met/speci', 10, 1, 'Gửi IWXXM SPECI', 'admin'),
+('OUT', 'SPECI_TEXT', 'ats/met/speci', 10, 1, 'Gửi TAC SPECI', 'admin'),
 ('OUT', 'TAF', 'ats/met/taf', 10, 1, 'Gửi IWXXM TAF', 'admin'),
 ('OUT', 'TAF_TEXT', 'ats/met/taf', 10, 1, 'Gửi TAC TAF', 'admin'),
+('OUT', 'SIGMET', 'ats/met/sigmet', 10, 1, 'Gửi IWXXM SIGMET', 'admin'),
+('OUT', 'SIGMET_TEXT', 'ats/met/sigmet', 10, 1, 'Gửi TAC SIGMET', 'admin'),
+('OUT', 'AIRMET_TEXT', 'ats/met/airmet', 10, 1, 'Gửi TAC AIRMET', 'admin'),
+('OUT', 'GAMET_TEXT', 'ats/met/gamet', 10, 1, 'Gửi TAC GAMET', 'admin'),
+('OUT', 'VAA_TEXT', 'ats/met/vaa', 10, 1, 'Gửi Volcanic Ash Advisory', 'admin'),
+('OUT', 'TCA_TEXT', 'ats/met/tca', 10, 1, 'Gửi Tropical Cyclone Advisory', 'admin'),
+-- Flight Plan Messages
 ('OUT', 'FPL', 'ats/fpl/vietnam', 10, 1, 'Gửi FIXM FPL', 'admin'),
 ('OUT', 'FPL_TEXT', 'ats/fpl/vietnam', 10, 1, 'Gửi TAC FPL', 'admin'),
+('OUT', 'CHG_TEXT', 'ats/fpl/vietnam', 10, 1, 'Gửi TAC CHG (Change)', 'admin'),
+('OUT', 'CNL_TEXT', 'ats/fpl/vietnam', 10, 1, 'Gửi TAC CNL (Cancel)', 'admin'),
+('OUT', 'DLA_TEXT', 'ats/fpl/vietnam', 10, 1, 'Gửi TAC DLA (Delay)', 'admin'),
+('OUT', 'DEP_TEXT', 'ats/fpl/vietnam', 10, 1, 'Gửi TAC DEP (Departure)', 'admin'),
+('OUT', 'ARR_TEXT', 'ats/fpl/vietnam', 10, 1, 'Gửi TAC ARR (Arrival)', 'admin'),
+-- AIREP Messages
+('OUT', 'ARP_TEXT', 'ats/airep', 10, 1, 'Gửi TAC AIREP', 'admin'),
+('OUT', 'ARS_TEXT', 'ats/airep', 10, 1, 'Gửi TAC AIREP SPECIAL', 'admin'),
+-- NOTAM Messages
 ('OUT', 'NOTAM', 'ats/notam', 10, 1, 'Gửi AIXM NOTAM', 'admin'),
-('OUT', 'NOTAM_TEXT', 'ats/notam', 10, 1, 'Gửi TAC NOTAM', 'admin');
+('OUT', 'NOTAM_TEXT', 'ats/notam', 10, 1, 'Gửi TAC NOTAM', 'admin'),
+('OUT', 'ASHTAM_TEXT', 'ats/notam/ashtam', 10, 1, 'Gửi TAC ASHTAM', 'admin');
 
 -- ============================================================
--- 6. gwout — vài bản ghi mẫu để test
--- ============================================================
-INSERT INTO `gwout` (`priority`, `time`, `TEXT`, `origin`, `address`, `amhsid`, `ipm_id`, `filing_time`, `priority2`, `status`, `body_part_type`, `content_type`) VALUES
-(4, NOW(), '<?xml version="1.0" encoding="UTF-8"?><iwxxm:METAR xmlns:iwxxm="http://icao.int/iwxxm/3.0" xmlns:aixm="http://www.aixm.aero/schema/5.1.1" xmlns:gml="http://www.opengis.net/gml/3.2" status="NORMAL"><iwxxm:aerodrome><aixm:AirportHeliport gml:id="ah-vvhh"><aixm:timeSlice><aixm:AirportHeliportTimeSlice gml:id="ahts-vvhh"><aixm:locationIndicatorICAO>VVHH</aixm:locationIndicatorICAO></aixm:AirportHeliportTimeSlice></aixm:timeSlice></aixm:AirportHeliport></iwxxm:aerodrome></iwxxm:METAR>',
- 'VVHHZQZX', 'VVHHYNYX VVTSYNYX', 'VN/HAN/20260407/000001', 'VVHH.20260407.001',
- '070000', 4, 0, 'ia5-text', 'text/plain'),
-
-(5, NOW(), '<?xml version="1.0" encoding="UTF-8"?><fx:FlightPlan xmlns:fx="http://www.fixm.aero/flight/4.3" xmlns:fb="http://www.fixm.aero/base/4.3"><fx:departure><fx:departureAerodrome><fb:locationIndicator>VVCS</fb:locationIndicator></fx:departureAerodrome></fx:departure><fx:arrival><fx:destinationAerodrome><fb:locationIndicator>VVPQ</fb:locationIndicator></fx:destinationAerodrome></fx:arrival><fx:routeTrajectory><fx:route><fx:routeText>VVCS DCT VVDN DCT VVPQ</fx:routeText></fx:route></fx:routeTrajectory></fx:FlightPlan>',
- 'VVTSZQZX', 'VVTSYNYX', 'VN/SGN/20260407/000002', 'VVTS.20260407.001',
- '070030', 5, 0, 'ia5-text', 'text/plain');
-
 -- Bật lại kiểm tra khóa ngoại
 SET FOREIGN_KEY_CHECKS = 1;

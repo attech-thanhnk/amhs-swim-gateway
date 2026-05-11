@@ -65,6 +65,30 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- Internal Module: Converter -->
+        <dependency>
+            <groupId>vn.asg</groupId>
+            <artifactId>gateway-converter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- JAXB Legacy Support for Converter (javax namespace) -->
+        <dependency>
+            <groupId>javax.xml.bind</groupId>
+            <artifactId>jaxb-api</artifactId>
+            <version>2.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jaxb</groupId>
+            <artifactId>jaxb-runtime</artifactId>
+            <version>2.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.activation</groupId>
+            <artifactId>javax.activation-api</artifactId>
+            <version>1.2.0</version>
+        </dependency>
     </dependencies>
 
     <build>

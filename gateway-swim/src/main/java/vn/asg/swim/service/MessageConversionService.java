@@ -3,6 +3,9 @@ package vn.asg.swim.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import vn.asg.converter.ConverterFacade;
+import vn.asg.converter.ReverterFacade;
+import vn.asg.converter.core.ConversionResult;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.MessageConversionLog;
 import vn.asg.swim.repository.MessageConversionLogRepository;
@@ -12,7 +15,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * Conversion logic for the SWIM → AMHS pipeline.
+ * Conversion logic for the SWIM <-> AMHS pipeline.
  * Maps priority, OHI, body part type, and filing time according to Spec §4.3.
  */
 @Service
@@ -21,33 +24,58 @@ import java.time.format.DateTimeFormatter;
 public class MessageConversionService {
 
     private final MessageConversionLogRepository conversionLogRepo;
+    private final ConverterFacade converterFacade = new ConverterFacade();
+    private final ReverterFacade reverterFacade = new ReverterFacade();
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     /**
-     * Converts AMHS plain text body → SWIM format.
-     * [Phase 1] Returns raw text; wrapping may be added later.
+     * Converts AMHS plain text body → SWIM format (XML).
+     * Uses gateway-converter to generate IWXXM, FIXM, or AIXM.
      */
     public String toSwim(String amhsBody, String messageType) {
-        // [Phase 1 Stub]
-        // Phase 2, 3: convert text ATS message to FIXM/IWXXM XML/JSON based on
-        // messageType
-        if (amhsBody == null)
+        if (amhsBody == null || amhsBody.isBlank())
             return "";
-        return amhsBody;
+
+        try {
+            log.debug("Converting AMHS message to SWIM (Type: {})", messageType);
+            ConversionResult result = converterFacade.convert(amhsBody);
+
+            if (result.isSuccess()) {
+                return result.getXml();
+            } else if (result.getStatus() == ConversionResult.Status.UNSUPPORTED) {
+                // Message type không support XML conversion (VD: CHG, CNL, DLA)
+                // → Gateway forward TAC text thay vì XML để đảm bảo message được gửi
+                log.info("Message type {} not supported for XML conversion - forwarding as TAC text", messageType);
+                return result.getOriginalTac();
+            } else {
+                throw new RuntimeException(result.getErrorMessage());
+            }
+        } catch (Exception e) {
+            log.error("Failed to convert message to SWIM format: {}", e.getMessage());
+            throw new RuntimeException("Conversion failed: " + e.getMessage(), e);
+        }
     }
 
     /**
-     * Converts SWIM body → AMHS plain text format.
-     * [Phase 1] Returns raw or extracts text from XML.
+     * Converts SWIM body (XML) → AMHS plain text format (TAC).
+     * Uses gateway-converter's ReverterFacade.
      */
     public String toAmhs(String swimBody, String subject) {
-        // [Phase 1 Stub]
-        // Phase 2: parse XML/JSON SWIM format and return plain text ATS message (TAC
-        // format)
-        if (swimBody == null)
+        if (swimBody == null || swimBody.isBlank())
             return "";
-        return swimBody;
+
+        try {
+            log.debug("Reverting SWIM message to AMHS (Subject: {})", subject);
+            String tac = reverterFacade.revert(swimBody);
+            if (tac == null) {
+                throw new RuntimeException("Auto-revert failed or unknown XML format");
+            }
+            return tac;
+        } catch (Exception e) {
+            log.error("Failed to revert message to AMHS format: {}", e.getMessage());
+            throw new RuntimeException("Revert failed: " + e.getMessage(), e);
+        }
     }
 
     // ─── Priority Mapping §4.3.1 ──────────────────────────────────────────────

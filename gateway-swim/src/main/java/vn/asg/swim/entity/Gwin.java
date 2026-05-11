@@ -54,6 +54,10 @@ public class Gwin {
     @Column(name = "time")
     private LocalDateTime time;
 
+    /** Original XML payload received from SWIM */
+    @Column(name = "xml_payload", columnDefinition = "MEDIUMTEXT")
+    private String xmlPayload;
+
     /** Converted plain text payload for AMHS */
     @Column(name = "TEXT", columnDefinition = "MEDIUMTEXT")
     private String text;

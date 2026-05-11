@@ -182,7 +182,8 @@ public class ConnectionManagerService {
 
     public MessageConsumer createConsumer(Session session, String topic) throws JMSException {
         Destination dest = session.createTopic(topic);
-        return session.createConsumer(dest);
+        // Using noLocal=true to prevent receiving our own published messages (Echo Cancellation)
+        return session.createConsumer(dest, null, true);
     }
 
     @PreDestroy

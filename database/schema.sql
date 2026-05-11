@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS `gwout` (
   `amhs_delivery_report` TINYINT(1)    DEFAULT 0 COMMENT 'Yêu cầu báo nhận AMHS: 0=No, 1=Yes',
   `retry_count`          INT           DEFAULT 0 COMMENT 'Số lần đã thử đẩy tin lên SWIM',
   `last_retry_at`        DATETIME      DEFAULT NULL COMMENT 'Thời điểm cuối cùng thử đẩy tin',
+  `xml_content`          MEDIUMTEXT    DEFAULT NULL COMMENT 'Nội dung điện văn sau khi chuyển đổi sang XML (IWXXM/FIXM/AIXM)',
   PRIMARY KEY (`msgid`),
   KEY `priority2` (`priority2`),
   KEY `idx_status` (`status`)
@@ -66,8 +67,7 @@ CREATE TABLE IF NOT EXISTS `gwout_dispatch` (
   PRIMARY KEY (`id`),
   KEY `idx_gwout_id` (`gwout_id`),
   KEY `idx_status` (`status`),
-  CONSTRAINT `fk_gwout_dispatch_msg` FOREIGN KEY (`gwout_id`) REFERENCES `gwout` (`msgid`) ON DELETE CASCADE,
-  CONSTRAINT `fk_gwout_dispatch_acc` FOREIGN KEY (`amqp_account`) REFERENCES `accounts` (`account_name`) ON DELETE SET NULL
+  CONSTRAINT `fk_gwout_dispatch_msg` FOREIGN KEY (`gwout_id`) REFERENCES `gwout` (`msgid`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================
@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS `gwin` (
   `msgid`                BIGINT(20)    NOT NULL AUTO_INCREMENT COMMENT 'Khóa chính, định danh duy nhất tin đến SWIM',
   `priority`             TINYINT(4)    DEFAULT NULL COMMENT 'Độ ưu tiên AMQP (0-9) nhận từ Topic',
   `time`                 DATETIME      DEFAULT NULL COMMENT 'Thời điểm SWIM Component nhận được tin từ Broker',
-  `TEXT`                 VARCHAR(3200) DEFAULT NULL COMMENT 'Nội dung Payload điện văn nguyên bản (String/XML)',
+  `xml_payload`          MEDIUMTEXT    DEFAULT NULL COMMENT 'Nội dung Payload XML nguyên bản nhận từ SWIM',
+  `TEXT`                 MEDIUMTEXT    DEFAULT NULL COMMENT 'Nội dung điện văn sau khi dịch ngược về TAC (IA5 String)',
   `source`               VARCHAR(200)  DEFAULT NULL COMMENT 'Tên Topic/Queue vật lý nguồn',
   `subject`              VARCHAR(100)  DEFAULT NULL COMMENT 'Phân loại tin do Gateway nhận diện (METAR, TAF, FPL...)',
   `amqp_properties`      TEXT          DEFAULT NULL COMMENT 'Toàn bộ Header Header/Properties của AMQP dạng JSON',

@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>vn.asg</groupId>
+        <artifactId>asg-gateway</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>gateway-converter</artifactId>
+    <packaging>jar</packaging>
+    <name>ASG Gateway Converter</name>
+    <description>TAC → IWXXM/AIXM/FIXM Converter module</description>
+
+    <repositories>
+        <repository>
+            <id>local-repo</id>
+            <url>file://${project.basedir}/local-repo</url>
+        </repository>
+    </repositories>
+
+    <dependencies>
+
+        <!-- ── JAXB Runtime ── -->
+        <dependency>
+            <groupId>javax.xml.bind</groupId>
+            <artifactId>jaxb-api</artifactId>
+            <version>2.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jaxb</groupId>
+            <artifactId>jaxb-runtime</artifactId>
+            <version>2.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.activation</groupId>
+            <artifactId>javax.activation-api</artifactId>
+            <version>1.2.0</version>
+        </dependency>
+
+        <!-- ── Log4j ── -->
+        <dependency>
+            <groupId>log4j</groupId>
+            <artifactId>log4j</artifactId>
+            <version>1.2.17</version>
+        </dependency>
+
+        <!-- ── Joda Time ── -->
+        <dependency>
+            <groupId>joda-time</groupId>
+            <artifactId>joda-time</artifactId>
+            <version>2.12.5</version>
+        </dependency>
+
+        <!-- ── Logging (SLF4J) ── -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <!-- ── Apache Commons Lang ── -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.13.0</version>
+        </dependency>
+
+        <!-- iwxxm-core: chứa org.gamc.spmi.iwxxmConverter.* (parser/converter logic) -->
+        <dependency>
+            <groupId>org.gamc</groupId>
+            <artifactId>iwxxm-core</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <!-- gis-tools-core -->
+        <dependency>
+            <groupId>org.gamc</groupId>
+            <artifactId>gis-tools-core</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+
+        <!-- schemas-binding-2023-1: JAXB classes cho IWXXM 2023-1 schema -->
+        <dependency>
+            <groupId>int.icao.iwxxm</groupId>
+            <artifactId>schemas-binding-2023-1</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <!-- ── Testing ── -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                </configuration>
+            </plugin>
+            <!-- FIXM 4.2 JAXB Generation Plugin -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>jaxb2-maven-plugin</artifactId>
+                <version>2.5.0</version>
+                <executions>
+                    <execution>
+                        <id>xjc-fixm</id>
+                        <goals>
+                            <goal>xjc</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>src/main/resources/xsd/fixm-4.2/schemas/core/Fixm.xsd</source>
+                            </sources>
+                            <outputDirectory>${project.build.directory}/generated-sources/jaxb-fixm</outputDirectory>
+                            <clearOutputDir>false</clearOutputDir>
+                            <packageName>aero.fixm.flight._4_2</packageName>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

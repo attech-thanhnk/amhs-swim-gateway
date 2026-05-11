@@ -1,0 +1,117 @@
+<jaxb:bindings version="2.1"
+               xmlns:jaxb="http://java.sun.com/xml/ns/jaxb"
+               xmlns:xs="http://www.w3.org/2001/XMLSchema"
+               xmlns:xjc="http://java.sun.com/xml/ns/jaxb/xjc"
+               jaxb:extensionBindingPrefixes="xjc">
+
+    <jaxb:bindings schemaLocation="AIXM_BasicMessage.xsd">
+        <jaxb:schemaBindings>
+            <jaxb:package name="aero.aixm.notam"/>
+        </jaxb:schemaBindings>
+    </jaxb:bindings>
+
+    <!-- Global bindings -->
+    <jaxb:globalBindings generateElementProperty="false">
+        <xjc:simple/>
+    </jaxb:globalBindings>
+
+    <!-- Fix GML collisions -->
+    <jaxb:bindings schemaLocation="../gml/3.2.1/deprecatedTypes.xsd">
+        <jaxb:bindings node="//xs:element[@name='featureMembers']">
+            <jaxb:property name="featureMembersProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='members']">
+            <jaxb:property name="membersProperty"/>
+        </jaxb:bindings>
+    </jaxb:bindings>
+
+    <jaxb:bindings schemaLocation="../gml/3.2.1/geometryPrimitives.xsd">
+        <jaxb:bindings node="//xs:element[@name='rows']">
+            <jaxb:property name="rowsProperty"/>
+        </jaxb:bindings>
+    </jaxb:bindings>
+
+    <jaxb:bindings schemaLocation="../gml/3.2.1/geometryBasic0d1d.xsd">
+        <jaxb:bindings node="//xs:attribute[@name='axisLabels']">
+            <jaxb:property name="axisLabelsAttribute"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:attribute[@name='uomLabels']">
+            <jaxb:property name="uomLabelsAttribute"/>
+        </jaxb:bindings>
+    </jaxb:bindings>
+
+    <jaxb:bindings schemaLocation="../gml/3.2.1/geometryAggregates.xsd">
+        <jaxb:bindings node="//xs:element[@name='solidMembers']">
+            <jaxb:property name="solidMembersProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='surfaceMembers']">
+            <jaxb:property name="surfaceMembersProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='curveMembers']">
+            <jaxb:property name="curveMembersProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='pointMembers']">
+            <jaxb:property name="pointMembersProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='geometryMembers']">
+            <jaxb:property name="geometryMembersProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='geometryMember']">
+            <jaxb:property name="geometryMemberProperty"/>
+        </jaxb:bindings>
+    </jaxb:bindings>
+
+    <jaxb:bindings schemaLocation="../gml/3.2.1/topology.xsd">
+        <jaxb:bindings node="//xs:element[@name='topoPrimitiveMembers']">
+            <jaxb:property name="topoPrimitiveMembersProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='topoPrimitiveMember']">
+            <jaxb:property name="topoPrimitiveMemberProperty"/>
+        </jaxb:bindings>
+    </jaxb:bindings>
+
+    <jaxb:bindings schemaLocation="../gml/3.2.1/valueObjects.xsd">
+        <jaxb:bindings node="//xs:element[@name='valueComponents']">
+            <jaxb:property name="valueComponentsProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='values']">
+            <jaxb:property name="valuesProperty"/>
+        </jaxb:bindings>
+    </jaxb:bindings>
+
+    <jaxb:bindings schemaLocation="../gml/3.2.1/datums.xsd">
+        <jaxb:bindings node="//xs:element[@name='secondDefiningParameter']">
+            <jaxb:bindings node="//xs:element[@name='isSphere']">
+                <jaxb:property name="isSphereElement"/>
+            </jaxb:bindings>
+        </jaxb:bindings>
+    </jaxb:bindings>
+
+    <jaxb:bindings schemaLocation="../gml/3.2.1/coordinateReferenceSystems.xsd">
+        <jaxb:bindings node="//xs:element[@name='userDefinedCS']">
+            <jaxb:property name="userDefinedCSProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='cartesianCS']">
+            <jaxb:property name="cartesianCSProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='ellipsoidalCS']">
+            <jaxb:property name="ellipsoidalCSProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='sphericalCS']">
+            <jaxb:property name="sphericalCSProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='verticalCS']">
+            <jaxb:property name="verticalCSProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='cylindricalCS']">
+            <jaxb:property name="cylindricalCSProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='linearCS']">
+            <jaxb:property name="linearCSProperty"/>
+        </jaxb:bindings>
+        <jaxb:bindings node="//xs:element[@name='polarCS']">
+            <jaxb:property name="polarCSProperty"/>
+        </jaxb:bindings>
+    </jaxb:bindings>
+
+</jaxb:bindings>

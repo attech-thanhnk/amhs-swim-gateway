@@ -125,8 +125,14 @@ public class OutboundDispatchService {
 
         String convertedBody;
         try {
-            // Step 3: Convert body AMHS plain text → SWIM format
-            convertedBody = conversionService.toSwim(body, dispatch.getMessageType());
+            // Step 3: Convert body AMHS plain text → SWIM format (Store in gwout for audit/retry)
+            if (gwout.getXmlContent() == null || gwout.getXmlContent().isBlank()) {
+                convertedBody = conversionService.toSwim(body, dispatch.getMessageType());
+                gwout.setXmlContent(convertedBody);
+                gwoutRepository.save(gwout);
+            } else {
+                convertedBody = gwout.getXmlContent();
+            }
         } catch (Exception e) {
             handleFailure(dispatch, GwoutDispatch.STEP_CONVERT, e);
             return;
