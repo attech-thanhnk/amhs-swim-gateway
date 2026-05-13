@@ -83,9 +83,9 @@ public class Gwout {
     @Column(name = "status")
     private Integer status = STATUS_PENDING;
 
-    /** Converted XML content */
-    @Column(name = "xml_content", columnDefinition = "MEDIUMTEXT")
-    private String xmlContent;
+    /** Converted JSON/TEXT content */
+    @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
+    private String payloadContent;
 
     // Status constants
     public static final int STATUS_PENDING = 0;

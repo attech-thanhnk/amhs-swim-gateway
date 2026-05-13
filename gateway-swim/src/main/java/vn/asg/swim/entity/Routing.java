@@ -50,6 +50,9 @@ public class Routing {
     @Column(name = "active")
     private Boolean active = true;
 
+    @Column(name = "convert_to_json")
+    private Boolean convertToJson = true;
+
     @Column(name = "note", columnDefinition = "TEXT")
     private String note;
 

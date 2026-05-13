@@ -72,6 +72,11 @@ public class Routing {
             example = "true")
     private Boolean active = true;
 
+    @Column(name = "convert_to_json")
+    @Schema(description = "Output format choice: true=JSON, false=TAC Forward",
+            example = "true")
+    private Boolean convertToJson = true;
+
     @Column(name = "note", columnDefinition = "TEXT")
     @Schema(description = "Optional note/description",
             example = "METAR routing to SWIM")

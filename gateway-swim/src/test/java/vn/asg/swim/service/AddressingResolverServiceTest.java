@@ -25,12 +25,14 @@ class AddressingResolverServiceTest {
     @Mock
     private MessageValidationService validationService;
     @Mock
+    private MessageDetectService detectService;
+    @Mock
     private Message jmsMessage;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        service = new AddressingResolverService(routingService, configService, validationService);
+        service = new AddressingResolverService(routingService, configService, validationService, detectService);
 
         when(configService.get(anyString())).thenAnswer(invocation -> "MOCK_VALUE");
 
@@ -38,6 +40,7 @@ class AddressingResolverServiceTest {
                 null);
         when(validationService.validateAftnAddress(anyString(), anyString())).thenReturn(validResult);
         when(validationService.validateAftnRecipients(anyString())).thenReturn(validResult);
+        when(detectService.detect(anyString())).thenReturn("METAR");
     }
 
     @Test

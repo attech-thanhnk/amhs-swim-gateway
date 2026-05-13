@@ -76,7 +76,6 @@ public class GwAlert {
     public static final String TYPE_QUEUE_BACKLOG = "QUEUE_BACKLOG";
     public static final String TYPE_CONVERT_ERROR = "CONVERT_ERROR";
     public static final String TYPE_ROUTING_ERROR = "ROUTING_ERROR";
-    public static final String TYPE_VALIDATION_ERROR = "VALIDATION_ERROR";
 
     // Severity constants
     public static final String SEV_INFO = "INFO";
