@@ -4,7 +4,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import vn.asg.cp.entity.SystemLog;
 import vn.asg.cp.repository.SystemLogRepository;
@@ -13,7 +15,7 @@ import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * GET /api/logs — xem log hệ thống real-time (polling)
+ * Controller quản lý System Logs với khả năng lọc linh hoạt (Specification).
  */
 @RestController
 @RequestMapping("/api/logs")
@@ -30,36 +32,33 @@ public class LogsController {
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "100") int size) {
 
-        Page<SystemLog> result;
-        PageRequest pageRequest = PageRequest.of(page, size, Sort.by("timestamp").descending());
+        // Xây dựng Specification động
+        Specification<SystemLog> spec = Specification.where(null);
 
-        if (after != null) {
+        if (StringUtils.hasText(after)) {
             LocalDateTime afterDt = LocalDateTime.parse(after);
-            if (!"ALL".equals(level) && !"ALL".equals(module)) {
-                result = logRepository.findByLevelAndModuleAndTimestampAfter(level, module, afterDt, pageRequest);
-            } else {
-                result = logRepository.findByTimestampAfter(afterDt, pageRequest);
-            }
-        } else {
-            if (!"ALL".equals(level) || !"ALL".equals(module)) {
-                result = logRepository.findByLevelContainingAndModuleContaining(
-                        "ALL".equals(level) ? "" : level,
-                        "ALL".equals(module) ? "" : module,
-                        pageRequest);
-            } else {
-                result = logRepository.findAll(pageRequest);
-            }
+            spec = spec.and((r, q, cb) -> cb.greaterThan(r.get("timestamp"), afterDt));
         }
+
+        if (!"ALL".equalsIgnoreCase(level)) {
+            spec = spec.and((r, q, cb) -> cb.equal(r.get("level"), level));
+        }
+
+        if (!"ALL".equalsIgnoreCase(module)) {
+            spec = spec.and((r, q, cb) -> cb.equal(r.get("module"), module));
+        }
+
+        PageRequest pageRequest = PageRequest.of(page, size, Sort.by("timestamp").descending());
+        Page<SystemLog> result = logRepository.findAll(spec, pageRequest);
 
         LocalDateTime latestTs = result.getContent().stream()
                 .map(SystemLog::getTimestamp)
-                .filter(ts -> ts != null)
                 .max(LocalDateTime::compareTo)
-                .orElse(LocalDateTime.now());
+                .orElse(null);
 
         return ResponseEntity.ok(Map.of(
                 "content", result.getContent(),
-                "latestTimestamp", latestTs.toString(),
+                "latestTimestamp", latestTs != null ? latestTs.toString() : "",
                 "totalElements", result.getTotalElements()));
     }
 }

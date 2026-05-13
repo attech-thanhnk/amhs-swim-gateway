@@ -1,9 +1,6 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.time.LocalDateTime;
 
 /**
@@ -13,9 +10,22 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "gwout_dispatch")
-@Data
-@NoArgsConstructor
 public class GwoutDispatch {
+
+    public GwoutDispatch() {}
+
+    // Status constants
+    public static final String STATUS_PENDING = "PENDING";
+    public static final String STATUS_PROCESSING = "PROCESSING";
+    public static final String STATUS_SENT = "SENT";
+    public static final String STATUS_FAILED = "FAILED";
+    public static final String STATUS_DEAD = "DEAD";
+
+    // Failed step constants
+    public static final String STEP_DETECT = "detect";
+    public static final String STEP_ROUTING = "routing";
+    public static final String STEP_CONVERT = "convert";
+    public static final String STEP_PUBLISH = "publish";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -101,15 +111,35 @@ public class GwoutDispatch {
     }
 
     // Status constants
-    public static final String STATUS_PENDING = "PENDING";
-    public static final String STATUS_PROCESSING = "PROCESSING";
-    public static final String STATUS_SENT = "SENT";
-    public static final String STATUS_FAILED = "FAILED";
-    public static final String STATUS_DEAD = "DEAD";
 
-    // Failed step constants
-    public static final String STEP_DETECT = "detect";
-    public static final String STEP_ROUTING = "routing";
-    public static final String STEP_CONVERT = "convert";
-    public static final String STEP_PUBLISH = "publish";
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public Long getGwoutId() { return gwoutId; }
+    public void setGwoutId(Long gwoutId) { this.gwoutId = gwoutId; }
+    public String getRecipient() { return recipient; }
+    public void setRecipient(String recipient) { this.recipient = recipient; }
+    public String getMessageType() { return messageType; }
+    public void setMessageType(String messageType) { this.messageType = messageType; }
+    public String getScope() { return scope; }
+    public void setScope(String scope) { this.scope = scope; }
+    public String getTopic() { return topic; }
+    public void setTopic(String topic) { this.topic = topic; }
+    public String getAmqpAccount() { return amqpAccount; }
+    public void setAmqpAccount(String amqpAccount) { this.amqpAccount = amqpAccount; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public Integer getRetryCount() { return retryCount; }
+    public void setRetryCount(Integer retryCount) { this.retryCount = retryCount; }
+    public LocalDateTime getNextRetryAt() { return nextRetryAt; }
+    public void setNextRetryAt(LocalDateTime nextRetryAt) { this.nextRetryAt = nextRetryAt; }
+    public String getLastError() { return lastError; }
+    public void setLastError(String lastError) { this.lastError = lastError; }
+    public String getFailedStep() { return failedStep; }
+    public void setFailedStep(String failedStep) { this.failedStep = failedStep; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+    public LocalDateTime getSentAt() { return sentAt; }
+    public void setSentAt(LocalDateTime sentAt) { this.sentAt = sentAt; }
 }

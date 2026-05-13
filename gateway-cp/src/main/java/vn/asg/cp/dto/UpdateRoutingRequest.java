@@ -1,11 +1,12 @@
 package vn.asg.cp.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.Data;
 
-@Data
+
 @Schema(description = "Request to update an existing routing rule (all fields optional)")
 public class UpdateRoutingRequest {
+
+    public UpdateRoutingRequest() {}
 
     @Schema(description = "Direction: IN (SWIM→AMHS) or OUT (AMHS→SWIM)",
             example = "OUT",
@@ -44,7 +45,34 @@ public class UpdateRoutingRequest {
             example = "true")
     private Boolean active;
 
+    @Schema(description = "Output format choice: true=JSON, false=TAC Forward",
+            example = "true")
+    private Boolean convertToJson;
+
     @Schema(description = "Optional note/description",
             example = "Updated routing rule")
     private String note;
+
+    public String getDirection() { return direction; }
+    public void setDirection(String direction) { this.direction = direction; }
+    public String getReceiveTopic() { return receiveTopic; }
+    public void setReceiveTopic(String receiveTopic) { this.receiveTopic = receiveTopic; }
+    public String getMessageFilter() { return messageFilter; }
+    public void setMessageFilter(String messageFilter) { this.messageFilter = messageFilter; }
+    public String getRecipients() { return recipients; }
+    public void setRecipients(String recipients) { this.recipients = recipients; }
+    public String getOriginator() { return originator; }
+    public void setOriginator(String originator) { this.originator = originator; }
+    public String getMessageType() { return messageType; }
+    public void setMessageType(String messageType) { this.messageType = messageType; }
+    public String getSendTopic() { return sendTopic; }
+    public void setSendTopic(String sendTopic) { this.sendTopic = sendTopic; }
+    public Integer getPriority() { return priority; }
+    public void setPriority(Integer priority) { this.priority = priority; }
+    public Boolean getActive() { return active; }
+    public void setActive(Boolean active) { this.active = active; }
+    public Boolean getConvertToJson() { return convertToJson; }
+    public void setConvertToJson(Boolean convertToJson) { this.convertToJson = convertToJson; }
+    public String getNote() { return note; }
+    public void setNote(String note) { this.note = note; }
 }

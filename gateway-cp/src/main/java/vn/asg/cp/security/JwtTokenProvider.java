@@ -2,8 +2,8 @@ package vn.asg.cp.security;
 
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import vn.asg.cp.service.ConfigService;
 
@@ -15,11 +15,15 @@ import java.util.Date;
  * JWT token provider — tạo và validate JWT Bearer token.
  */
 @Component
-@Slf4j
-@RequiredArgsConstructor
 public class JwtTokenProvider {
 
+    private static final Logger log = LoggerFactory.getLogger(JwtTokenProvider.class);
+
     private final ConfigService configService;
+
+    public JwtTokenProvider(ConfigService configService) {
+        this.configService = configService;
+    }
 
     private SecretKey key() {
         String secret = configService.get("JWT_SECRET");

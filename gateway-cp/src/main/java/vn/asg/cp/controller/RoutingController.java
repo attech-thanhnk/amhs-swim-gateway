@@ -51,6 +51,7 @@ public class RoutingController {
         routing.setSendTopic(request.getSendTopic());
         routing.setPriority(request.getPriority() != null ? request.getPriority() : 100);
         routing.setActive(request.getActive() != null ? request.getActive() : true);
+        routing.setConvertToJson(request.getConvertToJson() != null ? request.getConvertToJson() : true);
         routing.setNote(request.getNote());
 
         sanitizeTopic(routing);
@@ -89,6 +90,8 @@ public class RoutingController {
             existing.setPriority(request.getPriority());
         if (request.getActive() != null)
             existing.setActive(request.getActive());
+        if (request.getConvertToJson() != null)
+            existing.setConvertToJson(request.getConvertToJson());
         if (request.getNote() != null)
             existing.setNote(request.getNote());
 

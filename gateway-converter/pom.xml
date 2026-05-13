@@ -14,33 +14,11 @@
     <artifactId>gateway-converter</artifactId>
     <packaging>jar</packaging>
     <name>ASG Gateway Converter</name>
-    <description>TAC → IWXXM/AIXM/FIXM Converter module</description>
+    <description>TAC → JSON/TEXT Converter module</description>
 
-    <repositories>
-        <repository>
-            <id>local-repo</id>
-            <url>file://${project.basedir}/local-repo</url>
-        </repository>
-    </repositories>
 
     <dependencies>
 
-        <!-- ── JAXB Runtime ── -->
-        <dependency>
-            <groupId>javax.xml.bind</groupId>
-            <artifactId>jaxb-api</artifactId>
-            <version>2.3.1</version>
-        </dependency>
-        <dependency>
-            <groupId>org.glassfish.jaxb</groupId>
-            <artifactId>jaxb-runtime</artifactId>
-            <version>2.3.1</version>
-        </dependency>
-        <dependency>
-            <groupId>javax.activation</groupId>
-            <artifactId>javax.activation-api</artifactId>
-            <version>1.2.0</version>
-        </dependency>
 
         <!-- ── Log4j ── -->
         <dependency>
@@ -69,28 +47,21 @@
             <version>3.13.0</version>
         </dependency>
 
-        <!-- iwxxm-core: chứa org.gamc.spmi.iwxxmConverter.* (parser/converter logic) -->
+
+        <!-- ── Jackson (JSON) ── -->
         <dependency>
-            <groupId>org.gamc</groupId>
-            <artifactId>iwxxm-core</artifactId>
-            <version>1.0</version>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-joda</artifactId>
         </dependency>
 
-        <!-- gis-tools-core -->
-        <dependency>
-            <groupId>org.gamc</groupId>
-            <artifactId>gis-tools-core</artifactId>
-            <version>0.0.1-SNAPSHOT</version>
-        </dependency>
-
-        <!-- schemas-binding-2023-1: JAXB classes cho IWXXM 2023-1 schema -->
-        <dependency>
-            <groupId>int.icao.iwxxm</groupId>
-            <artifactId>schemas-binding-2023-1</artifactId>
-            <version>1.0</version>
-        </dependency>
-
-        <!-- ── Testing ── -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -109,29 +80,6 @@
                     <target>17</target>
                 </configuration>
             </plugin>
-            <!-- FIXM 4.2 JAXB Generation Plugin -->
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>jaxb2-maven-plugin</artifactId>
-                <version>2.5.0</version>
-                <executions>
-                    <execution>
-                        <id>xjc-fixm</id>
-                        <goals>
-                            <goal>xjc</goal>
-                        </goals>
-                        <configuration>
-                            <sources>
-                                <source>src/main/resources/xsd/fixm-4.2/schemas/core/Fixm.xsd</source>
-                            </sources>
-                            <outputDirectory>${project.build.directory}/generated-sources/jaxb-fixm</outputDirectory>
-                            <clearOutputDir>false</clearOutputDir>
-                            <packageName>aero.fixm.flight._4_2</packageName>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
         </plugins>
     </build>
-
 </project>

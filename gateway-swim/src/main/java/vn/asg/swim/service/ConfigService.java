@@ -24,6 +24,7 @@ public class ConfigService {
     public static final String KEY_STRICT_COMPLIANCE_MODE = "STRICT_COMPLIANCE_MODE";
     public static final String KEY_MAX_MSG_DATA_SIZE = "MAX_MSG_DATA_SIZE";
     public static final String KEY_SERVER_PORT = "SERVER_PORT_SWIM";
+    public static final String KEY_GATEWAY_ID = "GATEWAY_ID";
 
     private final GatewayConfigRepository repository;
 
@@ -75,5 +76,14 @@ public class ConfigService {
 
     public long getPollIntervalMs() {
         return (long) getInt(KEY_POLL_INTERVAL_MS);
+    }
+
+    public String getGatewayId() {
+        try {
+            return get(KEY_GATEWAY_ID);
+        } catch (Exception e) {
+            log.warn("GATEWAY_ID not found in DB, using default 'GW-01'");
+            return "GW-01";
+        }
     }
 }

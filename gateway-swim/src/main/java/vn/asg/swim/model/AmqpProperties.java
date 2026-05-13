@@ -1,16 +1,11 @@
 package vn.asg.swim.model;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 /**
  * EUR Doc 047 AMQP Application Properties
  *
  * Model for AMQP application properties theo §4.4.3.4 (AMHS→SWIM)
  * và §4.5.2 (SWIM→AMHS)
  */
-@Data
-@NoArgsConstructor
 public class AmqpProperties {
 
     // §4.4.3.4.1 / §4.5.2.1
@@ -52,6 +47,41 @@ public class AmqpProperties {
     // §4.5.2.1 - Additional SWIM→AMHS properties
     private String amhsRegisteredIdentifier;  // FTBP OID
     private String amhsUserVisibleString;     // FTBP user visible string
+
+    public AmqpProperties() {}
+
+    public String getAmhsIpmId() { return amhsIpmId; }
+    public void setAmhsIpmId(String amhsIpmId) { this.amhsIpmId = amhsIpmId; }
+    public String getAmhsFtbpFileName() { return amhsFtbpFileName; }
+    public void setAmhsFtbpFileName(String amhsFtbpFileName) { this.amhsFtbpFileName = amhsFtbpFileName; }
+    public Long getAmhsFtbpObjectSize() { return amhsFtbpObjectSize; }
+    public void setAmhsFtbpObjectSize(Long amhsFtbpObjectSize) { this.amhsFtbpObjectSize = amhsFtbpObjectSize; }
+    public String getAmhsFtbpLastMod() { return amhsFtbpLastMod; }
+    public void setAmhsFtbpLastMod(String amhsFtbpLastMod) { this.amhsFtbpLastMod = amhsFtbpLastMod; }
+    public String getAmhsAtsPri() { return amhsAtsPri; }
+    public void setAmhsAtsPri(String amhsAtsPri) { this.amhsAtsPri = amhsAtsPri; }
+    public String getAmhsRecipients() { return amhsRecipients; }
+    public void setAmhsRecipients(String amhsRecipients) { this.amhsRecipients = amhsRecipients; }
+    public String getAmhsAtsFt() { return amhsAtsFt; }
+    public void setAmhsAtsFt(String amhsAtsFt) { this.amhsAtsFt = amhsAtsFt; }
+    public String getAmhsAtsOhi() { return amhsAtsOhi; }
+    public void setAmhsAtsOhi(String amhsAtsOhi) { this.amhsAtsOhi = amhsAtsOhi; }
+    public String getAmhsOriginator() { return amhsOriginator; }
+    public void setAmhsOriginator(String amhsOriginator) { this.amhsOriginator = amhsOriginator; }
+    public String getAmhsSubject() { return amhsSubject; }
+    public void setAmhsSubject(String amhsSubject) { this.amhsSubject = amhsSubject; }
+    public String getAmhsBodypartType() { return amhsBodypartType; }
+    public void setAmhsBodypartType(String amhsBodypartType) { this.amhsBodypartType = amhsBodypartType; }
+    public String getAmhsContentEncoding() { return amhsContentEncoding; }
+    public void setAmhsContentEncoding(String amhsContentEncoding) { this.amhsContentEncoding = amhsContentEncoding; }
+    public String getAmhsMessageSigned() { return amhsMessageSigned; }
+    public void setAmhsMessageSigned(String amhsMessageSigned) { this.amhsMessageSigned = amhsMessageSigned; }
+    public String getSwimCompression() { return swimCompression; }
+    public void setSwimCompression(String swimCompression) { this.swimCompression = swimCompression; }
+    public String getAmhsRegisteredIdentifier() { return amhsRegisteredIdentifier; }
+    public void setAmhsRegisteredIdentifier(String amhsRegisteredIdentifier) { this.amhsRegisteredIdentifier = amhsRegisteredIdentifier; }
+    public String getAmhsUserVisibleString() { return amhsUserVisibleString; }
+    public void setAmhsUserVisibleString(String amhsUserVisibleString) { this.amhsUserVisibleString = amhsUserVisibleString; }
 
     /**
      * Build from priority code

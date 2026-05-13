@@ -23,7 +23,6 @@ public record ResolvedAddressing(
         String source) {
     public static final String SOURCE_AMQP_PROPERTY = "AMQP_PROPERTY";
     public static final String SOURCE_ROUTING_RULE = "ROUTING_RULE";
-    public static final String SOURCE_DEFAULT = "DEFAULT";
     public static final String SOURCE_UNRESOLVED = "UNRESOLVED";
 
     /**

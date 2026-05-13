@@ -4,8 +4,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import vn.asg.converter.ConverterFacade;
-import vn.asg.converter.ReverterFacade;
 import vn.asg.converter.core.ConversionResult;
+import vn.asg.converter.core.OutputFormat;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.MessageConversionLog;
 import vn.asg.swim.repository.MessageConversionLogRepository;
@@ -25,57 +25,44 @@ public class MessageConversionService {
 
     private final MessageConversionLogRepository conversionLogRepo;
     private final ConverterFacade converterFacade = new ConverterFacade();
-    private final ReverterFacade reverterFacade = new ReverterFacade();
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     /**
-     * Converts AMHS plain text body → SWIM format (XML).
-     * Uses gateway-converter to generate IWXXM, FIXM, or AIXM.
+     * Converts AMHS format (TAC) to SWIM format (JSON).
      */
     public String toSwim(String amhsBody, String messageType) {
-        if (amhsBody == null || amhsBody.isBlank())
+        if (amhsBody == null || amhsBody.isBlank()) {
             return "";
+        }
 
         try {
-            log.debug("Converting AMHS message to SWIM (Type: {})", messageType);
-            ConversionResult result = converterFacade.convert(amhsBody);
-
-            if (result.isSuccess()) {
-                return result.getXml();
-            } else if (result.getStatus() == ConversionResult.Status.UNSUPPORTED) {
-                // Message type không support XML conversion (VD: CHG, CNL, DLA)
-                // → Gateway forward TAC text thay vì XML để đảm bảo message được gửi
-                log.info("Message type {} not supported for XML conversion - forwarding as TAC text", messageType);
-                return result.getOriginalTac();
-            } else {
-                throw new RuntimeException(result.getErrorMessage());
-            }
+            ConversionResult result = converterFacade.convert(amhsBody, messageType, OutputFormat.JSON);
+            return result.isSuccess() ? result.getPayload() : amhsBody;
         } catch (Exception e) {
-            log.error("Failed to convert message to SWIM format: {}", e.getMessage());
-            throw new RuntimeException("Conversion failed: " + e.getMessage(), e);
+            log.error("SWIM Conversion Error: {}", e.getMessage());
+            return amhsBody;
         }
     }
 
     /**
-     * Converts SWIM body (XML) → AMHS plain text format (TAC).
-     * Uses gateway-converter's ReverterFacade.
+     * Converts SWIM format (JSON/XML) back to AMHS format (TAC).
      */
-    public String toAmhs(String swimBody, String subject) {
-        if (swimBody == null || swimBody.isBlank())
+    public String toAmhs(String swimBody, String messageType) throws Exception {
+        if (swimBody == null || swimBody.isBlank()) {
             return "";
-
-        try {
-            log.debug("Reverting SWIM message to AMHS (Subject: {})", subject);
-            String tac = reverterFacade.revert(swimBody);
-            if (tac == null) {
-                throw new RuntimeException("Auto-revert failed or unknown XML format");
-            }
-            return tac;
-        } catch (Exception e) {
-            log.error("Failed to revert message to AMHS format: {}", e.getMessage());
-            throw new RuntimeException("Revert failed: " + e.getMessage(), e);
         }
+
+        // If it already is in TAC format (starts with '('), return as is
+        if (swimBody.trim().startsWith("(")) {
+            return swimBody.trim();
+        }
+
+        ConversionResult result = converterFacade.convert(swimBody, messageType, OutputFormat.TEXT);
+        if (!result.isSuccess()) {
+            throw new Exception(result.getErrorMessage());
+        }
+        return result.getPayload();
     }
 
     // ─── Priority Mapping §4.3.1 ──────────────────────────────────────────────
@@ -163,24 +150,24 @@ public class MessageConversionService {
     public void logAmhsToSwim(Gwout gwout, String amqpMessageId, String status, String actionTaken,
             String mtsId, String ipmId) {
         try {
-            conversionLogRepo.save(MessageConversionLog.builder()
-                    .date(LocalDate.now().format(DATE_FMT))
-                    .type("AMHS")
-                    .category("OUT")
-                    .referenceId(gwout.getMsgid())
-                    .messageId(gwout.getAmhsid())
-                    .mtsId(mtsId) // EUR Doc 047 §4.3.4e (G-13)
-                    .ipmId(ipmId) // EUR Doc 047 §4.3.4f (G-14)
-                    .amqpMessageId(amqpMessageId)
-                    .priority(mapPriorityToAts(gwout.getPriority() != null ? gwout.getPriority() : 2))
-                    .ohi(gwout.getOptionalHeading())
-                    .origin(gwout.getOrigin())
-                    .filingTime(gwout.getFilingTime())
-                    .content(gwout.getText())
-                    .convertedTime(LocalDateTime.now())
-                    .actionTaken(actionTaken)
-                    .status(status)
-                    .build());
+            MessageConversionLog logEntry = new MessageConversionLog();
+            logEntry.setDate(LocalDate.now().format(DATE_FMT));
+            logEntry.setType("AMHS");
+            logEntry.setCategory("OUT");
+            logEntry.setReferenceId(gwout.getMsgid());
+            logEntry.setMessageId(gwout.getAmhsid());
+            logEntry.setMtsId(mtsId);
+            logEntry.setIpmId(ipmId);
+            logEntry.setAmqpMessageId(amqpMessageId);
+            logEntry.setPriority(mapPriorityToAts(gwout.getPriority() != null ? gwout.getPriority() : 2));
+            logEntry.setOhi(gwout.getOptionalHeading());
+            logEntry.setOrigin(gwout.getOrigin());
+            logEntry.setFilingTime(gwout.getFilingTime());
+            logEntry.setContent(gwout.getText());
+            logEntry.setConvertedTime(LocalDateTime.now());
+            logEntry.setActionTaken(actionTaken);
+            logEntry.setStatus(status);
+            conversionLogRepo.save(logEntry);
         } catch (Exception e) {
             log.error("Failed to write conversion log for gwout#{}: {}", gwout.getMsgid(), e.getMessage());
         }
@@ -201,18 +188,18 @@ public class MessageConversionService {
             String status, String actionTaken,
             String rejectionReason, String ipmId) {
         try {
-            conversionLogRepo.save(MessageConversionLog.builder()
-                    .date(LocalDate.now().format(DATE_FMT))
-                    .type("SWIM")
-                    .category("IN")
-                    .amqpMessageId(amqpMessageId)
-                    .ipmId(ipmId)
-                    .origin(originator)
-                    .convertedTime(LocalDateTime.now())
-                    .actionTaken(actionTaken)
-                    .status(status)
-                    .nonDeliveryReason(rejectionReason)
-                    .build());
+            MessageConversionLog logEntry = new MessageConversionLog();
+            logEntry.setDate(LocalDate.now().format(DATE_FMT));
+            logEntry.setType("SWIM");
+            logEntry.setCategory("IN");
+            logEntry.setAmqpMessageId(amqpMessageId);
+            logEntry.setIpmId(ipmId);
+            logEntry.setOrigin(originator);
+            logEntry.setConvertedTime(LocalDateTime.now());
+            logEntry.setActionTaken(actionTaken);
+            logEntry.setStatus(status);
+            logEntry.setNonDeliveryReason(rejectionReason);
+            conversionLogRepo.save(logEntry);
         } catch (Exception e) {
             log.error("Failed to write conversion log for AMQP {}: {}", amqpMessageId, e.getMessage());
         }

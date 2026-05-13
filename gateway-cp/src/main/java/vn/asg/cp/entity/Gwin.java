@@ -1,9 +1,6 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.time.LocalDateTime;
 
 /**
@@ -13,9 +10,17 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "gwin")
-@Data
-@NoArgsConstructor
 public class Gwin {
+
+    public Gwin() {}
+
+    // Status constants
+    public static final int STATUS_PENDING = 0;
+    public static final int STATUS_PROCESSING = 1;
+    public static final int STATUS_SENT = 2;
+    public static final int STATUS_FAILED = 3;
+    public static final int STATUS_DEAD = 4;
+    public static final int STATUS_UNROUTED = 5;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -54,9 +59,9 @@ public class Gwin {
     @Column(name = "time")
     private LocalDateTime time;
 
-    /** Original XML payload received from SWIM */
-    @Column(name = "xml_payload", columnDefinition = "MEDIUMTEXT")
-    private String xmlPayload;
+    /** Original JSON/TEXT payload received from SWIM */
+    @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
+    private String payloadContent;
 
     /** Converted plain text payload for AMHS */
     @Column(name = "TEXT", columnDefinition = "MEDIUMTEXT")
@@ -97,10 +102,36 @@ public class Gwin {
     private Integer status = STATUS_PENDING;
 
     // Status constants
-    public static final int STATUS_PENDING = 0;
-    public static final int STATUS_PROCESSING = 1;
-    public static final int STATUS_SENT = 2;
-    public static final int STATUS_FAILED = 3;
-    public static final int STATUS_DEAD = 4;
-    public static final int STATUS_UNROUTED = 5;
+    public Long getMsgid() { return msgid; }
+    public void setMsgid(Long msgid) { this.msgid = msgid; }
+    public String getCpa() { return cpa; }
+    public void setCpa(String cpa) { this.cpa = cpa; }
+    public String getMessageId() { return messageId; }
+    public void setMessageId(String messageId) { this.messageId = messageId; }
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
+    public String getSubject() { return subject; }
+    public void setSubject(String subject) { this.subject = subject; }
+    public String getAmqpProperties() { return amqpProperties; }
+    public void setAmqpProperties(String amqpProperties) { this.amqpProperties = amqpProperties; }
+    public Byte getPriority() { return priority; }
+    public void setPriority(Byte priority) { this.priority = priority; }
+    public LocalDateTime getTime() { return time; }
+    public void setTime(LocalDateTime time) { this.time = time; }
+    public String getPayloadContent() { return payloadContent; }
+    public void setPayloadContent(String payloadContent) { this.payloadContent = payloadContent; }
+    public String getText() { return text; }
+    public void setText(String text) { this.text = text; }
+    public String getBodyType() { return bodyType; }
+    public void setBodyType(String bodyType) { this.bodyType = bodyType; }
+    public String getContentType() { return contentType; }
+    public void setContentType(String contentType) { this.contentType = contentType; }
+    public String getOrigin() { return origin; }
+    public void setOrigin(String origin) { this.origin = origin; }
+    public String getAddress() { return address; }
+    public void setAddress(String address) { this.address = address; }
+    public String getAddressingSource() { return addressingSource; }
+    public void setAddressingSource(String addressingSource) { this.addressingSource = addressingSource; }
+    public Integer getStatus() { return status; }
+    public void setStatus(Integer status) { this.status = status; }
 }

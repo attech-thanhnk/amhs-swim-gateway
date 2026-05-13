@@ -24,6 +24,7 @@ public class AddressingResolverService {
     private final RoutingService routingService;
     private final ConfigService configService;
     private final MessageValidationService validationService;
+    private final MessageDetectService detectService;
 
     public ResolvedAddressing resolve(Message amqpMsg, String queue, String body) {
         // Strategy 1: AMQP Properties
@@ -96,25 +97,8 @@ public class AddressingResolverService {
     }
 
     private String extractMessageType(String body) {
-        if (body == null || body.isBlank())
-            return null;
-        String trimmed = body.stripLeading();
-
-        // Simple heuristic filtering for Simple Routing
-        if (trimmed.startsWith("METAR") || trimmed.contains("<iwxxm:METAR"))
-            return "METAR";
-        if (trimmed.startsWith("TAF") || trimmed.contains("<iwxxm:TAF"))
-            return "TAF";
-        if (trimmed.startsWith("(FPL") || trimmed.contains("<fx:FlightPlan"))
-            return "FPL";
-        if (trimmed.startsWith("NOTAM") || trimmed.contains("<aixm:Event"))
-            return "NOTAM";
-        if (trimmed.startsWith("SIGMET") || trimmed.contains("<iwxxm:SIGMET"))
-            return "SIGMET";
-        if (trimmed.startsWith("SPECI") || trimmed.contains("<iwxxm:SPECI"))
-            return "SPECI";
-
-        return null;
+        String detected = detectService.detect(body);
+        return "UNKNOWN".equals(detected) ? null : detected;
     }
 
     static String normalizeRecipients(String raw) {

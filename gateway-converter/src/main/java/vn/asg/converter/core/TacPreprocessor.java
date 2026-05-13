@@ -1,5 +1,7 @@
 package vn.asg.converter.core;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -33,6 +35,7 @@ public class TacPreprocessor {
         public boolean hasAftnWrapper;
         public String priority; // "FF", "GG"... hoặc null
         public String addressLine; // "VVNBYOYX VVVVZZZZ"
+        public List<String> recipients; // Danh sách địa chỉ tách rời
         public String filingTime; // "221000"
         public String originator; // "VVNBYOYX"
         public String body; // "METAR VVNB 221000Z..."
@@ -55,6 +58,7 @@ public class TacPreprocessor {
         if (m.find()) {
             env.priority = m.group("priority");
             env.addressLine = m.group("address").strip();
+            env.recipients = Arrays.asList(env.addressLine.split("\\s+"));
             buf.delete(m.start(), m.end());
             refresh(buf);
         }

@@ -2,217 +2,148 @@ package vn.asg.converter;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import vn.asg.converter.builder.JsonBuilder;
+import vn.asg.converter.builder.TextRenderer;
 import vn.asg.converter.core.ConversionResult;
-import vn.asg.converter.core.MessageDetector;
+import vn.asg.converter.core.OutputFormat;
 import vn.asg.converter.core.TacPreprocessor;
-import vn.asg.converter.iwxxm.*;
-import vn.asg.converter.model.FplMessage;
-import vn.asg.converter.model.NotamMessage;
-import vn.asg.converter.parser.FplParser;
-import vn.asg.converter.parser.NotamParser;
-import vn.asg.converter.builder.AixmBuilder;
-import vn.asg.converter.builder.FixmBuilder;
+import vn.asg.converter.model.BaseMessage;
+import vn.asg.converter.model.flight.*;
+import vn.asg.converter.model.weather.*;
+import vn.asg.converter.model.notam.*;
+import vn.asg.converter.parser.MessageParser;
+import vn.asg.converter.parser.flight.FplParser;
+import vn.asg.converter.parser.weather.*;
+import vn.asg.converter.parser.notam.NotamParser;
+import vn.asg.converter.parser.flight.AlrParser;
+import vn.asg.converter.parser.flight.SplParser;
+import vn.asg.converter.parser.flight.CoordinationParser;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.fasterxml.jackson.datatype.joda.JodaModule;
 
 /**
- * Entry point duy nhất của gateway-converter.
- *
- * Hỗ trợ 100% các loại bản tin ATS theo chuẩn ICAO:
- *
- * Đầu vào (TAC/AFTN text):
- *   METAR / SPECI / TAF / SIGMET / AIRMET → IWXXM XML
- *   FPL / CHG / CNL / DEP / ARR / DLA     → FIXM XML
- *   NOTAM                                  → AIXM XML
- *
- * Sử dụng:
- *   ConversionResult result = new ConverterFacade().convert(rawTacString);
- *   if (result.isSuccess()) String xml = result.getXml();
- *
- * @author ThanhNk
+ * Bộ điều phối chuyển đổi bản tin TAC sang JSON và TEXT.
  */
 public class ConverterFacade {
 
     private static final Logger log = LoggerFactory.getLogger(ConverterFacade.class);
+    
     private final TacPreprocessor preprocessor = new TacPreprocessor();
+    private final JsonBuilder jsonBuilder = new JsonBuilder();
+    private final TextRenderer textRenderer = new TextRenderer();
+    private final ObjectMapper objectMapper;
 
-    public ConversionResult convert(String rawTac) {
+    public ConverterFacade() {
+        this.objectMapper = new ObjectMapper();
+        this.objectMapper.registerModule(new JavaTimeModule());
+        this.objectMapper.registerModule(new JodaModule());
+        this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    }
+
+    /**
+     * Chuyển đổi mặc định sang JSON.
+     */
+    public ConversionResult convert(String rawTac, String messageType) {
+        return convert(rawTac, messageType, OutputFormat.JSON);
+    }
+
+    /**
+     * Chuyển đổi điện văn sang định dạng yêu cầu.
+     */
+    public ConversionResult convert(String rawTac, String messageType, OutputFormat format) {
         if (rawTac == null || rawTac.isBlank()) {
-            return ConversionResult.parseError("Empty input", rawTac);
+            return ConversionResult.parseError("Input is empty", rawTac);
         }
 
-        String originalTac = rawTac;
         try {
-            // Bước 1: Bóc vỏ AFTN → lấy body thuần
             TacPreprocessor.AftnEnvelope env = preprocessor.unwrap(rawTac);
-            log.debug("Body after AFTN unwrap: [{}]", env.body);
+            
+            BaseMessage model;
+            if (env.body.trim().startsWith("{")) {
+                Class<? extends BaseMessage> modelClass = getModelClass(messageType);
+                if (modelClass == null) throw new Exception("No model class mapping for type: " + messageType);
+                model = objectMapper.readValue(env.body, modelClass);
+            } else {
+                MessageParser<? extends BaseMessage> parser = getParser(messageType);
+                if (parser == null) return ConversionResult.unsupported(env.body);
+                model = parser.parse(env.body);
+            }
 
-            // Bước 2: Nhận diện loại bản tin
-            MessageDetector.DetectionResult det = MessageDetector.detect(env.body);
-            log.info("Detected: {} / {}", det.category(), det.form());
+            enrichMetadata(model, env, messageType);
 
-            // Bước 3: Chọn converter và thực hiện chuyển đổi
-            return switch (det.category()) {
-
-                // ── IWXXM — Khí tượng ──────────────────────────────────
-                case METAR -> {
-                    if (det.form() == MessageDetector.Form.BULLETIN) {
-                        var conv = new METARBulletinConverterV3();
-                        yield ConversionResult.success(
-                                conv.convertTacToXML(env.body), "IWXXM", conv.getIdentifier());
-                    } else {
-                        var conv = new METARConverterV3();
-                        yield ConversionResult.success(
-                                conv.convertTacToXML(env.body), "IWXXM", conv.getIdentifier());
-                    }
-                }
-
-                case SPECI -> {
-                    if (det.form() == MessageDetector.Form.BULLETIN) {
-                        var conv = new SPECIBulletinConverterV3();
-                        yield ConversionResult.success(
-                                conv.convertTacToXML(env.body), "IWXXM", conv.getIdentifier());
-                    } else {
-                        var conv = new SPECIConverterV3();
-                        yield ConversionResult.success(
-                                conv.convertTacToXML(env.body), "IWXXM", conv.getIdentifier());
-                    }
-                }
-
-                case TAF -> {
-                    if (det.form() == MessageDetector.Form.BULLETIN) {
-                        var conv = new TAFBulletinConvertV3();
-                        yield ConversionResult.success(
-                                conv.convertTacToXML(env.body), "IWXXM", conv.getIdentifier());
-                    } else {
-                        var conv = new TAFConverterV3();
-                        yield ConversionResult.success(
-                                conv.convertTacToXML(env.body), "IWXXM", conv.getIdentifier());
-                    }
-                }
-
-                case SIGMET -> {
-                    if (det.form() == MessageDetector.Form.BULLETIN) {
-                        var conv = new SIGMETBulletinConverterV3();
-                        yield ConversionResult.success(
-                                conv.convertTacToXML(env.body), "IWXXM", conv.getIdentifier());
-                    } else {
-                        var conv = new SIGMETConverterV3();
-                        yield ConversionResult.success(
-                                conv.convertTacToXML(env.body), "IWXXM", conv.getIdentifier());
-                    }
-                }
-
-                // AIRMET → hiện tại dùng SIGMET converter (cùng schema IWXXM)
-                // Cần tạo AIRMETConverterV3 riêng khi có yêu cầu
-                case AIRMET -> {
-                    log.warn("AIRMET conversion using SIGMET converter (interim)");
-                    if (det.form() == MessageDetector.Form.BULLETIN) {
-                        var conv = new SIGMETBulletinConverterV3();
-                        yield ConversionResult.success(
-                                conv.convertTacToXML(env.body), "IWXXM", "AIRMET_" + conv.getIdentifier());
-                    } else {
-                        var conv = new SIGMETConverterV3();
-                        yield ConversionResult.success(
-                                conv.convertTacToXML(env.body), "IWXXM", "AIRMET_" + conv.getIdentifier());
-                    }
-                }
-
-                // ── AIXM — Thông báo hàng không ────────────────────────
-                case NOTAM -> {
-                    try {
-                        NotamParser parser = new NotamParser();
-                        NotamMessage notam = parser.parse(env.body);
-                        AixmBuilder builder = new AixmBuilder();
-                        String xml = builder.buildNotam(notam);
-                        String id  = "NOTAM_" + notam.getNotamId().replace("/", "-") + ".xml";
-                        yield ConversionResult.success(xml, "AIXM", id);
-                    } catch (Exception e) {
-                        log.error("Failed to parse NOTAM: ", e);
-                        yield ConversionResult.parseError(e.getMessage(), env.body);
-                    }
-                }
-
-                // ── FIXM — Quản lý bay ─────────────────────────────────
-                case FPL -> {
-                    // FPL có đầy đủ thông tin flight plan → convert sang FIXM XML
-                    try {
-                        FplParser parser = new FplParser();
-                        FplMessage fpl   = parser.parse(env.body);
-                        FixmBuilder builder = new FixmBuilder();
-                        String xml = builder.buildFpl(fpl);
-                        String id  = fpl.getMessageType() + "_"
-                                     + (fpl.getAircraftId() != null ? fpl.getAircraftId() : "UNKNOWN")
-                                     + ".xml";
-                        yield ConversionResult.success(xml, "FIXM", id);
-                    } catch (Exception e) {
-                        log.error("Failed to parse FPL: ", e);
-                        yield ConversionResult.parseError(e.getMessage(), env.body);
-                    }
-                }
-
-                // CHG, CNL, DLA, DEP, ARR chỉ chứa partial info, không thể tạo full FIXM FlightPlan
-                // TODO: Implement FIXM Flight Messages (ff:FlightArrival, ff:FlightCancellation, etc.)
-                // Hiện tại: Gateway sẽ gửi dưới dạng TAC text để đảm bảo messages được forward
-                case CHG, CNL, DLA, DEP, ARR -> {
-                    log.debug("{} message - forwarding as TAC text (FIXM Flight Messages not yet implemented)", det.category());
-                    yield ConversionResult.unsupported(env.body);
-                }
-
-                // ARS/ARP (AIREP) → FIXM (xử lý như FPL, cần parser riêng khi mở rộng)
-                case ARS, ARP -> {
-                    log.warn("ARS/ARP conversion not fully implemented, returning unsupported");
-                    yield ConversionResult.unsupported(env.body);
-                }
-
-                default -> {
-                    log.warn("Unknown message type: [{}]", env.body.substring(0, Math.min(50, env.body.length())));
-                    yield ConversionResult.unsupported(env.body);
-                }
+            String payload = switch (format) {
+                case JSON -> jsonBuilder.build(model);
+                case TEXT -> textRenderer.render(model);
             };
 
+            return ConversionResult.success(payload, format.name(), model.getMessageId());
+
         } catch (Exception e) {
-            log.error("Conversion failed for: [{}]", originalTac.substring(0, Math.min(80, originalTac.length())), e);
-            return ConversionResult.systemError(e.getMessage(), originalTac);
+            log.error("Conversion failed for {}: {}", messageType, e.getMessage());
+            return ConversionResult.systemError(e.getMessage(), rawTac);
         }
     }
 
     /**
-     * Revert XML back to TAC.
+     * Lấy bộ Parser tương ứng với loại bản tin.
      */
-    public ConversionResult revert(String xml, String type) {
-        if (xml == null || xml.isBlank()) {
-            return ConversionResult.parseError("Empty XML input", xml);
-        }
-
-        try {
-            String tac;
-            switch (type.toUpperCase()) {
-                case "METAR"  -> tac = new vn.asg.converter.reverter.iwxxm.METARReverter().convertToString(xml);
-                case "SPECI"  -> tac = new vn.asg.converter.reverter.iwxxm.SPECIReverter().convertToString(xml);
-                case "TAF"    -> tac = new vn.asg.converter.reverter.iwxxm.TAFReverter().convertToString(xml);
-                case "SIGMET" -> tac = new vn.asg.converter.reverter.iwxxm.SIGMETReverter().convertToString(xml);
-                case "NOTAM"  -> tac = new vn.asg.converter.reverter.aixm.NotamReverter().revert(xml);
-                case "FPL", "CHG", "CNL", "DEP", "ARR", "DLA" ->
-                    tac = new vn.asg.converter.reverter.fixm.FplReverter().revert(xml);
-                default -> {
-                    log.warn("Unsupported revert type: {}", type);
-                    return ConversionResult.unsupported(xml);
-                }
-            }
-            return ConversionResult.success(tac, "TAC", type + ".txt");
-        } catch (Exception e) {
-            log.error("Revert failed for type: {}", type, e);
-            return ConversionResult.systemError(e.getMessage(), xml);
-        }
+    private MessageParser<? extends BaseMessage> getParser(String type) {
+        if (type == null) return null;
+        String baseType = type.toUpperCase().replace("_TEXT", "");
+        
+        return switch (baseType) {
+            case "FPL", "CHG", "CNL", "DEP", "ARR", "DLA", "RQP", "RQS" -> new FplParser();
+            case "ALR" -> new AlrParser();
+            case "SPL" -> new SplParser();
+            case "EST", "CDN", "ACP", "CPL" -> new CoordinationParser();
+            case "NOTAM" -> new NotamParser();
+            case "METAR", "SPECI" -> new MetarParser();
+            case "TAF" -> new TafParser();
+            case "SIGMET", "AIRMET", "GAMET", "VAA", "TCA" -> new SigmetParser();
+            case "ARS", "ARP" -> new AirepParser();
+            case "ASHTAM", "SNOWTAM", "SYNOP", "RQM", "AFP", "RCF" -> null; // Parsers not implemented yet, rely on JSON flow
+            default -> null;
+        };
     }
 
     /**
-     * Revert XML back to TAC với auto-detection.
+     * Lấy Class Model tương ứng để deserialize JSON.
      */
-    public ConversionResult revert(String xml) {
-        String tac = new ReverterFacade().revert(xml);
-        if (tac == null) {
-            return ConversionResult.parseError("Auto-detection failed or invalid XML", xml);
+    private Class<? extends BaseMessage> getModelClass(String type) {
+        if (type == null) return null;
+        String baseType = type.toUpperCase().replace("_TEXT", "");
+        return switch (baseType) {
+            case "FPL", "CHG", "CNL", "DEP", "ARR", "DLA", "RQP", "RQS" -> FplMessage.class;
+            case "NOTAM", "NOTAMN", "NOTAMR", "NOTAMC" -> NotamMessage.class;
+            case "METAR", "SPECI" -> MetarMessage.class;
+            case "TAF" -> TafMessage.class;
+            case "SIGMET", "AIRMET", "GAMET", "VAA", "TCA" -> SigmetMessage.class;
+            case "ALR", "SPL", "EST", "CDN", "ACP", "CPL", "AFP", "RCF" -> FplMessage.class;
+            case "ARS", "ARP" -> AirepMessage.class;
+            case "SNOWTAM" -> SnowtamMessage.class;
+            case "ASHTAM" -> AshtamMessage.class;
+            case "SYNOP", "RQM" -> SynopMessage.class;
+            default -> null;
+        };
+    }
+
+    /**
+     * Bổ sung thông tin từ phong bì AFTN vào Model.
+     */
+    private void enrichMetadata(BaseMessage model, TacPreprocessor.AftnEnvelope env, String messageType) {
+        model.setOriginator(env.originator);
+        model.setRecipients(env.recipients);
+        model.setPriority(env.priority);
+        model.setFilingTime(env.filingTime);
+        if (model.getMessageType() == null || model.getMessageType().isEmpty()) {
+            model.setMessageType(messageType);
         }
-        return ConversionResult.success(tac, "TAC", "reverted.txt");
+        
+        // Tạo Message ID nếu chưa có
+        if (model.getMessageId() == null) {
+            model.setMessageId(messageType + "_" + System.currentTimeMillis());
+        }
     }
 }

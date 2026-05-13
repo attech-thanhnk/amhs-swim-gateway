@@ -1,9 +1,6 @@
 package vn.asg.swim.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.time.LocalDateTime;
 
 /**
@@ -12,9 +9,9 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "routing")
-@Data
-@NoArgsConstructor
 public class Routing {
+
+    public Routing() {}
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -65,14 +62,34 @@ public class Routing {
     @Column(name = "created_by", length = 50)
     private String createdBy;
 
-    @PrePersist
-    public void prePersist() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-
-    @PreUpdate
-    public void preUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
+    public Integer getId() { return id; }
+    public void setId(Integer id) { this.id = id; }
+    public String getDirection() { return direction; }
+    public void setDirection(String direction) { this.direction = direction; }
+    public String getReceiveTopic() { return receiveTopic; }
+    public void setReceiveTopic(String receiveTopic) { this.receiveTopic = receiveTopic; }
+    public String getMessageFilter() { return messageFilter; }
+    public void setMessageFilter(String messageFilter) { this.messageFilter = messageFilter; }
+    public String getRecipients() { return recipients; }
+    public void setRecipients(String recipients) { this.recipients = recipients; }
+    public String getOriginator() { return originator; }
+    public void setOriginator(String originator) { this.originator = originator; }
+    public String getMessageType() { return messageType; }
+    public void setMessageType(String messageType) { this.messageType = messageType; }
+    public String getSendTopic() { return sendTopic; }
+    public void setSendTopic(String sendTopic) { this.sendTopic = sendTopic; }
+    public Integer getPriority() { return priority; }
+    public void setPriority(Integer priority) { this.priority = priority; }
+    public Boolean getActive() { return active; }
+    public void setActive(Boolean active) { this.active = active; }
+    public Boolean getConvertToJson() { return convertToJson; }
+    public void setConvertToJson(Boolean convertToJson) { this.convertToJson = convertToJson; }
+    public String getNote() { return note; }
+    public void setNote(String note) { this.note = note; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+    public String getCreatedBy() { return createdBy; }
+    public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
 }

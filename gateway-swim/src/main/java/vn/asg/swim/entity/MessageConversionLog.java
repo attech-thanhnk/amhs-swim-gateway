@@ -1,8 +1,6 @@
 package vn.asg.swim.entity;
 
 import jakarta.persistence.*;
-import lombok.*;
-
 import java.time.LocalDateTime;
 
 /**
@@ -11,11 +9,9 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "message_conversion_log")
-@Data
-@NoArgsConstructor
-@Builder
-@AllArgsConstructor
 public class MessageConversionLog {
+
+    public MessageConversionLog() {}
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -86,6 +82,51 @@ public class MessageConversionLog {
     @Column(name = "supplementary_info", length = 512)
     private String supplementaryInfo;
 
-    @Column(name = "remark", length = 256)
+    @Column(name = "remark", length = 1000)
     private String remark;
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public Long getReferenceId() { return referenceId; }
+    public void setReferenceId(Long referenceId) { this.referenceId = referenceId; }
+    public String getDate() { return date; }
+    public void setDate(String date) { this.date = date; }
+    public String getType() { return type; }
+    public void setType(String type) { this.type = type; }
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
+    public String getMessageId() { return messageId; }
+    public void setMessageId(String messageId) { this.messageId = messageId; }
+    public String getIpmId() { return ipmId; }
+    public void setIpmId(String ipmId) { this.ipmId = ipmId; }
+    public String getMtsId() { return mtsId; }
+    public void setMtsId(String mtsId) { this.mtsId = mtsId; }
+    public String getAmqpMessageId() { return amqpMessageId; }
+    public void setAmqpMessageId(String amqpMessageId) { this.amqpMessageId = amqpMessageId; }
+    public String getPriority() { return priority; }
+    public void setPriority(String priority) { this.priority = priority; }
+    public String getOhi() { return ohi; }
+    public void setOhi(String ohi) { this.ohi = ohi; }
+    public String getOrigin() { return origin; }
+    public void setOrigin(String origin) { this.origin = origin; }
+    public String getFilingTime() { return filingTime; }
+    public void setFilingTime(String filingTime) { this.filingTime = filingTime; }
+    public String getSubject() { return subject; }
+    public void setSubject(String subject) { this.subject = subject; }
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
+    public LocalDateTime getConvertedTime() { return convertedTime; }
+    public void setConvertedTime(LocalDateTime convertedTime) { this.convertedTime = convertedTime; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public String getActionTaken() { return actionTaken; }
+    public void setActionTaken(String actionTaken) { this.actionTaken = actionTaken; }
+    public String getNonDeliveryReason() { return nonDeliveryReason; }
+    public void setNonDeliveryReason(String nonDeliveryReason) { this.nonDeliveryReason = nonDeliveryReason; }
+    public String getNonDeliveryDiagnostic() { return nonDeliveryDiagnostic; }
+    public void setNonDeliveryDiagnostic(String nonDeliveryDiagnostic) { this.nonDeliveryDiagnostic = nonDeliveryDiagnostic; }
+    public String getSupplementaryInfo() { return supplementaryInfo; }
+    public void setSupplementaryInfo(String supplementaryInfo) { this.supplementaryInfo = supplementaryInfo; }
+    public String getRemark() { return remark; }
+    public void setRemark(String remark) { this.remark = remark; }
 }

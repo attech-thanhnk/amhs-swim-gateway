@@ -15,12 +15,15 @@ import vn.asg.swim.repository.GwinRepository;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * SWIM → AMHS: subscribes to topics from Solace, validates and records into
  * gwin with PENDING status.
- * Dispatching to AMHS MTA is handled by InboundDispatchService.
+ * Inbound messages are persisted to the gwin table for processing by the AMHS Component.
  */
 @Service
 @RequiredArgsConstructor
@@ -37,6 +40,7 @@ public class AMQPSubscriberService {
     private final AuthorizationService authorizationService;
     private final AtsmhsServiceLevelResolver atsmhsResolver;
     private final ConfigService configService;
+    private final MessageDetectService detectService;
 
     private final List<Session> activeSessions = new ArrayList<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -115,18 +119,16 @@ public class AMQPSubscriberService {
                         "gwin", null);
                 return;
             } else {
-                amqpMsgId = "GW-GEN-" + java.util.UUID.randomUUID().toString();
+                amqpMsgId = "GW-GEN-" + UUID.randomUUID().toString();
                 log.info("AMQP message has no JMSMessageID, generated synthetic ID: {}", amqpMsgId);
             }
         }
         log.info("Received AMQP message: {} from topic: {}", amqpMsgId, queue);
 
-        // --- SELF-MESSAGE FILTER (ECHO CANCELLATION) ---
-        // EUR Doc 047: A producer should ignore its own messages to avoid loops.
-        String originator = amqpMsg.getStringProperty("amhs_originator");
-        String localCentre = vn.asg.converter.config.App.getInstance().getString("CentreDesignator");
-        if (originator != null && localCentre != null && originator.startsWith(localCentre)) {
-            log.info("AMQP message {} is an echo from our own centre ({}). Ignoring.", amqpMsgId, localCentre);
+        // Loopback prevention
+        String originGw = amqpMsg.getStringProperty("amhs_gateway_id");
+        if (configService.getGatewayId().equals(originGw)) {
+            log.info("Loopback detected for message {}. Dropping message to prevent infinite loop.", amqpMsgId);
             return;
         }
 
@@ -157,9 +159,8 @@ public class AMQPSubscriberService {
         } else if (amqpMsg instanceof BytesMessage bm) {
             byte[] buf = new byte[(int) bm.getBodyLength()];
             bm.readBytes(buf);
-            // Thử decode UTF-8: nếu là XML/text thì giữ nguyên chuỗi
-            // (Solace Try Me! gửi BytesMessage nhưng nội dung là text)
-            String asUtf8 = new String(buf, java.nio.charset.StandardCharsets.UTF_8).stripLeading();
+            // Try UTF-8 decode: If content is text (XML/JSON/Plain text), treat as string.
+            String asUtf8 = new String(buf, StandardCharsets.UTF_8).stripLeading();
             if (asUtf8.startsWith("<") || isProbablyText(asUtf8)) {
                 textPayload = asUtf8;
             } else {
@@ -171,7 +172,7 @@ public class AMQPSubscriberService {
         }
 
         String finalContent = textPayload != null ? textPayload
-                : (binaryPayload != null ? java.util.Base64.getEncoder().encodeToString(binaryPayload) : null);
+                : (binaryPayload != null ? Base64.getEncoder().encodeToString(binaryPayload) : null);
 
         // EUR Doc 047 Validation: C-02, S-06, S-08, S-09
         MessageValidationService.ValidationResult validationResult = validationService.validateSwimToAmhs(amqpMsgId,
@@ -285,48 +286,44 @@ public class AMQPSubscriberService {
         gwin.setAmqpProperties(amqpPropertiesJson); // EUR Doc 047: Save all AMQP properties
         gwin.setPriority((byte) Math.min(Math.max(priority, 0), 9));
         gwin.setTime(LocalDateTime.now());
-        gwin.setXmlPayload(finalContent);
-        try {
-            String tac = conversionService.toAmhs(finalContent, subject);
-            gwin.setText(tac);
-        } catch (Exception e) {
-            log.warn("Auto-revert failed for AMQP {}, storing raw XML in text as fallback", amqpMsgId);
-            gwin.setText(finalContent);
-        }
-
+        gwin.setPayloadContent(finalContent);
         gwin.setBodyType("text");
         gwin.setContentType(contentType);
         gwin.setOrigin(resolved.originator());
         gwin.setAddress(resolved.recipients());
         gwin.setAddressingSource(resolved.source());
 
-        if (resolved.isResolved()) {
-            gwin.setStatus(Gwin.STATUS_PENDING);
-            log.info("AMQP {} → gwin PENDING | source={} originator={} recipients={}",
-                    amqpMsgId, resolved.source(), resolved.originator(), resolved.recipients());
-        } else {
-            // UNRESOLVED: do not reject, save for manual operator intervention
-            gwin.setStatus(Gwin.STATUS_UNROUTED);
-            log.warn("AMQP {} → gwin UNROUTED | Failed to resolve AMHS address (queue={})",
-                    amqpMsgId, queue);
-            alertService.create(
-                    GwAlert.TYPE_ROUTING_ERROR,
-                    GwAlert.SEV_WARNING,
-                    "UNROUTED: Failed to resolve AMHS address for message " + amqpMsgId
-                            + " from queue " + queue,
-                    "gwin", null);
+        try {
+            String effectiveType = subject;
+            if ("SWIM_INTERWORKING".equals(subject)) {
+                String detected = detectService.detect(finalContent);
+                if (!"UNKNOWN".equals(detected)) {
+                    effectiveType = detected;
+                }
+            }
+            
+            try {
+                String tac = conversionService.toAmhs(finalContent, effectiveType);
+                gwin.setText(tac);
+                gwin.setStatus(resolved.isResolved() ? Gwin.STATUS_PENDING : Gwin.STATUS_UNROUTED);
+            } catch (Exception e) {
+                log.error("AMQP {} Conversion FAILED: {}", amqpMsgId, e.getMessage());
+                gwin.setText("CONVERSION_FAILED: " + e.getMessage() + "\\n" + finalContent);
+                gwin.setStatus(Gwin.STATUS_UNROUTED);
+            }
+
+            gwinRepository.save(gwin);
+            
+            String actionTag = "received-" + resolved.source().toLowerCase().replaceAll("[^a-z0-9]", "_");
+            conversionService.logSwimToAmhs(amqpMsgId, resolved.originator(),
+                    gwin.getStatus().equals(Gwin.STATUS_PENDING) ? "OK" : "UNROUTED",
+                    actionTag,
+                    resolved.isResolved() ? null : "MISSING_AMHS_RECIPIENTS",
+                    amhsIpmId);
+                    
+        } catch (Exception e) {
+            log.error("AMQP {} Fatal Error: {}", amqpMsgId, e.getMessage());
         }
-
-        gwinRepository.save(gwin);
-
-        String actionTag = "received-" + resolved.source().toLowerCase().replaceAll("[^a-z0-9]", "_");
-        conversionService.logSwimToAmhs(amqpMsgId, resolved.originator(),
-                resolved.isResolved() ? "OK" : "UNROUTED",
-                actionTag,
-                resolved.isResolved() ? null : "MISSING_AMHS_RECIPIENTS",
-                amhsIpmId); // EUR Doc 047 §4.3.4f (G-14)
-
-        log.info("AMQP message {} written to gwin#{}", amqpMsgId, gwin.getMsgid());
     }
 
     public synchronized void stopAll() {

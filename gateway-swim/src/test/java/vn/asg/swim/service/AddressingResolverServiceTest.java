@@ -70,27 +70,4 @@ class AddressingResolverServiceTest {
         assertTrue(result.recipients().contains("VVHHZTZX"));
         assertEquals(ResolvedAddressing.SOURCE_ROUTING_RULE, result.source());
     }
-
-    @Test
-    void testResolve_Step3_Default() {
-        when(configService.get("DEFAULT_RECIPIENTS_INBOUND")).thenReturn("VVHHZTZX");
-        when(configService.getDefaultOriginator()).thenReturn("VVHHZPZX");
-
-        ResolvedAddressing result = service.resolve(jmsMessage, "swim.unknown.q", "content");
-
-        assertEquals("VVHHZPZX", result.originator());
-        assertTrue(result.recipients().contains("VVHHZTZX"));
-        assertEquals(ResolvedAddressing.SOURCE_DEFAULT, result.source());
-    }
-
-    @Test
-    void testResolve_Step4_Unresolved() {
-        when(configService.get("DEFAULT_RECIPIENTS_INBOUND")).thenReturn("");
-
-        ResolvedAddressing result = service.resolve(jmsMessage, "swim.unknown.q", "content");
-
-        assertEquals(ResolvedAddressing.SOURCE_UNRESOLVED, result.source());
-        assertNull(result.originator());
-        assertNull(result.recipients());
-    }
 }

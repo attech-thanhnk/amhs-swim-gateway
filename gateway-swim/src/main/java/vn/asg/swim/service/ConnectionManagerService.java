@@ -1,6 +1,5 @@
 package vn.asg.swim.service;
 
-import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.qpid.jms.JmsConnectionFactory;
@@ -48,14 +47,15 @@ public class ConnectionManagerService {
     @Value("${amqp.default.tls:false}")
     private boolean defaultTls;
 
-    @Getter
     private Connection connection;
 
-    @Getter
     private final AtomicBoolean connected = new AtomicBoolean(false);
 
-    @Getter
     private String bindStatus = "DISCONNECTED";
+
+    public Connection getConnection() { return connection; }
+    public AtomicBoolean getConnected() { return connected; }
+    public String getBindStatus() { return bindStatus; }
 
     private Long activeAccountId = null;
 
