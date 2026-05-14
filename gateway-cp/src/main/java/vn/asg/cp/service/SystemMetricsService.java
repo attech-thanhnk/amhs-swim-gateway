@@ -8,14 +8,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import vn.asg.cp.dto.SystemOverviewResponse;
 
 import java.lang.management.ManagementFactory;
-import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
 import java.util.Date;
 
 import com.sun.management.OperatingSystemMXBean;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.io.IOException;
+
+import java.lang.management.ManagementFactory;
+import java.lang.management.RuntimeMXBean;
 
 @Service
 @RequiredArgsConstructor
@@ -37,30 +38,45 @@ public class SystemMetricsService {
     }
 
     public SystemLoadResponse getGatewayload() {
-        // CPU
         OperatingSystemMXBean osBean =
                 (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
 
-        double processCpuLoad = osBean.getProcessCpuLoad() * 100;
-        double systemCpuLoad  = osBean.getSystemCpuLoad() * 100;
+        int cores = osBean.getAvailableProcessors();
 
-        // RAM Heap
-        MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
-        MemoryUsage heapUsage = memoryMXBean.getHeapMemoryUsage();
+        // CPU load raw từ JVM
+        double systemCpuLoadRaw = osBean.getSystemCpuLoad();
+        double processCpuLoadRaw = osBean.getProcessCpuLoad();
 
+        // Convert sang % giống Task Manager / Grafana
+        double systemCpuLoad = (systemCpuLoadRaw * 100) / cores;
+        double processCpuLoad = (processCpuLoadRaw * 100) / cores;
+
+        if (systemCpuLoad >= 1)
+            systemCpuLoad = 0.99;
+
+        if (processCpuLoad >= 1)
+            processCpuLoad = 0.99;
+
+        // 2. RAM HỆ THỐNG (Physical Memory)
+        long totalPhysicalMemory = osBean.getTotalPhysicalMemorySize();
+        long freePhysicalMemory = osBean.getFreePhysicalMemorySize();
+        long usedPhysicalMemoryMb = (totalPhysicalMemory - freePhysicalMemory) / 1024 / 1024;
+        long totalPhysicalMemoryMb = totalPhysicalMemory / 1024 / 1024;
+        double totalRamPercent = (double) usedPhysicalMemoryMb / totalPhysicalMemoryMb * 100;
+
+        // 3. RAM HEAP (Phần Java đang dùng - giữ lại từ code cũ của bạn)
+        MemoryUsage heapUsage = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
         long heapUsedMb = heapUsage.getUsed() / 1024 / 1024;
-        
-        // SYSTEM RAM
-        long totalRamMb = osBean.getTotalPhysicalMemorySize() / 1024 / 1024;
-
-        double ramPercent = (double) heapUsedMb / totalRamMb;
 
         return new SystemLoadResponse(
-                processCpuLoad,
-                systemCpuLoad,
+                processCpuLoad,      // CPU App Java
+                systemCpuLoad,       // % CPU toàn hệ thống
+                usedPhysicalMemoryMb,// RAM hệ thống đang dùng (MB)
+                totalPhysicalMemoryMb, // Tổng RAM vật lý (MB)
+                totalRamPercent,     // % RAM hệ thống
                 heapUsedMb,
-                totalRamMb,
-                ramPercent
+                this.getJvmUptimeSeconds(),
+                this.getServiceStartTime()
         );
     }
 
@@ -117,5 +133,30 @@ public class SystemMetricsService {
         double ram = Double.parseDouble(parts[1]);
 
         return new double[]{cpu, ram};
+    }
+
+    public long getJvmUptimeSeconds() {
+        RuntimeMXBean rb = ManagementFactory.getRuntimeMXBean();
+        long uptimeMs = rb.getUptime();
+        return uptimeMs / 1000;
+    }
+
+    public Date getServiceStartTime() {
+        RuntimeMXBean rb = ManagementFactory.getRuntimeMXBean();
+        long startTime = rb.getStartTime();
+        return new Date(startTime);
+    }
+
+    // Set limit 99% load
+    private double normalizeCpu(double value) {
+        if (Double.isNaN(value) || value < 0) {
+            return 0;
+        }
+
+        value = value * 100;
+
+        if (value > 99) value = 99;
+
+        return Math.round(value * 10.0) / 10.0;
     }
 }
