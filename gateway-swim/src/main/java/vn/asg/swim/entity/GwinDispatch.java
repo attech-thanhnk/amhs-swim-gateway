@@ -91,8 +91,6 @@ public class GwinDispatch {
         updatedAt = LocalDateTime.now();
     }
 
-    // Status constants
-
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public Long getGwinId() { return gwinId; }

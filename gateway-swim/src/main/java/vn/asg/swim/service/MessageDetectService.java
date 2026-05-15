@@ -87,15 +87,8 @@ public class MessageDetectService {
         }
 
         String normalizedBody = body.replaceAll("\\s+", "");
-        log.debug("MessageDetectService: normalizedBody length={}, content preview={}", 
+        log.debug("MessageDetectService: normalizedBody length={}, content preview={}",
                   normalizedBody.length(), normalizedBody.substring(0, Math.min(50, normalizedBody.length())));
-        
-        // Debug: Print hex bytes of first 10 chars to detect invisible characters
-        StringBuilder hex = new StringBuilder();
-        for (int i = 0; i < Math.min(10, body.length()); i++) {
-            hex.append(String.format("%02X ", (int) body.charAt(i)));
-        }
-        log.debug("MessageDetectService: Body Start Hex: {}", hex.toString());
 
         for (MessageTypeRegistry reg : cache) {
             String pattern = reg.getDetectPattern();

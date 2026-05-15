@@ -90,8 +90,6 @@ public class Gwout {
     @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
     private String payloadContent;
 
-    // Status constants
-
     public Long getMsgid() { return msgid; }
     public void setMsgid(Long msgid) { this.msgid = msgid; }
     public String getAmhsid() { return amhsid; }

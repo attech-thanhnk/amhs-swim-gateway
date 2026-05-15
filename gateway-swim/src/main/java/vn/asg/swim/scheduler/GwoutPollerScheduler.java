@@ -5,10 +5,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.GwoutDispatch;
 import vn.asg.swim.repository.GwoutDispatchRepository;
 import vn.asg.swim.repository.GwoutRepository;
+import vn.asg.swim.service.AlertService;
 import vn.asg.swim.service.ConfigService;
 import vn.asg.swim.service.ConnectionManagerService;
 import vn.asg.swim.service.OutboundDispatchService;
@@ -35,6 +37,7 @@ public class GwoutPollerScheduler {
     private final OutboundDispatchService outboundDispatchService;
     private final ConnectionManagerService connectionManager;
     private final ConfigService configService;
+    private final AlertService alertService;
 
     /**
      * Task 1: Poll PENDING gwout records → create dispatch rows for each recipient.
@@ -102,6 +105,10 @@ public class GwoutPollerScheduler {
         String address = gwout.getAddress();
         if (address == null || address.isBlank()) {
             log.warn("gwout#{} has no recipients, skipping", gwout.getMsgid());
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                    "gwout#" + gwout.getMsgid() + " has no recipients",
+                    "gwout", gwout.getMsgid());
             gwout.setStatus(Gwout.STATUS_DEAD);
             gwoutRepository.save(gwout);
             return;
@@ -110,8 +117,24 @@ public class GwoutPollerScheduler {
         List<String> recipients = Arrays.stream(address.split("[,\\s]+"))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
+                .filter(s -> {
+                    if (s.matches("^[A-Z]{8}$")) return true;
+                    log.warn("gwout#{} contains invalid AFTN address: {}", gwout.getMsgid(), s);
+                    return false;
+                })
                 .distinct()
                 .toList();
+
+        if (recipients.isEmpty()) {
+            log.warn("gwout#{} has no valid AFTN recipients after filtering", gwout.getMsgid());
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                    "gwout#" + gwout.getMsgid() + " has no valid AFTN recipients",
+                    "gwout", gwout.getMsgid());
+            gwout.setStatus(Gwout.STATUS_DEAD);
+            gwoutRepository.save(gwout);
+            return;
+        }
 
         for (String recipient : recipients) {
             GwoutDispatch dispatch = new GwoutDispatch();

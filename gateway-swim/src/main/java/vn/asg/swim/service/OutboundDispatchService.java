@@ -55,8 +55,8 @@ public class OutboundDispatchService {
                     GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
                     "gwout#" + gwout.getMsgid() + " rejected: " + dirResult.getErrorMessage(),
                     "gwout", gwout.getMsgid());
-            dispatch.setStatus(GwoutDispatch.STATUS_SENT);
-            dispatch.setSentAt(LocalDateTime.now());
+            dispatch.setStatus(GwoutDispatch.STATUS_DEAD);
+            dispatch.setFailedStep(GwoutDispatch.STEP_VALIDATION);
             dispatch.setLastError(dirResult.getErrorMessage());
             gwoutDispatchRepository.save(dispatch);
             checkAndUpdateGwoutStatus(dispatch.getGwoutId());
@@ -72,8 +72,8 @@ public class OutboundDispatchService {
                     "Unauthorized AMHS originator: " + gwout.getOrigin()
                             + " (gwout#" + gwout.getMsgid() + ")",
                     "gwout", gwout.getMsgid());
-            dispatch.setStatus(GwoutDispatch.STATUS_SENT);
-            dispatch.setSentAt(LocalDateTime.now());
+            dispatch.setStatus(GwoutDispatch.STATUS_DEAD);
+            dispatch.setFailedStep(GwoutDispatch.STEP_AUTHORIZATION);
             dispatch.setLastError("AMHS originator not authorized: " + gwout.getOrigin());
             gwoutDispatchRepository.save(dispatch);
             checkAndUpdateGwoutStatus(dispatch.getGwoutId());
@@ -117,7 +117,8 @@ public class OutboundDispatchService {
             var rule = routingService.findBestMatchOut(dispatch.getMessageType()).get();
             
             if (Boolean.TRUE.equals(rule.getConvertToJson())) {
-                if (gwout.getPayloadContent() == null || gwout.getPayloadContent().isBlank()) {
+                boolean isAlreadyJson = gwout.getPayloadContent() != null && gwout.getPayloadContent().trim().startsWith("{");
+                if (!isAlreadyJson) {
                     convertedBody = conversionService.toSwim(body, dispatch.getMessageType());
                     gwout.setPayloadContent(convertedBody);
                     gwoutRepository.save(gwout);
@@ -127,8 +128,11 @@ public class OutboundDispatchService {
             } else {
                 log.debug("Routing rule for {} specifies TAC output. Forwarding original body.", dispatch.getMessageType());
                 convertedBody = body;
-                gwout.setPayloadContent(body);
-                gwoutRepository.save(gwout);
+                // If current payload is JSON but rule says TAC, update it or just use body
+                if (gwout.getPayloadContent() == null || gwout.getPayloadContent().trim().startsWith("{")) {
+                    gwout.setPayloadContent(body);
+                    gwoutRepository.save(gwout);
+                }
             }
         } catch (Exception e) {
             handleFailure(dispatch, GwoutDispatch.STEP_CONVERT, e);
@@ -247,7 +251,14 @@ public class OutboundDispatchService {
                 configService.getInt("RETRY_DELAY_2ND_SECONDS"),
                 configService.getInt("RETRY_DELAY_3RD_SECONDS")
         };
-        int delay = delays[Math.min(retryCount - 1, delays.length - 1)];
+        int delay;
+        if (retryCount <= delays.length) {
+            delay = delays[retryCount - 1];
+        } else {
+            // Exponential backoff: delay = last_delay * 2^(retryCount - delays.length)
+            int lastDelay = delays[delays.length - 1];
+            delay = lastDelay * (int) Math.pow(2, Math.min(retryCount - delays.length, 6)); // Cap exponent to 6 (64x)
+        }
         return LocalDateTime.now().plusSeconds(delay);
     }
 }

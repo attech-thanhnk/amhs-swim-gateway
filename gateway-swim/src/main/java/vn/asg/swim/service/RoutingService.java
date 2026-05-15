@@ -38,9 +38,13 @@ public class RoutingService {
             return match;
         }
 
-        // Second attempt: match messageType starts with (e.g. METAR_TEXT matches METAR)
+        // Second attempt: match messageType starts with delimiter (e.g. METAR_TEXT matches METAR)
         return rules.stream()
-                .filter(r -> messageType.toUpperCase().startsWith(r.getMessageType().toUpperCase()))
+                .filter(r -> {
+                    String rType = r.getMessageType().toUpperCase();
+                    String mType = messageType.toUpperCase();
+                    return mType.startsWith(rType + "_") || mType.startsWith(rType + " ");
+                })
                 .findFirst();
     }
 

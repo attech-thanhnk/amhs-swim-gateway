@@ -101,8 +101,6 @@ public class Gwin {
     @Column(name = "status")
     private Integer status = STATUS_PENDING;
 
-    // Status constants
-
     public Long getMsgid() { return msgid; }
     public void setMsgid(Long msgid) { this.msgid = msgid; }
     public String getCpa() { return cpa; }

@@ -64,6 +64,7 @@ public class TacPreprocessor {
         }
 
         // Lớp 3: Filing time + Originator
+        // Note: Processes only the first origin line found, consistent with AFTN spec.
         m = ORIGIN_RX.matcher(buf);
         if (m.find()) {
             env.filingTime = m.group("filingTime");

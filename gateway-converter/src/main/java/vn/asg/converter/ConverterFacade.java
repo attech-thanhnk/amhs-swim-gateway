@@ -60,12 +60,22 @@ public class ConverterFacade {
         try {
             TacPreprocessor.AftnEnvelope env = preprocessor.unwrap(rawTac);
             
-            BaseMessage model;
+            BaseMessage model = null;
+            boolean parsedAsJson = false;
+            
             if (env.body.trim().startsWith("{")) {
-                Class<? extends BaseMessage> modelClass = getModelClass(messageType);
-                if (modelClass == null) throw new Exception("No model class mapping for type: " + messageType);
-                model = objectMapper.readValue(env.body, modelClass);
-            } else {
+                try {
+                    Class<? extends BaseMessage> modelClass = getModelClass(messageType);
+                    if (modelClass != null) {
+                        model = objectMapper.readValue(env.body, modelClass);
+                        parsedAsJson = true;
+                    }
+                } catch (Exception e) {
+                    log.warn("Body starts with '{' but failed to parse as JSON for type {}: {}", messageType, e.getMessage());
+                }
+            }
+
+            if (!parsedAsJson) {
                 MessageParser<? extends BaseMessage> parser = getParser(messageType);
                 if (parser == null) return ConversionResult.unsupported(env.body);
                 model = parser.parse(env.body);

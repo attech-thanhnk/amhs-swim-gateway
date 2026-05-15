@@ -24,6 +24,8 @@ public class GwoutDispatch {
     public static final String STATUS_DEAD = "DEAD";
 
     // Failed step constants
+    public static final String STEP_VALIDATION = "validation";
+    public static final String STEP_AUTHORIZATION = "authorization";
     public static final String STEP_DETECT = "detect";
     public static final String STEP_ROUTING = "routing";
     public static final String STEP_CONVERT = "convert";
@@ -110,8 +112,6 @@ public class GwoutDispatch {
     public void preUpdate() {
         updatedAt = LocalDateTime.now();
     }
-
-    // Status constants
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

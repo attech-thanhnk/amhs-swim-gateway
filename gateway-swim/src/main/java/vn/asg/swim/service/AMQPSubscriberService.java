@@ -5,6 +5,7 @@ import jakarta.annotation.PreDestroy;
 import jakarta.jms.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import vn.asg.swim.entity.Gwin;
@@ -308,11 +309,21 @@ public class AMQPSubscriberService {
                 gwin.setStatus(resolved.isResolved() ? Gwin.STATUS_PENDING : Gwin.STATUS_UNROUTED);
             } catch (Exception e) {
                 log.error("AMQP {} Conversion FAILED: {}", amqpMsgId, e.getMessage());
-                gwin.setText("CONVERSION_FAILED: " + e.getMessage() + "\\n" + finalContent);
+                alertService.create(
+                        GwAlert.TYPE_CONVERT_ERROR,
+                        GwAlert.SEV_WARNING,
+                        "Conversion failed for " + amqpMsgId + ": " + e.getMessage(),
+                        "gwin", null);
+                gwin.setText("CONVERSION_FAILED: " + e.getMessage() + "\n" + finalContent);
                 gwin.setStatus(Gwin.STATUS_UNROUTED);
             }
 
-            gwinRepository.save(gwin);
+            try {
+                gwinRepository.save(gwin);
+            } catch (DataIntegrityViolationException e) {
+                log.warn("AMQP message {} already exists (race condition). Ignoring.", amqpMsgId);
+                return;
+            }
             
             String actionTag = "received-" + resolved.source().toLowerCase().replaceAll("[^a-z0-9]", "_");
             conversionService.logSwimToAmhs(amqpMsgId, resolved.originator(),
@@ -349,11 +360,11 @@ public class AMQPSubscriberService {
     private boolean isProbablyText(String s) {
         if (s == null || s.isEmpty())
             return false;
-        // Đếm ký tự điều khiển (ngoài tab, newline, carriage return)
+        // Count control characters (excluding tab, newline, carriage return)
         long controlChars = s.chars()
                 .filter(c -> c < 32 && c != '\t' && c != '\n' && c != '\r')
                 .count();
-        // Nếu < 5% là ký tự điều khiển thì coi là text
+        // Consider as text if less than 5% are control characters
         return controlChars < s.length() * 0.05;
     }
 }

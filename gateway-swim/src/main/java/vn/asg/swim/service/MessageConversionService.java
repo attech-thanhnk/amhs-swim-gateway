@@ -31,18 +31,16 @@ public class MessageConversionService {
     /**
      * Converts AMHS format (TAC) to SWIM format (JSON).
      */
-    public String toSwim(String amhsBody, String messageType) {
+    public String toSwim(String amhsBody, String messageType) throws Exception {
         if (amhsBody == null || amhsBody.isBlank()) {
             return "";
         }
 
-        try {
-            ConversionResult result = converterFacade.convert(amhsBody, messageType, OutputFormat.JSON);
-            return result.isSuccess() ? result.getPayload() : amhsBody;
-        } catch (Exception e) {
-            log.error("SWIM Conversion Error: {}", e.getMessage());
-            return amhsBody;
+        ConversionResult result = converterFacade.convert(amhsBody, messageType, OutputFormat.JSON);
+        if (!result.isSuccess()) {
+            throw new Exception("Conversion to JSON failed: " + result.getErrorMessage());
         }
+        return result.getPayload();
     }
 
     /**
@@ -71,13 +69,11 @@ public class MessageConversionService {
      * Converts priority (int 0-9) to ATS priority string (SS/DD/FF/GG/KK).
      */
     public String mapPriorityToAts(int amqpPriority) {
-        return switch (amqpPriority) {
-            case 6 -> "SS";
-            case 5 -> "DD";
-            case 4 -> "FF";
-            case 3 -> "GG";
-            default -> "KK";
-        };
+        if (amqpPriority >= 6) return "SS";
+        if (amqpPriority == 5) return "DD";
+        if (amqpPriority == 4) return "FF";
+        if (amqpPriority == 3) return "GG";
+        return "KK";
     }
 
     /**
