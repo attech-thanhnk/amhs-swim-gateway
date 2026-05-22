@@ -75,14 +75,23 @@ public class Gwout {
 
     /**
      * Trạng thái tổng. Phản ánh tình trạng của tất cả gwout_dispatch con.
-     * 0=PENDING, 1=PROCESSING, 2=SENT, 3=DEAD
+     * 0=PENDING, 1=PROCESSING, 2=TRANSFORMED, 3=PUBLISHED, 4=FAILED
      */
     @Column(name = "status")
     private Integer status = STATUS_PENDING;
 
+    // Dạng lỗi
+    @Column(name = "error_type")
+    private Integer errorType = UNDEFINED;
+
     // Status constants
     public static final int STATUS_PENDING = 0;
     public static final int STATUS_PROCESSING = 1;
-    public static final int STATUS_SENT = 2;
-    public static final int STATUS_DEAD = 3;
+    public static final int STATUS_TRANSFORMED = 2;
+    public static final int STATUS_PUBLISHED = 3;
+    public static final int STATUS_FAILED = 4;
+
+    public static final int UNDEFINED = 0;
+    public static final int CONVERT_FAILED = 1;
+    public static final int SEND_FAILED = 2;
 }
