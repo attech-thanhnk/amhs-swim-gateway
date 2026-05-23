@@ -7,7 +7,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 import org.jasypt.encryption.StringEncryptor;
-
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.jms.*;
@@ -34,16 +35,16 @@ public class ConnectionManagerService {
     private final SystemLogService systemLogService;
     private final ApplicationContext applicationContext;
 
-    @Value("${amqp.default.host:localhost}")
+    @Value("${amqp.default.host}")
     private String defaultHost;
 
-    @Value("${amqp.default.port:5672}")
-    private int defaultPort;
+    @Value("${amqp.default.port}")
+    private Integer defaultPort;
 
-    @Value("${amqp.default.username:admin}")
+    @Value("${amqp.default.username}")
     private String defaultUsername;
 
-    @Value("${amqp.default.password:admin}")
+    @Value("${amqp.default.password}")
     private String defaultPassword;
 
     @Value("${amqp.default.tls:false}")
@@ -111,7 +112,7 @@ public class ConnectionManagerService {
             var activeAcc = accountRepository.findFirstByProtocolAndStatusIgnoreCase("AMQP", "ACTIVE").orElse(null);
 
             String currentHost = defaultHost;
-            int currentPort = defaultPort;
+            Integer currentPort = defaultPort;
             String currentUser = defaultUsername;
             String currentPass = defaultPassword;
             boolean currentTls = defaultTls;
@@ -119,9 +120,22 @@ public class ConnectionManagerService {
             if (activeAcc != null) {
                 activeAccountId = activeAcc.getId();
                 currentHost = activeAcc.getHost();
-                currentPort = activeAcc.getPort() != null ? activeAcc.getPort() : currentPort;
-                currentUser = activeAcc.getAccountName();
-                currentPass = activeAcc.getCertificatePassphrase();
+                currentPort = activeAcc.getPort();
+                String configJson = activeAcc.getConfigJson();
+                if (configJson != null && !configJson.isBlank()) {
+                    try {
+                        ObjectMapper mapper = new ObjectMapper();
+                        JsonNode node = mapper.readTree(configJson);
+                        if (node.has("username")) {
+                            currentUser = node.get("username").asText();
+                        }
+                        if (node.has("password")) {
+                            currentPass = node.get("password").asText();
+                        }
+                    } catch (Exception e) {
+                        log.warn("Failed to parse configJson for account {}: {}", activeAcc.getAccountName(), e.getMessage());
+                    }
+                }
                 currentTls = activeAcc.getTlsEnabled() != null ? activeAcc.getTlsEnabled() : currentTls;
 
                 log.info("**********************************************************");
@@ -129,6 +143,11 @@ public class ConnectionManagerService {
                 log.info("**********************************************************");
             } else {
                 activeAccountId = null;
+                if (currentHost == null || currentHost.isBlank() ||
+                    currentPort == null || 
+                    currentUser == null || currentUser.isBlank()) {
+                    throw new java.lang.IllegalStateException("Cấu hình AMQP Broker không tìm thấy trong Database và application.properties trống!");
+                }
                 log.warn("**********************************************************");
                 log.warn("FALLBACK (application.properties)");
                 log.warn("**********************************************************");

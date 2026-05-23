@@ -14,7 +14,6 @@ import org.springframework.context.annotation.Import;
  */
 @SpringBootTest
 @Import(InboundSimulationTool.class)
-@Disabled("Manual execution only - requires a live AMQP broker")
 public class ManualSimulationTest {
 
     @Autowired
