@@ -10,8 +10,8 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Simple Routing Service.
- * Matches message type and scope to find a routing rule.
+ * Dịch vụ định tuyến đơn giản (Simple Routing Service).
+ * So khớp message type và scope để tìm routing rule phù hợp.
  */
 @Service
 @RequiredArgsConstructor
@@ -21,7 +21,7 @@ public class RoutingService {
     private final RoutingRepository routingRepository;
 
     /**
-     * Matches OUTBOUND rule based on message type.
+     * So khớp rule chiều OUTBOUND dựa theo message type.
      */
     public Optional<Routing> findBestMatchOut(String messageType) {
         if (messageType == null)
@@ -29,7 +29,7 @@ public class RoutingService {
 
         List<Routing> rules = routingRepository.findByDirectionAndActiveTrueOrderByPriorityAsc("OUT");
 
-        // First attempt: match messageType
+        // Thử lần 1: so khớp chính xác messageType
         Optional<Routing> match = rules.stream()
                 .filter(r -> messageType.equalsIgnoreCase(r.getMessageType()))
                 .findFirst();
@@ -38,7 +38,7 @@ public class RoutingService {
             return match;
         }
 
-        // Second attempt: match messageType starts with delimiter (e.g. METAR_TEXT matches METAR)
+        // Thử lần 2: so khớp messageType bắt đầu bằng dấu phân tách (ví dụ: METAR_TEXT khớp với METAR)
         return rules.stream()
                 .filter(r -> {
                     String rType = r.getMessageType().toUpperCase();
@@ -49,7 +49,7 @@ public class RoutingService {
     }
 
     /**
-     * Matches INBOUND rule based on topic and optional filter.
+     * So khớp rule chiều INBOUND dựa theo topic và filter (nếu có).
      */
     public Optional<Routing> findBestMatchIn(String topic, String filter) {
         if (topic == null)
@@ -57,7 +57,7 @@ public class RoutingService {
 
         List<Routing> rules = routingRepository.findByDirectionAndActiveTrueOrderByPriorityAsc("IN");
 
-        // Topic matching (dots replaced by slashes for consistency)
+        // So khớp topic (thay thế dấu chấm bằng dấu gạch chéo để đảm bảo tính đồng nhất)
         String normalizedTopic = topic.replace('.', '/');
 
         return rules.stream()
@@ -70,7 +70,7 @@ public class RoutingService {
     }
 
     /**
-     * Gets all unique active inbound topics for subscription.
+     * Lấy tất cả các active inbound topics duy nhất để thực hiện subscribe.
      */
     public List<String> getActiveInboundTopics() {
         return routingRepository.findByDirectionAndActiveTrueOrderByPriorityAsc("IN")

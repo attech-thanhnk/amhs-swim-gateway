@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.GwoutDispatch;
+import vn.asg.swim.entity.Routing;
 import vn.asg.swim.repository.GwoutDispatchRepository;
 import vn.asg.swim.repository.GwoutRepository;
 
@@ -16,7 +17,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * AMHS → SWIM direction: processes each gwout_dispatch record.
+ * Xử lý gwout_dispatch queue (AMHS → SWIM).
  */
 @Service
 @RequiredArgsConstructor
@@ -34,6 +35,9 @@ public class OutboundDispatchService {
     private final GwoutDispatchRepository gwoutDispatchRepository;
     private final GwoutRepository gwoutRepository;
 
+    /**
+     * Xử lý dispatch record từ gwout_dispatch queue.
+     */
     @Transactional
     public void processDispatch(GwoutDispatch dispatch) {
         dispatch.setStatus(GwoutDispatch.STATUS_PROCESSING);
@@ -100,12 +104,13 @@ public class OutboundDispatchService {
             return;
         }
 
+        Routing rule = null;
         try {
             var ruleOpt = routingService.findBestMatchOut(dispatch.getMessageType());
             if (ruleOpt.isEmpty()) {
                 throw new RuntimeException("No routing rule for type=" + dispatch.getMessageType());
             }
-            var rule = ruleOpt.get();
+            rule = ruleOpt.get();
             dispatch.setTopic(rule.getSendTopic());
         } catch (Exception e) {
             handleFailure(dispatch, GwoutDispatch.STEP_ROUTING, e);
@@ -114,8 +119,6 @@ public class OutboundDispatchService {
 
         String convertedBody;
         try {
-            var rule = routingService.findBestMatchOut(dispatch.getMessageType()).get();
-            
             if (Boolean.TRUE.equals(rule.getConvertToJson())) {
                 boolean isAlreadyJson = gwout.getPayloadContent() != null && gwout.getPayloadContent().trim().startsWith("{");
                 if (!isAlreadyJson) {
@@ -128,7 +131,7 @@ public class OutboundDispatchService {
             } else {
                 log.debug("Routing rule for {} specifies TAC output. Forwarding original body.", dispatch.getMessageType());
                 convertedBody = body;
-                // If current payload is JSON but rule says TAC, update it or just use body
+                // Fallback về TAC payload nếu routing rule không convert JSON.
                 if (gwout.getPayloadContent() == null || gwout.getPayloadContent().trim().startsWith("{")) {
                     gwout.setPayloadContent(body);
                     gwoutRepository.save(gwout);
@@ -156,6 +159,9 @@ public class OutboundDispatchService {
         checkAndUpdateGwoutStatus(dispatch.getGwoutId());
     }
 
+    /**
+     * Thực hiện gửi bản tin AMQP lên Solace broker.
+     */
     private void publish(Gwout gwout, String topic, String recipient,
             String body, String contentType) throws JMSException {
         Session session = connectionManager.createSession();
@@ -208,6 +214,9 @@ public class OutboundDispatchService {
         }
     }
 
+    /**
+     * Xử lý lỗi phân phối bản tin, tự động lập lịch retry hoặc chuyển thành trạng thái DEAD.
+     */
     private void handleFailure(GwoutDispatch dispatch, String step, Exception e) {
         log.error("dispatch#{} FAILED at step={}: {}", dispatch.getId(), step, e.getMessage());
         dispatch.setLastError(step + ": " + e.getMessage());
@@ -229,6 +238,9 @@ public class OutboundDispatchService {
         checkAndUpdateGwoutStatus(dispatch.getGwoutId());
     }
 
+    /**
+     * Kiểm tra trạng thái toàn bộ các bản ghi phân phối để cập nhật trạng thái chung của bản tin gốc (Gwout).
+     */
     private void checkAndUpdateGwoutStatus(Long gwoutId) {
         List<GwoutDispatch> all = gwoutDispatchRepository.findByGwoutId(gwoutId);
         if (all.isEmpty()) return;
@@ -245,6 +257,9 @@ public class OutboundDispatchService {
         });
     }
 
+    /**
+     * Tính toán thời gian thực hiện retry tiếp theo dựa trên exponential backoff.
+     */
     private LocalDateTime calcNextRetry(int retryCount) {
         int[] delays = {
                 configService.getInt("RETRY_DELAY_1ST_SECONDS"),
@@ -255,9 +270,9 @@ public class OutboundDispatchService {
         if (retryCount <= delays.length) {
             delay = delays[retryCount - 1];
         } else {
-            // Exponential backoff: delay = last_delay * 2^(retryCount - delays.length)
+            // Tính delay bằng exponential backoff (max mũ 6).
             int lastDelay = delays[delays.length - 1];
-            delay = lastDelay * (int) Math.pow(2, Math.min(retryCount - delays.length, 6)); // Cap exponent to 6 (64x)
+            delay = lastDelay * (int) Math.pow(2, Math.min(retryCount - delays.length, 6));
         }
         return LocalDateTime.now().plusSeconds(delay);
     }

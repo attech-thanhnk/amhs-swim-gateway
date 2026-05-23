@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/alerts")
+@RequestMapping("/api/v1/alerts")
 @RequiredArgsConstructor
 public class AlertsController {
 

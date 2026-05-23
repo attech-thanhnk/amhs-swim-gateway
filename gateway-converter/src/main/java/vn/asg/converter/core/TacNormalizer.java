@@ -2,7 +2,6 @@ package vn.asg.converter.core;
 
 /**
  * Làm sạch ký tự rác từ bản tin AFTN/AMHS trước khi xử lý.
- * Học từ TacRaw.normalize() của project IWXXM cũ.
  */
 public class TacNormalizer {
 

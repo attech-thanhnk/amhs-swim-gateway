@@ -5,16 +5,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * EUR Doc 047 §3.3.3 - ATSMHS Service Level Selection
+ * EUR Doc 047 §3.3.3 - Lựa chọn Cấp độ Dịch vụ ATSMHS (ATSMHS Service Level Selection)
  *
- * Determines whether to use Extended or Basic ATSMHS service level
- * when converting SWIM messages to AMHS IPM.
+ * Xác định xem nên sử dụng cấp độ dịch vụ Extended hay Basic ATSMHS
+ * khi chuyển đổi bản tin SWIM sang AMHS IPM.
  *
- * Service Level Modes (C-08):
- * - EXTENDED: Always use extended ATSMHS (supports binary content)
- * - BASIC: Always use basic ATSMHS (text only, reject binary)
- * - CONTENT_BASED: Decide based on content-type
- * - RECIPIENTS_BASED: Decide based on recipient capabilities
+ * Các chế độ Cấp độ Dịch vụ (C-08):
+ * - EXTENDED: Luôn sử dụng extended ATSMHS (hỗ trợ nội dung nhị phân/binary)
+ * - BASIC: Luôn sử dụng basic ATSMHS (chỉ hỗ trợ văn bản/text, từ chối binary)
+ * - CONTENT_BASED: Quyết định dựa theo content-type
+ * - RECIPIENTS_BASED: Quyết định dựa theo khả năng hỗ trợ của người nhận (recipients)
  */
 @Service
 @RequiredArgsConstructor
@@ -27,11 +27,11 @@ public class AtsmhsServiceLevelResolver {
     public static final String BASIC = "BASIC";
 
     /**
-     * EUR Doc 047 §3.3.3.1-5: Resolve ATSMHS service level
+     * EUR Doc 047 §3.3.3.1-5: Phân giải cấp độ dịch vụ ATSMHS
      *
      * @param contentType AMQP content-type header
-     * @param recipients  Space-separated AFTN addresses
-     * @return EXTENDED or BASIC
+     * @param recipients  Danh sách địa chỉ AFTN phân tách bằng dấu cách
+     * @return EXTENDED hoặc BASIC
      */
     public String resolve(String contentType, String recipients) {
         String mode = configService.get(ConfigService.KEY_ATSMHS_SERVICE_LEVEL);
@@ -55,10 +55,10 @@ public class AtsmhsServiceLevelResolver {
     }
 
     /**
-     * EUR Doc 047 §3.3.3.3 - Content-based mode (C-11)
+     * EUR Doc 047 §3.3.3.3 - Chế độ Content-based (C-11)
      *
-     * Binary content (application/octet-stream) → EXTENDED
-     * Text content → BASIC
+     * Nội dung nhị phân (application/octet-stream) → EXTENDED
+     * Nội dung văn bản (text) → BASIC
      */
     private String resolveByContent(String contentType) {
         if (contentType != null && contentType.toLowerCase().contains("octet-stream")) {
@@ -70,14 +70,14 @@ public class AtsmhsServiceLevelResolver {
     }
 
     /**
-     * EUR Doc 047 §3.3.3.4 - Recipients-based mode (C-12)
+     * EUR Doc 047 §3.3.3.4 - Chế độ Recipients-based (C-12)
      *
-     * If ALL recipients support extended ATSMHS → EXTENDED
-     * Otherwise → BASIC
+     * Nếu TẤT CẢ người nhận hỗ trợ extended ATSMHS → EXTENDED
+     * Ngược lại → BASIC
      *
-     * Note: Current implementation assumes all recipients support extended.
-     * In production, this should query X.500 Directory Service or local
-     * capability database.
+     * Lưu ý: Hiện tại đang giả định tất cả người nhận đều hỗ trợ extended.
+     * Trong thực tế, cần truy vấn X.500 Directory Service hoặc cơ sở dữ liệu
+     * capability cục bộ.
      */
     private String resolveByRecipients(String recipients) {
         if (recipients == null || recipients.isBlank()) {
@@ -107,11 +107,11 @@ public class AtsmhsServiceLevelResolver {
     }
 
     /**
-     * EUR Doc 047 §3.3.3.2 - Validate content against service level (C-10)
+     * EUR Doc 047 §3.3.3.2 - Kiểm tra tính hợp lệ của nội dung theo cấp độ dịch vụ (C-10)
      *
-     * BASIC mode cannot handle binary content → must reject
+     * Chế độ BASIC không thể xử lý nội dung nhị phân (binary) → phải từ chối
      *
-     * @return true if content is valid for the service level
+     * @return true nếu nội dung hợp lệ cho cấp độ dịch vụ tương ứng
      */
     public boolean validateContent(String serviceLevel, String contentType, boolean hasBinaryContent) {
         if (BASIC.equals(serviceLevel) && hasBinaryContent) {

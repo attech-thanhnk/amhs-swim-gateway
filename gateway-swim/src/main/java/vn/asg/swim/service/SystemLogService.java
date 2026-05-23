@@ -10,9 +10,8 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * System Log Service (system_log).
- * Used for administrative events and process tracking rather than business
- * logic errors.
+ * Dịch vụ ghi log hệ thống (system_log).
+ * Được sử dụng cho các sự kiện quản trị và theo dõi tiến trình thay vì các lỗi logic nghiệp vụ.
  */
 @Service
 @RequiredArgsConstructor
@@ -21,20 +20,29 @@ public class SystemLogService {
 
     private final SystemLogRepository systemLogRepository;
 
+    /**
+     * Ghi log mức độ INFO.
+     */
     public void info(String module, String content) {
         log("INFO", module, content);
     }
 
+    /**
+     * Ghi log mức độ ERROR.
+     */
     public void error(String module, String content) {
         log("ERROR", module, content);
     }
 
+    /**
+     * Ghi log mức độ DEBUG.
+     */
     public void debug(String module, String content) {
         log("DEBUG", module, content);
     }
 
     /**
-     * Records a single entry into the system log.
+     * Ghi một bản ghi đơn lẻ vào nhật ký hệ thống.
      */
     public void log(String level, String module, String content) {
         try {

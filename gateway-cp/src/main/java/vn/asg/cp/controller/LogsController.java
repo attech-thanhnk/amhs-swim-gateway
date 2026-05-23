@@ -18,7 +18,7 @@ import java.util.Map;
  * Controller quản lý System Logs với khả năng lọc linh hoạt (Specification).
  */
 @RestController
-@RequestMapping("/api/logs")
+@RequestMapping("/api/v1/logs")
 @RequiredArgsConstructor
 public class LogsController {
 

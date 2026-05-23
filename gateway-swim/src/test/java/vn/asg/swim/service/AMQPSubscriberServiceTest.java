@@ -43,6 +43,7 @@ class AMQPSubscriberServiceTest {
     @Mock private AtsmhsServiceLevelResolver atsmhsResolver;
     @Mock private ConfigService configService;
     @Mock private MessageDetectService detectService;
+    @org.mockito.Spy private com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     @InjectMocks
     private AMQPSubscriberService service;

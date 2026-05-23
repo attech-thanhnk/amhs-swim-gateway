@@ -44,8 +44,7 @@ public class MetarParser implements MessageParser<MetarMessage> {
             msg.setNil(true);
         }
 
-        // Logic parse chi tiết các trường khác (Wind, Vis, Cloud...) sẽ được bổ sung sau
-        // Hiện tại tập trung vào cấu trúc Unified
+        // Parse cấu trúc Unified.
         
         return msg;
     }

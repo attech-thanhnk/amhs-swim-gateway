@@ -32,7 +32,7 @@ public class TafParser implements MessageParser<TafMessage> {
             msg.setValidity(m.group(3));
         }
 
-        // Tách các trend BECMG, TEMPO
+        // Phân tách các trend (BECMG, TEMPO, PROB).
         String[] trends = raw.split("(?=BECMG|TEMPO|PROB)");
         if (trends.length > 0) {
             msg.setBaseConditions(trends[0].trim());

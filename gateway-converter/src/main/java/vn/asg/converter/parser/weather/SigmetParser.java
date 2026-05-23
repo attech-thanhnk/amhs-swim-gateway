@@ -31,9 +31,8 @@ public class SigmetParser implements MessageParser<SigmetMessage> {
             msg.setSequenceNumber(m.group(2));
             msg.setValidityPeriod(m.group(3));
             
-            // Phần nội dung sau header
-            String content = raw.substring(m.end()).trim();
-            msg.setPhenomenon(content); // Tạm thời để cả cụm cho đến khi có logic chi tiết hơn
+            // Gán toàn bộ nội dung hiện tượng.
+            msg.setPhenomenon(content);
         }
 
         return msg;

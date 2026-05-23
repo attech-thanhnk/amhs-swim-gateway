@@ -8,12 +8,12 @@ import org.springframework.stereotype.Service;
 import vn.asg.swim.model.ResolvedAddressing;
 
 /**
- * Automatically resolves AMHS originator + recipients for messages from SWIM.
+ * Tự động phân giải (resolve) AMHS originator + recipients cho các bản tin đến từ SWIM.
  * <p>
- * Applies Simple Routing priorities:
+ * Áp dụng thứ tự ưu tiên Simple Routing:
  * <ol>
  * <li>AMQP Properties</li>
- * <li>Routing Rules — from the `routing` table, based on queue & filter</li>
+ * <li>Routing Rules — cấu hình trong bảng `routing` dựa theo queue & filter</li>
  * </ol>
  */
 @Service
@@ -26,24 +26,30 @@ public class AddressingResolverService {
     private final MessageValidationService validationService;
     private final MessageDetectService detectService;
 
+    /**
+     * Phân giải địa chỉ AMHS gửi và nhận từ bản tin AMQP.
+     */
     public ResolvedAddressing resolve(Message amqpMsg, String queue, String body) {
-        // Strategy 1: AMQP Properties
+        // Chiến lược 1: Sử dụng AMQP Properties
         ResolvedAddressing result = resolveFromAmqpProperties(amqpMsg);
         if (resolved(result)) {
             return result;
         }
 
-        // Strategy 2: Simple Routing Rules
+        // Chiến lược 2: Sử dụng Simple Routing Rules
         result = resolveFromRoutingRules(queue, body);
         if (resolved(result)) {
             return result;
         }
 
-        // UNRESOLVED
+        // Không phân giải được địa chỉ
         log.warn("AddressingResolver: UNRESOLVED for queue={}", queue);
         return new ResolvedAddressing(null, null, ResolvedAddressing.SOURCE_UNRESOLVED);
     }
 
+    /**
+     * Phân giải địa chỉ từ các thuộc tính AMQP (amhs_originator, amhs_recipients).
+     */
     private ResolvedAddressing resolveFromAmqpProperties(Message amqpMsg) {
         try {
             String recipients = amqpMsg.getStringProperty("amhs_recipients");
@@ -74,6 +80,9 @@ public class AddressingResolverService {
         return null;
     }
 
+    /**
+     * Phân giải địa chỉ dựa theo cấu hình định tuyến trong database.
+     */
     private ResolvedAddressing resolveFromRoutingRules(String queue, String body) {
         String messageFilter = extractMessageType(body);
         var ruleOpt = routingService.findBestMatchIn(queue, messageFilter);
@@ -92,15 +101,24 @@ public class AddressingResolverService {
         return null;
     }
 
+    /**
+     * Kiểm tra đối tượng địa chỉ đã được phân giải thành công hay chưa.
+     */
     private boolean resolved(ResolvedAddressing r) {
         return r != null && r.isResolved();
     }
 
+    /**
+     * Nhận dạng loại bản tin từ nội dung body.
+     */
     private String extractMessageType(String body) {
         String detected = detectService.detect(body);
         return "UNKNOWN".equals(detected) ? null : detected;
     }
 
+    /**
+     * Chuẩn hóa danh sách người nhận (loại bỏ ngoặc vuông, dấu phẩy, dấu nháy kép).
+     */
     static String normalizeRecipients(String raw) {
         if (raw == null || raw.isBlank())
             return null;

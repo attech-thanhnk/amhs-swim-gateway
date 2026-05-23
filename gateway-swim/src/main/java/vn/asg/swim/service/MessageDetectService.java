@@ -13,9 +13,9 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Identifies the message type from the body text.
- * Looks up the message_type_registry table based on detect_pattern.
- * In-memory cache reloaded every 5 minutes.
+ * Nhận dạng loại bản tin (message type) từ nội dung văn bản body.
+ * Tra cứu bảng message_type_registry dựa theo trường detect_pattern.
+ * Bộ đệm trong bộ nhớ (in-memory cache) được tải lại tự động sau mỗi 5 phút.
  */
 @Service
 @RequiredArgsConstructor
@@ -25,16 +25,19 @@ public class MessageDetectService {
     private final MessageTypeRegistryRepository registryRepository;
 
     /**
-     * Cache of active message types, sorted by pattern length (longest first)
+     * Bộ đệm cache của các message type đang hoạt động, sắp xếp theo độ dài pattern (dài nhất trước)
      */
     private final List<MessageTypeRegistry> cache = new CopyOnWriteArrayList<>();
 
+    /**
+     * Tải lại message type registry cache từ cơ sở dữ liệu.
+     */
     @PostConstruct
-    @Scheduled(fixedDelay = 300_000) // Reload every 5 minutes
+    @Scheduled(fixedDelay = 300_000) // Tải lại cache mỗi 5 phút
     public void reloadCache() {
         try {
             List<MessageTypeRegistry> all = registryRepository.findByActiveTrue();
-            // Sort: longest pattern first to avoid false matches (e.g., "SIGMET" > "SIG")
+            // Sắp xếp: pattern dài nhất lên trước để tránh so khớp nhầm (ví dụ: "SIGMET" > "SIG")
             all.sort(Comparator.comparingInt(r -> -r.getDetectPattern().length()));
             cache.clear();
             cache.addAll(all);
@@ -45,36 +48,35 @@ public class MessageDetectService {
     }
 
     /**
-     * Identifies the message type from body text.
-     * Compares the start of the body with the detect_pattern of each type
-     * (case-insensitive).
+     * Nhận dạng loại bản tin từ nội dung body.
+     * So sánh phần đầu của body với detect_pattern của từng loại đăng ký
+     * (không phân biệt chữ hoa chữ thường).
      *
-     * @param body plain text content of the message
-     * @return messageType. e.g., "METAR", "FPL". Returns "UNKNOWN" if no match is
-     *         found.
+     * @param body Nội dung văn bản thuần (plain text) của bản tin
+     * @return messageType. Ví dụ: "METAR", "FPL". Trả về "UNKNOWN" nếu không có so khớp nào.
      */
     public String detect(String body) {
         if (body == null || body.isBlank()) {
             return "UNKNOWN";
         }
 
-        // Split by lines to handle AFTN headers (ZCZC, GG, etc.)
+        // Phân tách theo dòng để xử lý các tiêu đề AFTN (ZCZC, GG, v.v.)
         String[] lines = body.split("\\r?\\n");
         String contentToMatch = "";
         
-        // Skip common AFTN header lines to find the start of the actual message content
+        // Bỏ qua AFTN header thông dụng để tìm điểm bắt đầu của message body.
         boolean foundStart = false;
         for (String line : lines) {
             String l = line.trim();
             if (l.isEmpty()) continue;
             
-            // 1. Skip ZCZC line (Channel Sequence Number)
+            // 1. Bỏ qua ZCZC line.
             if (l.startsWith("ZCZC")) continue;
             
-            // 2. Skip Priority & Address lines (SS, DD, FF, GG, KK)
+            // 2. Bỏ qua priority và address line (SS, DD, FF, GG, KK).
             if (l.matches("^(SS|DD|FF|GG|KK)\\s+.*")) continue;
             
-            // 3. Skip Filing Time & Originator line (e.g., 131010 VNBBYOYX)
+            // 3. Bỏ qua filing time và originator line.
             if (l.matches("^\\d{6}\\s+[A-Z]{8}.*")) continue;
             
             contentToMatch = l;
@@ -98,9 +100,9 @@ public class MessageDetectService {
             
             log.debug("MessageDetectService: Checking type={} with pattern=[{}]", reg.getMessageType(), pattern);
             
-            // If pattern looks like JSON or XML (contains quotes, braces, or brackets)
+            // So khớp nếu pattern có dạng JSON/XML.
             if (pattern.contains("\"") || pattern.contains("{") || pattern.contains("<")) {
-                // Extreme normalization: remove spaces AND quotes for maximum resilience
+                // Chuẩn hóa pattern và body để so khớp chính xác.
                 String normalizedPattern = pattern.replaceAll("[\\s+\"\']", "").toLowerCase();
                 String bodyToCompare = normalizedBody.replaceAll("[\"\']", "").toLowerCase();
                 boolean match = bodyToCompare.contains(normalizedPattern);
@@ -112,7 +114,7 @@ public class MessageDetectService {
                     return reg.getMessageType();
                 }
             } else {
-                // Fallback for TAC messages (match only the first non-header line)
+                // So khớp cho TAC message.
                 if (contentToMatch.regionMatches(true, 0, pattern, 0, pattern.length())) {
                     return reg.getMessageType();
                 }

@@ -58,7 +58,7 @@ public class ConversionResult {
     @Deprecated
     public String getXml() {
         return payload;
-    } // Alias cho code cũ
+    }
 
     public String getOutputType() {
         return outputType;

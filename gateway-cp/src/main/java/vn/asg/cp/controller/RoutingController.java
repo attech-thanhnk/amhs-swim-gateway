@@ -17,7 +17,7 @@ import java.util.List;
  * CRUD /api/routing
  */
 @RestController
-@RequestMapping("/api/routing")
+@RequestMapping("/api/v1/routing")
 @RequiredArgsConstructor
 public class RoutingController {
 

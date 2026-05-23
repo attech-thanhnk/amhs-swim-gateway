@@ -29,8 +29,8 @@ public class ConfigService {
     private final GatewayConfigRepository repository;
 
     /**
-     * Retrieves mandatory configuration from the database.
-     * Throws a critical error if the configuration is missing.
+     * Lấy giá trị cấu hình bắt buộc từ cơ sở dữ liệu.
+     * Ném ra lỗi nghiêm trọng nếu cấu hình không tồn tại.
      */
     public String get(String key) {
         return repository.findByConfigKey(key)
@@ -41,43 +41,73 @@ public class ConfigService {
                 });
     }
 
+    /**
+     * Lấy danh sách cấu hình dạng phân tách bởi dấu phẩy.
+     */
     public List<String> getCommaSeparatedConfig(String key) {
         String val = get(key);
         return Arrays.asList(val.split("\\s*,\\s*"));
     }
 
+    /**
+     * Lấy giá trị cấu hình kiểu Integer.
+     */
     public int getInt(String key) {
         return Integer.parseInt(get(key));
     }
 
+    /**
+     * Lấy giá trị cấu hình kiểu Boolean.
+     */
     public boolean getBoolean(String key) {
         return Boolean.parseBoolean(get(key));
     }
 
+    /**
+     * Lấy AFTN originator mặc định.
+     */
     public String getDefaultOriginator() {
         return get(KEY_DEFAULT_ORIGINATOR);
     }
 
+    /**
+     * Kiểm tra chế độ tuân thủ nghiêm ngặt (Strict Compliance Mode).
+     */
     public boolean isStrictComplianceMode() {
         return getBoolean(KEY_STRICT_COMPLIANCE_MODE);
     }
 
+    /**
+     * Lấy chiều chuyển đổi định dạng (Conversion Direction).
+     */
     public String getConversionDir() {
         return get(KEY_CONVERSION_DIRECTION);
     }
 
+    /**
+     * Lấy số lượng người nhận tối đa được cấu hình.
+     */
     public int getMaxMsgRecipients() {
         return getInt(KEY_MAX_MESSAGE_RECIPIENTS);
     }
 
+    /**
+     * Lấy dung lượng bản tin tối đa được cấu hình.
+     */
     public int getMaxMsgDataSize() {
         return getInt(KEY_MAX_MSG_DATA_SIZE);
     }
 
+    /**
+     * Lấy chu kỳ quét định cấu hình (Poll Interval) tính bằng mili giây.
+     */
     public long getPollIntervalMs() {
         return (long) getInt(KEY_POLL_INTERVAL_MS);
     }
 
+    /**
+     * Lấy định danh Gateway (Gateway ID).
+     */
     public String getGatewayId() {
         try {
             return get(KEY_GATEWAY_ID);

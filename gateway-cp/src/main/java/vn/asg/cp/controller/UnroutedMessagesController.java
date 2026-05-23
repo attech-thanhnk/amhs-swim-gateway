@@ -20,7 +20,7 @@ import java.util.Map;
  * REST Controller cho UNROUTED Messages Management.
  */
 @RestController
-@RequestMapping("/api/addressing/unrouted")
+@RequestMapping("/api/v1/addressing/unrouted")
 @RequiredArgsConstructor
 public class UnroutedMessagesController {
 

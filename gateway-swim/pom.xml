@@ -33,6 +33,19 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Spring Boot Actuator -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Jasypt String Encryption -->
+        <dependency>
+            <groupId>com.github.ulisesbocchio</groupId>
+            <artifactId>jasypt-spring-boot-starter</artifactId>
+            <version>3.0.5</version>
+        </dependency>
+
         <!-- Apache Qpid JMS — AMQP 1.0 (Solace compatible) -->
         <dependency>
             <groupId>org.apache.qpid</groupId>
