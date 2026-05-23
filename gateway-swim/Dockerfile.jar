@@ -1,0 +1,18 @@
+# ==========================================
+# Runtime Environment for Pre-built JAR
+# ==========================================
+FROM eclipse-temurin:17-jre-jammy
+WORKDIR /app
+
+# Set timezone to UTC for aviation standard
+ENV TZ=UTC
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Copy the pre-built jar file from target directory
+COPY target/gateway-swim-*.jar app.jar
+
+# Expose port (default 8181 from DB configuration)
+EXPOSE 8181
+
+# Run with G1GC garbage collector optimized for production JVM
+ENTRYPOINT ["java", "-XX:+UseG1GC", "-jar", "app.jar"]
