@@ -4,26 +4,27 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 /**
- * GwoutDispatch entity — Individual publish commands to AMQP for each
- * recipient.
- * A single Gwout can have multiple dispatches (multiple recipients → multiple
- * topics).
- * Retry logic and processing state are managed at the dispatch level.
+ * Thực thể GwoutDispatch - Lưu trữ các lệnh gửi tin riêng biệt tới AMQP cho
+ * từng người nhận.
+ * Một bản tin Gwout có thể có nhiều đích đến (nhiều người nhận -> nhiều topic).
+ * Logic thử lại và trạng thái xử lý được quản lý ở cấp độ này.
  */
 @Entity
 @Table(name = "gwout_dispatch")
 public class GwoutDispatch {
 
-    public GwoutDispatch() {}
+    public GwoutDispatch() {
+    }
 
-    // Status constants
+    // Các hằng số trạng thái
     public static final String STATUS_PENDING = "PENDING";
     public static final String STATUS_PROCESSING = "PROCESSING";
+    public static final String STATUS_PUBLISHING = "PUBLISHING"; // Đang gửi AMQP (tránh lỗi rollback sau khi gửi)
     public static final String STATUS_SENT = "SENT";
     public static final String STATUS_FAILED = "FAILED";
     public static final String STATUS_DEAD = "DEAD";
 
-    // Failed step constants
+    // Các hằng số bước bị lỗi
     public static final String STEP_VALIDATION = "validation";
     public static final String STEP_AUTHORIZATION = "authorization";
     public static final String STEP_DETECT = "detect";
@@ -35,59 +36,60 @@ public class GwoutDispatch {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** FK to gwout.msgid */
+    /** Khóa ngoại trỏ đến gwout.msgid */
     @Column(name = "gwout_id", nullable = false)
     private Long gwoutId;
 
-    /** AMHS recipient address for this dispatch. Example: VVHHZTZX */
+    /** Địa chỉ người nhận AMHS. Ví dụ: VVHHZTZX */
     @Column(name = "recipient", length = 100, nullable = false)
     private String recipient;
 
-    /** Detected message type. Example: METAR, FPL, UNKNOWN */
+    /** Loại bản tin được nhận dạng. Ví dụ: METAR, FPL */
     @Column(name = "message_type", length = 50)
     private String messageType;
 
-    /** Parsed geographic scope. Example: vvhh (Airport), vvhf (FIR) */
+    /**
+     * Phạm vi địa lý được phân tích. Ví dụ: vvhh (Sân bay), vvhf (Vùng thông báo
+     * bay)
+     */
     @Column(name = "scope", length = 10)
     private String scope;
 
     /**
-     * Resolved AMQP topic. Example: metar.vvhh, fpl.vvhf. NULL if routing fails.
+     * Topic AMQP tương ứng sau khi phân giải. NULL nếu lỗi định tuyến.
      */
     @Column(name = "topic", length = 100)
     private String topic;
 
-    /** AMQP account used for publishing. Example: LOCAL_BROKER */
+    /** Tài khoản AMQP dùng để gửi tin. Ví dụ: LOCAL_BROKER */
     @Column(name = "amqp_account", length = 50)
     private String amqpAccount;
 
     /**
-     * Processing status: PENDING → PROCESSING → SENT or FAILED → DEAD
+     * Trạng thái xử lý: PENDING → PROCESSING → SENT hoặc FAILED → DEAD
      */
     @Column(name = "status", nullable = false, length = 20)
     private String status = STATUS_PENDING;
 
-    /** Total retry attempts */
+    /** Tổng số lần thử lại */
     @Column(name = "retry_count", nullable = false)
     private Integer retryCount = 0;
 
     /**
-     * Next scheduled retry time.
-     * Calculated using exponential backoff (e.g., +30s, +120s, +300s). NULL if no
-     * retry needed.
+     * Thời gian dự kiến thử lại tiếp theo.
+     * Tính toán theo exponential backoff (ví dụ: +30s, +120s, +300s).
      */
     @Column(name = "next_retry_at")
     private LocalDateTime nextRetryAt;
 
     /**
-     * Detailed error message. Example:
-     * "Broker timeout after 30s", "No routing rule found for METAR+VVHHZTZX"
+     * Chi tiết thông báo lỗi cuối cùng.
      */
     @Column(name = "last_error", columnDefinition = "TEXT")
     private String lastError;
 
     /**
-     * Step where the failure occurred: detect / routing / convert / publish
+     * Bước xảy ra lỗi cuối cùng: detect / routing / convert / publish
      */
     @Column(name = "failed_step", length = 20)
     private String failedStep;
@@ -98,7 +100,7 @@ public class GwoutDispatch {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    /** Success timestamp of the publish task */
+    /** Thời điểm gửi thành công */
     @Column(name = "sent_at")
     private LocalDateTime sentAt;
 
@@ -113,34 +115,123 @@ public class GwoutDispatch {
         updatedAt = LocalDateTime.now();
     }
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public Long getGwoutId() { return gwoutId; }
-    public void setGwoutId(Long gwoutId) { this.gwoutId = gwoutId; }
-    public String getRecipient() { return recipient; }
-    public void setRecipient(String recipient) { this.recipient = recipient; }
-    public String getMessageType() { return messageType; }
-    public void setMessageType(String messageType) { this.messageType = messageType; }
-    public String getScope() { return scope; }
-    public void setScope(String scope) { this.scope = scope; }
-    public String getTopic() { return topic; }
-    public void setTopic(String topic) { this.topic = topic; }
-    public String getAmqpAccount() { return amqpAccount; }
-    public void setAmqpAccount(String amqpAccount) { this.amqpAccount = amqpAccount; }
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
-    public Integer getRetryCount() { return retryCount; }
-    public void setRetryCount(Integer retryCount) { this.retryCount = retryCount; }
-    public LocalDateTime getNextRetryAt() { return nextRetryAt; }
-    public void setNextRetryAt(LocalDateTime nextRetryAt) { this.nextRetryAt = nextRetryAt; }
-    public String getLastError() { return lastError; }
-    public void setLastError(String lastError) { this.lastError = lastError; }
-    public String getFailedStep() { return failedStep; }
-    public void setFailedStep(String failedStep) { this.failedStep = failedStep; }
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-    public LocalDateTime getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
-    public LocalDateTime getSentAt() { return sentAt; }
-    public void setSentAt(LocalDateTime sentAt) { this.sentAt = sentAt; }
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public Long getGwoutId() {
+        return gwoutId;
+    }
+
+    public void setGwoutId(Long gwoutId) {
+        this.gwoutId = gwoutId;
+    }
+
+    public String getRecipient() {
+        return recipient;
+    }
+
+    public void setRecipient(String recipient) {
+        this.recipient = recipient;
+    }
+
+    public String getMessageType() {
+        return messageType;
+    }
+
+    public void setMessageType(String messageType) {
+        this.messageType = messageType;
+    }
+
+    public String getScope() {
+        return scope;
+    }
+
+    public void setScope(String scope) {
+        this.scope = scope;
+    }
+
+    public String getTopic() {
+        return topic;
+    }
+
+    public void setTopic(String topic) {
+        this.topic = topic;
+    }
+
+    public String getAmqpAccount() {
+        return amqpAccount;
+    }
+
+    public void setAmqpAccount(String amqpAccount) {
+        this.amqpAccount = amqpAccount;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
+    public Integer getRetryCount() {
+        return retryCount;
+    }
+
+    public void setRetryCount(Integer retryCount) {
+        this.retryCount = retryCount;
+    }
+
+    public LocalDateTime getNextRetryAt() {
+        return nextRetryAt;
+    }
+
+    public void setNextRetryAt(LocalDateTime nextRetryAt) {
+        this.nextRetryAt = nextRetryAt;
+    }
+
+    public String getLastError() {
+        return lastError;
+    }
+
+    public void setLastError(String lastError) {
+        this.lastError = lastError;
+    }
+
+    public String getFailedStep() {
+        return failedStep;
+    }
+
+    public void setFailedStep(String failedStep) {
+        this.failedStep = failedStep;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
+    public LocalDateTime getSentAt() {
+        return sentAt;
+    }
+
+    public void setSentAt(LocalDateTime sentAt) {
+        this.sentAt = sentAt;
+    }
 }

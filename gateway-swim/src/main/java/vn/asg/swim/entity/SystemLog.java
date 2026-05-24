@@ -33,18 +33,54 @@ public class SystemLog {
     @Column(name = "status", length = 10)
     private String status;
 
-    public SystemLog() {}
+    public SystemLog() {
+    }
 
-    public String getUuid() { return uuid; }
-    public void setUuid(String uuid) { this.uuid = uuid; }
-    public LocalDateTime getTimestamp() { return timestamp; }
-    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
-    public String getLevel() { return level; }
-    public void setLevel(String level) { this.level = level; }
-    public String getModule() { return module; }
-    public void setModule(String module) { this.module = module; }
-    public String getContent() { return content; }
-    public void setContent(String content) { this.content = content; }
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
+    public String getUuid() {
+        return uuid;
+    }
+
+    public void setUuid(String uuid) {
+        this.uuid = uuid;
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public void setTimestamp(LocalDateTime timestamp) {
+        this.timestamp = timestamp;
+    }
+
+    public String getLevel() {
+        return level;
+    }
+
+    public void setLevel(String level) {
+        this.level = level;
+    }
+
+    public String getModule() {
+        return module;
+    }
+
+    public void setModule(String module) {
+        this.module = module;
+    }
+
+    public String getContent() {
+        return content;
+    }
+
+    public void setContent(String content) {
+        this.content = content;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
 }

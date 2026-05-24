@@ -33,20 +33,62 @@ public class PerformanceMetrics {
     @Column(name = "active_threads")
     private Integer activeThreads;
 
-    public PerformanceMetrics() {}
+    public PerformanceMetrics() {
+    }
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public Instant getTimestamp() { return timestamp; }
-    public void setTimestamp(Instant timestamp) { this.timestamp = timestamp; }
-    public Float getCpuUsage() { return cpuUsage; }
-    public void setCpuUsage(Float cpuUsage) { this.cpuUsage = cpuUsage; }
-    public Float getHeapMemory() { return heapMemory; }
-    public void setHeapMemory(Float heapMemory) { this.heapMemory = heapMemory; }
-    public Integer getMsgInCount() { return msgInCount; }
-    public void setMsgInCount(Integer msgInCount) { this.msgInCount = msgInCount; }
-    public Integer getMsgOutCount() { return msgOutCount; }
-    public void setMsgOutCount(Integer msgOutCount) { this.msgOutCount = msgOutCount; }
-    public Integer getActiveThreads() { return activeThreads; }
-    public void setActiveThreads(Integer activeThreads) { this.activeThreads = activeThreads; }
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public Instant getTimestamp() {
+        return timestamp;
+    }
+
+    public void setTimestamp(Instant timestamp) {
+        this.timestamp = timestamp;
+    }
+
+    public Float getCpuUsage() {
+        return cpuUsage;
+    }
+
+    public void setCpuUsage(Float cpuUsage) {
+        this.cpuUsage = cpuUsage;
+    }
+
+    public Float getHeapMemory() {
+        return heapMemory;
+    }
+
+    public void setHeapMemory(Float heapMemory) {
+        this.heapMemory = heapMemory;
+    }
+
+    public Integer getMsgInCount() {
+        return msgInCount;
+    }
+
+    public void setMsgInCount(Integer msgInCount) {
+        this.msgInCount = msgInCount;
+    }
+
+    public Integer getMsgOutCount() {
+        return msgOutCount;
+    }
+
+    public void setMsgOutCount(Integer msgOutCount) {
+        this.msgOutCount = msgOutCount;
+    }
+
+    public Integer getActiveThreads() {
+        return activeThreads;
+    }
+
+    public void setActiveThreads(Integer activeThreads) {
+        this.activeThreads = activeThreads;
+    }
 }

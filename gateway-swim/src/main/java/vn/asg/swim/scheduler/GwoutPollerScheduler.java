@@ -118,7 +118,8 @@ public class GwoutPollerScheduler {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .filter(s -> {
-                    if (s.matches("^[A-Z]{8}$")) return true;
+                    if (s.matches("^[A-Z]{8}$"))
+                        return true;
                     log.warn("gwout#{} contains invalid AFTN address: {}", gwout.getMsgid(), s);
                     return false;
                 })

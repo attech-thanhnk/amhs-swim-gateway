@@ -21,8 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Quản lý kết nối AMQP 1.0 tới Solace broker.
- * Hỗ trợ xác thực PLAIN, TLS, và tự động kết nối lại (auto-reconnect) với cơ chế exponential backoff.
- * Cấu hình ưu tiên lấy từ bảng `accounts` trong cơ sở dữ liệu (được đồng bộ từ CP).
+ * Hỗ trợ xác thực PLAIN, TLS và tự động kết nối lại khi gặp sự cố.
  */
 
 @Service
@@ -65,12 +64,12 @@ public class ConnectionManagerService {
     public Connection getConnection() { return connection; }
 
     /**
-     * Kiểm tra trạng thái kết nối AMQP (true/false).
+     * Kiểm tra trạng thái kết nối AMQP.
      */
     public AtomicBoolean getConnected() { return connected; }
 
     /**
-     * Lấy trạng thái liên kết (bindStatus).
+     * Lấy trạng thái liên kết.
      */
     public String getBindStatus() { return bindStatus; }
 
@@ -80,7 +79,7 @@ public class ConnectionManagerService {
     private static final int MAX_BACKOFF_MS = 30_000;
 
     /**
-     * Khởi tạo kết nối AMQP sau khi khởi dựng Service.
+     * Khởi tạo kết nối AMQP sau khi khởi dựng.
      */
     @PostConstruct
     public void init() {
@@ -146,14 +145,14 @@ public class ConnectionManagerService {
                 if (currentHost == null || currentHost.isBlank() ||
                     currentPort == null || 
                     currentUser == null || currentUser.isBlank()) {
-                    throw new java.lang.IllegalStateException("Cấu hình AMQP Broker không tìm thấy trong Database và application.properties trống!");
+                    throw new java.lang.IllegalStateException("Cấu hình AMQP Broker không tìm thấy trong Database và properties!");
                 }
                 log.warn("**********************************************************");
                 log.warn("FALLBACK (application.properties)");
                 log.warn("**********************************************************");
             }
 
-            // Giải mã mật khẩu nếu mật khẩu được mã hóa bằng Jasypt
+            // Giải mã mật khẩu nếu được mã hóa bằng Jasypt
             currentPass = decryptIfEncrypted(currentPass);
 
             String scheme = currentTls ? "amqps" : "amqp";
@@ -166,25 +165,44 @@ public class ConnectionManagerService {
             factory.setUsername(currentUser);
             factory.setPassword(currentPass);
 
-            Connection conn = factory.createConnection();
-            conn.setExceptionListener(ex -> {
-                log.error("AMQP connection exception: {}", ex.getMessage());
-                connected.set(false);
-                updateBindStatus(BIND_DISCONNECTED);
-                alertService.create(GwAlert.TYPE_CONNECTION_LOST, GwAlert.SEV_CRITICAL,
-                        "AMQP connection lost: " + ex.getMessage(), null, null);
-                scheduleReconnect();
-            });
-            conn.start();
+            Connection newConn = null;
+            try {
+                newConn = factory.createConnection();
+                newConn.setExceptionListener(ex -> {
+                    log.error("AMQP connection exception: {}", ex.getMessage());
+                    connected.set(false);
+                    updateBindStatus(BIND_DISCONNECTED);
+                    alertService.create(GwAlert.TYPE_CONNECTION_LOST, GwAlert.SEV_CRITICAL,
+                            "AMQP connection lost: " + ex.getMessage(), null, null);
+                    scheduleReconnect();
+                });
+                newConn.start();
 
-            this.connection = conn;
-            this.connected.set(true);
-            updateBindStatus(BIND_CONNECTED);
-            this.reconnectAttempt.set(0);
+                // Đóng kết nối cũ trước khi gán kết nối mới để tránh rò rỉ tài nguyên
+                Connection oldConn = this.connection;
+                if (oldConn != null) {
+                    try {
+                        oldConn.close();
+                        log.debug("Closed old AMQP connection");
+                    } catch (Exception ignored) {}
+                }
 
-            log.info("AMQP broker connected: {}", url);
-            systemLogService.log(GwAlert.SEV_INFO, "SWIM_COMPONENT",
-                     "AMQP connection established: " + url);
+                this.connection = newConn;
+                this.connected.set(true);
+                updateBindStatus(BIND_CONNECTED);
+                this.reconnectAttempt.set(0);
+
+                log.info("AMQP broker connected: {}", url);
+                systemLogService.log(GwAlert.SEV_INFO, "SWIM_COMPONENT",
+                         "AMQP connection established: " + url);
+
+            } catch (Exception ex) {
+                // Giải phóng kết nối mới nếu thiết lập thất bại
+                if (newConn != null) {
+                    try { newConn.close(); } catch (Exception ignored) {}
+                }
+                throw ex;
+            }
 
         } catch (Exception e) {
             log.error("AMQP connection failed: {}", e.getMessage());
@@ -212,7 +230,7 @@ public class ConnectionManagerService {
     }
 
     /**
-     * Lập lịch kết nối lại tự động khi mất kết nối.
+     * Lập lịch kết nối lại tự động khi gặp sự cố mất kết nối.
      */
     private void scheduleReconnect() {
         int attempt = reconnectAttempt.incrementAndGet();
@@ -232,13 +250,14 @@ public class ConnectionManagerService {
     }
 
     /**
-     * Tạo JMS Session mới từ kết nối hiện tại.
+     * Tạo session mới, sao chép kết nối cục bộ để tránh lỗi tương tranh luồng (TOCTOU).
      */
     public Session createSession() throws JMSException {
-        if (!connected.get() || connection == null) {
+        Connection conn = this.connection;  // Bản sao cục bộ để tránh lỗi tương tranh luồng
+        if (!connected.get() || conn == null) {
             throw new JMSException("AMQP not connected");
         }
-        return connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+        return conn.createSession(false, Session.AUTO_ACKNOWLEDGE);
     }
 
     /**
@@ -254,7 +273,7 @@ public class ConnectionManagerService {
      */
     public MessageConsumer createConsumer(Session session, String topic) throws JMSException {
         Destination dest = session.createTopic(topic);
-        // Sử dụng noLocal=true để tránh nhận lại các tin nhắn do chính mình gửi lên (Echo Cancellation)
+        // Sử dụng noLocal=true để tránh nhận lại tin nhắn do chính mình gửi lên (Echo Cancellation)
         return session.createConsumer(dest, null, true);
     }
 

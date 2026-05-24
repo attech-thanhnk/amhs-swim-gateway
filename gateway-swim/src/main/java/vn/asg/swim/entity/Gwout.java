@@ -12,7 +12,8 @@ import java.time.LocalDateTime;
 @Table(name = "gwout")
 public class Gwout {
 
-    public Gwout() {}
+    public Gwout() {
+    }
 
     // Status constants
     public static final int STATUS_PENDING = 0;
@@ -90,36 +91,131 @@ public class Gwout {
     @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
     private String payloadContent;
 
-    public Long getMsgid() { return msgid; }
-    public void setMsgid(Long msgid) { this.msgid = msgid; }
-    public String getAmhsid() { return amhsid; }
-    public void setAmhsid(String amhsid) { this.amhsid = amhsid; }
-    public Integer getPriority() { return priority; }
-    public void setPriority(Integer priority) { this.priority = priority; }
-    public LocalDateTime getTime() { return time; }
-    public void setTime(LocalDateTime time) { this.time = time; }
-    public String getFilingTime() { return filingTime; }
-    public void setFilingTime(String filingTime) { this.filingTime = filingTime; }
-    public String getText() { return text; }
-    public void setText(String text) { this.text = text; }
-    public String getBodyType() { return bodyType; }
-    public void setBodyType(String bodyType) { this.bodyType = bodyType; }
-    public String getOrigin() { return origin; }
-    public void setOrigin(String origin) { this.origin = origin; }
-    public String getAddress() { return address; }
-    public void setAddress(String address) { this.address = address; }
-    public String getOptionalHeading() { return optionalHeading; }
-    public void setOptionalHeading(String optionalHeading) { this.optionalHeading = optionalHeading; }
-    public LocalDateTime getAmhsTtl() { return amhsTtl; }
-    public void setAmhsTtl(LocalDateTime amhsTtl) { this.amhsTtl = amhsTtl; }
-    public String getAmhsRegisteredId() { return amhsRegisteredId; }
-    public void setAmhsRegisteredId(String amhsRegisteredId) { this.amhsRegisteredId = amhsRegisteredId; }
-    public Boolean getAmhsDeliveryReport() { return amhsDeliveryReport; }
-    public void setAmhsDeliveryReport(Boolean amhsDeliveryReport) { this.amhsDeliveryReport = amhsDeliveryReport; }
-    public String getContentType() { return contentType; }
-    public void setContentType(String contentType) { this.contentType = contentType; }
-    public Integer getStatus() { return status; }
-    public void setStatus(Integer status) { this.status = status; }
-    public String getPayloadContent() { return payloadContent; }
-    public void setPayloadContent(String payloadContent) { this.payloadContent = payloadContent; }
+    public Long getMsgid() {
+        return msgid;
+    }
+
+    public void setMsgid(Long msgid) {
+        this.msgid = msgid;
+    }
+
+    public String getAmhsid() {
+        return amhsid;
+    }
+
+    public void setAmhsid(String amhsid) {
+        this.amhsid = amhsid;
+    }
+
+    public Integer getPriority() {
+        return priority;
+    }
+
+    public void setPriority(Integer priority) {
+        this.priority = priority;
+    }
+
+    public LocalDateTime getTime() {
+        return time;
+    }
+
+    public void setTime(LocalDateTime time) {
+        this.time = time;
+    }
+
+    public String getFilingTime() {
+        return filingTime;
+    }
+
+    public void setFilingTime(String filingTime) {
+        this.filingTime = filingTime;
+    }
+
+    public String getText() {
+        return text;
+    }
+
+    public void setText(String text) {
+        this.text = text;
+    }
+
+    public String getBodyType() {
+        return bodyType;
+    }
+
+    public void setBodyType(String bodyType) {
+        this.bodyType = bodyType;
+    }
+
+    public String getOrigin() {
+        return origin;
+    }
+
+    public void setOrigin(String origin) {
+        this.origin = origin;
+    }
+
+    public String getAddress() {
+        return address;
+    }
+
+    public void setAddress(String address) {
+        this.address = address;
+    }
+
+    public String getOptionalHeading() {
+        return optionalHeading;
+    }
+
+    public void setOptionalHeading(String optionalHeading) {
+        this.optionalHeading = optionalHeading;
+    }
+
+    public LocalDateTime getAmhsTtl() {
+        return amhsTtl;
+    }
+
+    public void setAmhsTtl(LocalDateTime amhsTtl) {
+        this.amhsTtl = amhsTtl;
+    }
+
+    public String getAmhsRegisteredId() {
+        return amhsRegisteredId;
+    }
+
+    public void setAmhsRegisteredId(String amhsRegisteredId) {
+        this.amhsRegisteredId = amhsRegisteredId;
+    }
+
+    public Boolean getAmhsDeliveryReport() {
+        return amhsDeliveryReport;
+    }
+
+    public void setAmhsDeliveryReport(Boolean amhsDeliveryReport) {
+        this.amhsDeliveryReport = amhsDeliveryReport;
+    }
+
+    public String getContentType() {
+        return contentType;
+    }
+
+    public void setContentType(String contentType) {
+        this.contentType = contentType;
+    }
+
+    public Integer getStatus() {
+        return status;
+    }
+
+    public void setStatus(Integer status) {
+        this.status = status;
+    }
+
+    public String getPayloadContent() {
+        return payloadContent;
+    }
+
+    public void setPayloadContent(String payloadContent) {
+        this.payloadContent = payloadContent;
+    }
 }

@@ -20,6 +20,7 @@ import java.util.List;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -43,9 +44,11 @@ public class AMQPSubscriberService {
     private final MessageDetectService detectService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
-    private final List<Session> activeSessions = new ArrayList<>();
+    // Tập hợp an toàn đa luồng để tránh ConcurrentModificationException khi
+    // subscribe/unsubscribe đồng thời
+    private final List<Session> activeSessions = new CopyOnWriteArrayList<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
-    private List<String> currentSubscribedQueues = new ArrayList<>();
+    private volatile List<String> currentSubscribedQueues = new CopyOnWriteArrayList<>();
 
     /**
      * Bắt đầu tiến trình subscribe bất đồng bộ sau khi khởi tạo.
@@ -86,19 +89,17 @@ public class AMQPSubscriberService {
         for (String queue : queues) {
             subscribeQueue(queue);
         }
-        currentSubscribedQueues = new ArrayList<>(queues);
+        currentSubscribedQueues = new CopyOnWriteArrayList<>(queues);
         log.info("Subscribed to {} queues: {}", queues.size(), queues);
     }
 
     /**
-     * Thiết lập lắng nghe trên một queue/topic cụ thể.
+     * Subscribe queue: khởi tạo session và consumer, giải phóng nếu lỗi.
      */
     private void subscribeQueue(String queue) {
+        Session session = null;
         try {
-            Session session = connectionManager.createSession();
-            activeSessions.add(session);
-
-            // Tạo consumer lắng nghe queue/topic.
+            session = connectionManager.createSession();
             MessageConsumer consumer = connectionManager.createConsumer(session, queue);
             consumer.setMessageListener(msg -> {
                 try {
@@ -108,8 +109,19 @@ public class AMQPSubscriberService {
                 }
             });
 
+            // Chỉ add vào list khi subscribe thành công
+            activeSessions.add(session);
+            log.debug("Subscribed successfully to queue: {}", queue);
+
         } catch (JMSException e) {
             log.error("Failed to subscribe to queue {}: {}", queue, e.getMessage());
+            // Giải phóng session nếu subscribe thất bại
+            if (session != null) {
+                try {
+                    session.close();
+                } catch (Exception ignored) {
+                }
+            }
         }
     }
 
@@ -182,7 +194,7 @@ public class AMQPSubscriberService {
         String finalContent = textPayload != null ? textPayload
                 : (binaryPayload != null ? Base64.getEncoder().encodeToString(binaryPayload) : null);
 
-        // Kiểm thử tính hợp lệ bản tin theo EUR Doc 047.
+        // Kiểm tra tính hợp lệ bản tin theo EUR Doc 047.
         MessageValidationService.ValidationResult validationResult = validationService.validateSwimToAmhs(amqpMsgId,
                 amqpMsg,
                 finalContent);
@@ -213,13 +225,13 @@ public class AMQPSubscriberService {
             priority = 2;
         }
 
-        // 2. Trích xuất Content-Type & Subject.
+        // 2. Trích xuất Content-Type và Subject.
         String contentType = amqpMsg.getStringProperty("JMS_AMQP_CONTENT_TYPE");
         String subject = amqpMsg.getStringProperty("amhs_subject");
         if (subject == null)
             subject = "SWIM_INTERWORKING";
 
-        // Trích xuất các thuộc tính ứng dụng AMQP (Spec §4.5.2.1).
+        // Trích xuất các thuộc tính ứng dụng AMQP theo đặc tả.
         String atsPriority = amqpMsg.getStringProperty("ats_priority");
         String amhsAtsFt = amqpMsg.getStringProperty("amhs_ats_ft");
         String amhsAtsOhi = amqpMsg.getStringProperty("amhs_ats_ohi");
@@ -228,7 +240,7 @@ public class AMQPSubscriberService {
         String amhsContentEncoding = amqpMsg.getStringProperty("amhs_content_encoding");
         String amhsMessageSigned = amqpMsg.getStringProperty("amhs_message_signed");
 
-        // ats_priority ghi đè JMSPriority (Spec S-05).
+        // ats_priority ghi đè JMSPriority theo đặc tả.
         if (atsPriority != null && !atsPriority.isBlank()) {
             priority = vn.asg.swim.model.AmqpProperties.mapAtsPriorityToAmqp(atsPriority);
             log.debug("AMQP {}: ats_priority={} → priority={}", amqpMsgId, atsPriority, priority);
@@ -236,15 +248,24 @@ public class AMQPSubscriberService {
 
         // Chuyển đổi các thuộc tính ứng dụng sang định dạng JSON.
         java.util.Map<String, String> props = new java.util.LinkedHashMap<>();
-        if (atsPriority != null) props.put("ats_priority", atsPriority);
-        if (amhsAtsFt != null) props.put("amhs_ats_ft", amhsAtsFt);
-        if (amhsAtsOhi != null) props.put("amhs_ats_ohi", amhsAtsOhi);
-        if (amhsIpmId != null) props.put("amhs_ipm_id", amhsIpmId);
-        if (amhsBodypartType != null) props.put("amhs_bodypart_type", amhsBodypartType);
-        if (amhsContentEncoding != null) props.put("amhs_content_encoding", amhsContentEncoding);
-        if (amhsMessageSigned != null) props.put("amhs_message_signed", amhsMessageSigned);
-        if (contentType != null) props.put("content_type", contentType);
-        if (subject != null) props.put("subject", subject);
+        if (atsPriority != null)
+            props.put("ats_priority", atsPriority);
+        if (amhsAtsFt != null)
+            props.put("amhs_ats_ft", amhsAtsFt);
+        if (amhsAtsOhi != null)
+            props.put("amhs_ats_ohi", amhsAtsOhi);
+        if (amhsIpmId != null)
+            props.put("amhs_ipm_id", amhsIpmId);
+        if (amhsBodypartType != null)
+            props.put("amhs_bodypart_type", amhsBodypartType);
+        if (amhsContentEncoding != null)
+            props.put("amhs_content_encoding", amhsContentEncoding);
+        if (amhsMessageSigned != null)
+            props.put("amhs_message_signed", amhsMessageSigned);
+        if (contentType != null)
+            props.put("content_type", contentType);
+        if (subject != null)
+            props.put("subject", subject);
 
         String tempJson = "{}";
         try {
@@ -257,12 +278,12 @@ public class AMQPSubscriberService {
         // 3. Phân giải địa chỉ AMHS gửi và nhận (Addressing resolution).
         ResolvedAddressing resolved = addressingResolver.resolve(amqpMsg, queue, finalContent);
 
-        // Kiểm thử cấp độ dịch vụ ATSMHS theo Spec §3.3.3.
+        // Kiểm tra cấp độ dịch vụ ATSMHS theo đặc tả.
         if (resolved.isResolved()) {
             String serviceLevel = atsmhsResolver.resolve(contentType, resolved.recipients());
             boolean hasBinaryContent = binaryPayload != null;
 
-            // BASIC mode không hỗ trợ nội dung nhị phân (binary).
+            // Chế độ BASIC không hỗ trợ nội dung nhị phân (binary).
             if (!atsmhsResolver.validateContent(serviceLevel, contentType, hasBinaryContent)) {
                 log.error("AMQP message {} REJECTED: BASIC ATSMHS mode cannot handle binary content", amqpMsgId);
                 alertService.create(
@@ -301,7 +322,7 @@ public class AMQPSubscriberService {
                     effectiveType = detected;
                 }
             }
-            
+
             try {
                 String tac = conversionService.toAmhs(finalContent, effectiveType);
                 gwin.setText(tac);
@@ -323,14 +344,14 @@ public class AMQPSubscriberService {
                 log.warn("AMQP message {} already exists (race condition). Ignoring.", amqpMsgId);
                 return;
             }
-            
+
             String actionTag = "received-" + resolved.source().toLowerCase().replaceAll("[^a-z0-9]", "_");
             conversionService.logSwimToAmhs(amqpMsgId, resolved.originator(),
                     gwin.getStatus().equals(Gwin.STATUS_PENDING) ? "OK" : "UNROUTED",
                     actionTag,
                     resolved.isResolved() ? null : "MISSING_AMHS_RECIPIENTS",
                     amhsIpmId);
-                    
+
         } catch (Exception e) {
             log.error("AMQP {} Fatal Error: {}", amqpMsgId, e.getMessage());
         }
@@ -370,7 +391,7 @@ public class AMQPSubscriberService {
                 .count();
         // Trả về true nếu ít hơn 5% là ký tự điều khiển.
         return controlChars < s.length() * 0.05;
-     }
+    }
 
     /**
      * Định kỳ kiểm tra sự thay đổi cấu hình định tuyến inbound để re-subscribe.

@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Xử lý gwout_dispatch queue (AMHS → SWIM).
+ * Xử lý tiến trình gửi tin đi từ hàng đợi gwout_dispatch (chiều AMHS sang SWIM).
  */
 @Service
 @RequiredArgsConstructor
@@ -36,7 +36,7 @@ public class OutboundDispatchService {
     private final GwoutRepository gwoutRepository;
 
     /**
-     * Xử lý dispatch record từ gwout_dispatch queue.
+     * Xử lý bản ghi phân phối tin đi từ hàng đợi.
      */
     @Transactional
     public void processDispatch(GwoutDispatch dispatch) {
@@ -50,7 +50,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        // Validation
+        // Kiểm tra tính hợp lệ bản tin
         MessageValidationService.ValidationResult dirResult = validationService.validateAmhsToSwim(gwout.getText(),
                 gwout.getAddress());
         if (!dirResult.isValid()) {
@@ -67,10 +67,10 @@ public class OutboundDispatchService {
             return;
         }
 
-        // Authorization
+        // Kiểm tra quyền của người gửi
         if (!authorizationService.isAmhsUserAuthorized(gwout.getOrigin())) {
             log.warn("gwout#{} REJECTED: AMHS originator '{}' not authorized",
-                    gwout.getMsgid(), gwout.getOrigin());
+                     gwout.getMsgid(), gwout.getOrigin());
             alertService.create(
                     GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
                     "Unauthorized AMHS originator: " + gwout.getOrigin()
@@ -84,7 +84,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        // TTL
+        // Kiểm tra thời hạn hiệu lực bản tin (TTL)
         if (gwout.getAmhsTtl() != null && gwout.getAmhsTtl().isBefore(LocalDateTime.now())) {
             log.info("gwout#{} TTL expired, skipping dispatch#{}", gwout.getMsgid(), dispatch.getId());
             dispatch.setStatus(GwoutDispatch.STATUS_SENT);
@@ -142,14 +142,19 @@ public class OutboundDispatchService {
             return;
         }
 
+        // Đánh dấu trạng thái PUBLISHING trước khi gửi để tránh rollback sau khi đã gửi thành công
+        dispatch.setStatus(GwoutDispatch.STATUS_PUBLISHING);
+        gwoutDispatchRepository.save(dispatch);
+
         try {
             publish(gwout, dispatch.getTopic(), dispatch.getRecipient(), convertedBody,
                     gwout.getContentType());
 
+            // Gửi tin thành công -> cập nhật trạng thái SENT
             dispatch.setStatus(GwoutDispatch.STATUS_SENT);
             dispatch.setSentAt(LocalDateTime.now());
             gwoutDispatchRepository.save(dispatch);
-            log.info("dispatch#{} SENT \u2192 topic={}", dispatch.getId(), dispatch.getTopic());
+            log.info("dispatch#{} SENT -> topic={}", dispatch.getId(), dispatch.getTopic());
 
         } catch (Exception e) {
             handleFailure(dispatch, GwoutDispatch.STEP_PUBLISH, e);
@@ -160,13 +165,15 @@ public class OutboundDispatchService {
     }
 
     /**
-     * Thực hiện gửi bản tin AMQP lên Solace broker.
+     * Gửi bản tin lên AMQP broker và giải phóng tài nguyên khi hoàn tất.
      */
     private void publish(Gwout gwout, String topic, String recipient,
             String body, String contentType) throws JMSException {
-        Session session = connectionManager.createSession();
+        Session session = null;
+        MessageProducer producer = null;
         try {
-            MessageProducer producer = connectionManager.createProducer(session, topic);
+            session = connectionManager.createSession();
+            producer = connectionManager.createProducer(session, topic);
             producer.setDeliveryMode(DeliveryMode.PERSISTENT);
 
             TextMessage message = session.createTextMessage(body);
@@ -206,11 +213,15 @@ public class OutboundDispatchService {
             message.setJMSTimestamp(System.currentTimeMillis());
 
             producer.send(message);
-            producer.close();
+
         } finally {
-            try {
-                session.close();
-            } catch (Exception ignored) {}
+            // Giải phóng tài nguyên theo thứ tự ngược lại để tránh rò rỉ
+            if (producer != null) {
+                try { producer.close(); } catch (Exception ignored) {}
+            }
+            if (session != null) {
+                try { session.close(); } catch (Exception ignored) {}
+            }
         }
     }
 

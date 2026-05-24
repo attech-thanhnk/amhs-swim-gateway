@@ -5,7 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * EUR Doc 047 §3.3.3 - Lựa chọn Cấp độ Dịch vụ ATSMHS (ATSMHS Service Level Selection)
+ * EUR Doc 047 §3.3.3 - Lựa chọn Cấp độ Dịch vụ ATSMHS (ATSMHS Service Level
+ * Selection)
  *
  * Xác định xem nên sử dụng cấp độ dịch vụ Extended hay Basic ATSMHS
  * khi chuyển đổi bản tin SWIM sang AMHS IPM.
@@ -14,7 +15,8 @@ import org.springframework.stereotype.Service;
  * - EXTENDED: Luôn sử dụng extended ATSMHS (hỗ trợ nội dung nhị phân/binary)
  * - BASIC: Luôn sử dụng basic ATSMHS (chỉ hỗ trợ văn bản/text, từ chối binary)
  * - CONTENT_BASED: Quyết định dựa theo content-type
- * - RECIPIENTS_BASED: Quyết định dựa theo khả năng hỗ trợ của người nhận (recipients)
+ * - RECIPIENTS_BASED: Quyết định dựa theo khả năng hỗ trợ của người nhận
+ * (recipients)
  */
 @Service
 @RequiredArgsConstructor
@@ -74,10 +76,6 @@ public class AtsmhsServiceLevelResolver {
      *
      * Nếu TẤT CẢ người nhận hỗ trợ extended ATSMHS → EXTENDED
      * Ngược lại → BASIC
-     *
-     * Lưu ý: Hiện tại đang giả định tất cả người nhận đều hỗ trợ extended.
-     * Trong thực tế, cần truy vấn X.500 Directory Service hoặc cơ sở dữ liệu
-     * capability cục bộ.
      */
     private String resolveByRecipients(String recipients) {
         if (recipients == null || recipients.isBlank()) {
@@ -107,7 +105,8 @@ public class AtsmhsServiceLevelResolver {
     }
 
     /**
-     * EUR Doc 047 §3.3.3.2 - Kiểm tra tính hợp lệ của nội dung theo cấp độ dịch vụ (C-10)
+     * EUR Doc 047 §3.3.3.2 - Kiểm tra tính hợp lệ của nội dung theo cấp độ dịch vụ
+     * (C-10)
      *
      * Chế độ BASIC không thể xử lý nội dung nhị phân (binary) → phải từ chối
      *

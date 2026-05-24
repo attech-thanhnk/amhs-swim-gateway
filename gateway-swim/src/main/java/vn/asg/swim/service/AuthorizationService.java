@@ -9,13 +9,14 @@ import org.springframework.stereotype.Service;
 /**
  * EUR Doc 047 §3.5 - Dịch vụ Xác thực Quyền hạn (Authorization Service)
  *
- * Kiểm tra quyền hạn (authorization) đối với người dùng/doanh nghiệp AMHS và SWIM.
+ * Kiểm tra quyền hạn (authorization) đối với người dùng AMHS và SWIM.
  *
  * Các chế độ Cấu hình (C-19, C-20):
  * - ALL: Chấp nhận tất cả người dùng (không lọc)
- * - BY_LIST: Chỉ chấp nhận người dùng trong whitelist (danh sách trắng)
+ * - BY_LIST: Chỉ chấp nhận người dùng trong whitelist
  * - BY_PRMD: Chỉ chấp nhận người dùng từ PRMD cụ thể (chỉ dành cho AMHS)
- * - BY_ENTERPRISE: Chỉ chấp nhận các doanh nghiệp SWIM cụ thể (chỉ dành cho SWIM)
+ * - BY_ENTERPRISE: Chỉ chấp nhận các doanh nghiệp SWIM cụ thể (chỉ dành cho
+ * SWIM)
  */
 @Service
 @RequiredArgsConstructor
@@ -110,7 +111,8 @@ public class AuthorizationService {
             return true;
         }
 
-        // Định dạng địa chỉ AFTN: XXXXYYYYZ (4 ký tự đầu = location, 3 ký tự tiếp = unit, ký tự cuối cùng = letter)
+        // Định dạng địa chỉ AFTN: XXXXYYYYZ (4 ký tự đầu = location, 3 ký tự tiếp =
+        // unit, ký tự cuối cùng = letter)
         // PRMD thường khớp với mã vị trí (2-4 ký tự đầu tiên)
         if (originator.length() < 4) {
             log.debug("Authorization: AMHS BY_PRMD → DENY {} (invalid format)", originator);

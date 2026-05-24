@@ -8,6 +8,7 @@ import vn.asg.converter.core.ConversionResult;
 import vn.asg.converter.core.OutputFormat;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.MessageConversionLog;
+import vn.asg.swim.exception.ConversionException;
 import vn.asg.swim.repository.MessageConversionLogRepository;
 
 import java.time.LocalDate;
@@ -15,8 +16,8 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * Logic chuyển đổi định dạng bản tin (conversion) cho luồng SWIM <-> AMHS.
- * Ánh xạ (map) độ ưu tiên, OHI, body part type, và filing time theo đặc tả Spec §4.3.
+ * Logic chuyển đổi định dạng bản tin (conversion) cho luồng SWIM và AMHS.
+ * Ánh xạ độ ưu tiên, OHI, body part type và filing time theo đặc tả.
  */
 @Service
 @RequiredArgsConstructor
@@ -29,64 +30,56 @@ public class MessageConversionService {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     /**
-     * Chuyển đổi định dạng AMHS (TAC) sang SWIM (JSON).
+     * Chuyển đổi TAC sang JSON (chiều AMHS sang SWIM).
      */
-    public String toSwim(String amhsBody, String messageType) throws Exception {
+    public String toSwim(String amhsBody, String messageType) throws ConversionException {
         if (amhsBody == null || amhsBody.isBlank()) {
             return "";
         }
 
         ConversionResult result = converterFacade.convert(amhsBody, messageType, OutputFormat.JSON);
         if (!result.isSuccess()) {
-            throw new Exception("Conversion to JSON failed: " + result.getErrorMessage());
+            throw new ConversionException(result.getErrorMessage(), messageType, "TAC", "JSON");
         }
         return result.getPayload();
     }
 
     /**
-     * Chuyển đổi định dạng SWIM (JSON/XML) ngược lại AMHS (TAC).
+     * Chuyển đổi JSON sang TAC (chiều SWIM sang AMHS).
      */
-    public String toAmhs(String swimBody, String messageType) throws Exception {
+    public String toAmhs(String swimBody, String messageType) throws ConversionException {
         if (swimBody == null || swimBody.isBlank()) {
             return "";
         }
 
-        // Nếu payload đã ở định dạng TAC (bắt đầu bằng ký tự '('), trả về luôn
+        // Đã là định dạng TAC rồi, trả về luôn
         if (swimBody.trim().startsWith("(")) {
             return swimBody.trim();
         }
 
         ConversionResult result = converterFacade.convert(swimBody, messageType, OutputFormat.TEXT);
         if (!result.isSuccess()) {
-            throw new Exception(result.getErrorMessage());
+            throw new ConversionException(result.getErrorMessage(), messageType, "JSON", "TAC");
         }
         return result.getPayload();
     }
 
-    // ─── Priority Mapping §4.3.1 ──────────────────────────────────────────────
-
     /**
-     * Ánh xạ chuỗi priority ATS sang giá trị numeric priority AMQP.
+     * Ánh xạ độ ưu tiên ATS (SS/DD/FF/GG/KK) sang giá trị số AMQP (0-9).
      */
     public byte mapAtsPriorityToAmqp(String atsPriority) {
         return (byte) vn.asg.swim.model.AmqpProperties.mapAtsPriorityToAmqp(atsPriority);
     }
 
     /**
-     * SWIM → AMHS: Ánh xạ priority AMQP (0-9) sang chuỗi ATS.
+     * Ánh xạ độ ưu tiên AMQP (0-9) sang định dạng ATS (SS/DD/FF/GG/KK).
      */
     public String mapAmqpPriorityToAts(int amqpPriority) {
         return vn.asg.swim.model.AmqpProperties.mapPriorityToAts(amqpPriority);
     }
 
-    // ─── OHI §4.3.6 ──────────────────────────────────────────────────────────
-
     /**
-     * Cắt ngắn OHI theo các quy tắc trong §4.3.6.
-     *
-     * @param ohi          Giá trị OHI gốc
-     * @param amqpPriority Độ ưu tiên AMQP (0-9)
-     * @return OHI đã qua xử lý hoặc null nếu rỗng
+     * Cắt ngắn thông tin OHI theo đặc tả: độ ưu tiên >= 6 tối đa 48 ký tự, ngược lại tối đa 53 ký tự.
      */
     public String processOhi(String ohi, int amqpPriority) {
         if (ohi == null || ohi.isBlank())
@@ -95,10 +88,8 @@ public class MessageConversionService {
         return ohi.length() > maxLen ? ohi.substring(0, maxLen) : ohi;
     }
 
-    // ─── amhs_content_encoding §4.3.3 ────────────────────────────────────────
-
     /**
-     * Ánh xạ body part type sang dạng mã hóa (encoding) tương ứng.
+     * Ánh xạ loại body part sang bảng mã tương ứng (IA5, ISO-646, ISO-8859-1).
      */
     public String mapBodyPartTypeToEncoding(String bodyPartType) {
         if (bodyPartType == null)
@@ -116,8 +107,7 @@ public class MessageConversionService {
     }
 
     /**
-     * Ghi log sau khi publish AMQP thành công (chiều AMHS → SWIM).
-     * EUR Doc 047 §4.3.4e,f (G-13, G-14): Log MTS-ID và IPM-ID
+     * Ghi log chuyển đổi chiều gửi đi AMHS sang SWIM.
      */
     public void logAmhsToSwim(Gwout gwout, String amqpMessageId, String status, String actionTaken,
             String mtsId, String ipmId) {
@@ -146,18 +136,14 @@ public class MessageConversionService {
     }
 
     /**
-     * Phương thức nạp chồng (overload) để tương thích ngược (không có MTS/IPM ID)
-     */
-    /**
-     * Ghi log chuyển đổi chiều AMHS -> SWIM (tương thích ngược).
+     * Log chuyển đổi AMHS sang SWIM (không kèm theo MTS/IPM ID).
      */
     public void logAmhsToSwim(Gwout gwout, String amqpMessageId, String status, String actionTaken) {
         logAmhsToSwim(gwout, amqpMessageId, status, actionTaken, null, null);
     }
 
     /**
-     * Ghi log sau khi nhận bản tin AMQP và ghi vào Gwin (chiều SWIM → AMHS).
-     * EUR Doc 047 §4.3.4f (G-14): Log IPM-ID nếu có.
+     * Ghi log chuyển đổi chiều nhận về SWIM sang AMHS.
      */
     public void logSwimToAmhs(String amqpMessageId, String originator,
             String status, String actionTaken,
@@ -181,23 +167,15 @@ public class MessageConversionService {
     }
 
     /**
-     * Phương thức nạp chồng để tương thích ngược (dành cho các nhánh từ chối bản tin).
-     */
-    /**
-     * Ghi log chuyển đổi chiều SWIM -> AMHS (tương thích ngược).
+     * Log chuyển đổi SWIM sang AMHS (không kèm theo IPM-ID).
      */
     public void logSwimToAmhs(String amqpMessageId, String originator,
             String status, String actionTaken, String rejectionReason) {
         logSwimToAmhs(amqpMessageId, originator, status, actionTaken, rejectionReason, null);
     }
 
-    // Các điều khoản tuân thủ EUR Doc 047 được xử lý thông qua gọi AlertService trong các dispatch services.
-
     /**
-     * Kiểm tra tính hợp lệ của filing_time: phải có đúng 6 chữ số (DDhhmm).
-     */
-    /**
-     * Kiểm tra tính hợp lệ của thời gian nộp bản tin (Filing Time).
+     * Kiểm tra định dạng thời gian nộp (filing time) gồm 6 chữ số (DDhhmm).
      */
     public boolean isValidFilingTime(String ft) {
         return ft != null && ft.matches("\\d{6}");
