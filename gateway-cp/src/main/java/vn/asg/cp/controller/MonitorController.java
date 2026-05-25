@@ -9,7 +9,10 @@ import vn.asg.cp.repository.AccountRepository;
 import vn.asg.cp.repository.GwinRepository;
 import vn.asg.cp.repository.GwoutRepository;
 import vn.asg.cp.repository.PerformanceMetricsRepository;
+import vn.asg.cp.repository.ServerInfoRepository;
+import vn.asg.cp.provider.AppVersionProvider;
 
+import vn.asg.cp.entity.ServerInfo;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.RuntimeMXBean;
@@ -31,6 +34,8 @@ public class MonitorController {
         private final PerformanceMetricsRepository metricsRepository;
         private final GwoutRepository gwoutRepository;
         private final GwinRepository gwinRepository;
+        private final ServerInfoRepository serverInfoRepository;
+        private final AppVersionProvider versionProvider;
 
         @GetMapping("/stats")
         public ResponseEntity<?> getStats() {
@@ -42,6 +47,22 @@ public class MonitorController {
                 long heapUsedMb = memory.getHeapMemoryUsage().getUsed() / (1024 * 1024);
                 long heapMaxMb = memory.getHeapMemoryUsage().getMax() / (1024 * 1024);
 
+                // Get current info
+                String serverName = "";
+                String ipAddress = "";
+                String version = "";
+                String description = "";
+
+                Optional<ServerInfo> serverInfoOpt = serverInfoRepository.findFirstByVersionOrderByUuidDesc(versionProvider.getVersion());
+
+                if (serverInfoOpt.isPresent()) {
+                        ServerInfo server = serverInfoOpt.get();
+                        serverName = server.getServerName();
+                        ipAddress = server.getIpAddress();
+                        version = server.getVersion();
+                        description = server.getDescription();
+                }
+
                 // 2. Metrics từ DB Performance (tổng lũy kế)
                 Optional<PerformanceMetrics> latestMetrics = metricsRepository.findFirstByOrderByTimestampDesc();
                 long msgInTotal = latestMetrics.map(m -> m.getMsgInCount() != null ? m.getMsgInCount().longValue() : 0L)
@@ -51,13 +72,27 @@ public class MonitorController {
 
                 // 3. Database Message stats (số lượng bản ghi hiện có theo status)
                 Map<String, Object> gwoutStats = Map.of(
-                                "new", gwoutRepository.countByStatus(0),
+                                "total", gwoutRepository.countAll(),
+                                "pending", gwoutRepository.countByStatus(0),
                                 "processing", gwoutRepository.countByStatus(1),
-                                "error", gwoutRepository.countByStatus(3));
+                                "transformed", gwoutRepository.countByStatus(2),
+                                "published", gwoutRepository.countByStatus(3),
+                                "failed", gwoutRepository.countByStatus(4),
+                                "convertFailed", gwoutRepository.countByErrorType(1),
+                                "undefinded", gwoutRepository.countByErrorType(0) // Không check đc định 
+                        );
 
                 Map<String, Object> gwinStats = Map.of(
-                                "new", gwinRepository.countByStatus(0),
-                                "error", gwinRepository.countByStatus(3));
+                                "total", gwinRepository.countAll(),
+                                "pending", gwinRepository.countByStatus(0),
+                                "processing", gwinRepository.countByStatus(1),
+                                "transformed", gwinRepository.countByStatus(2),
+                                "sent", gwinRepository.countByStatus(3),
+                                "failed", gwinRepository.countByStatus(4),
+                                "unrouted", gwinRepository.countByStatus(5),
+                                "convertFailed", gwinRepository.countByErrorType(1),
+                                "undefinded", gwinRepository.countByErrorType(0) // Không check đc định dạng
+                        );
 
                 // 4. Accounts Connection Status
                 List<Account> accounts = accountRepository.findAll();
@@ -84,9 +119,13 @@ public class MonitorController {
                 Map<String, Object> response = Map.of(
                                 "server", Map.of(
                                                 "uptime", uptimeSec,
-                                                "version", "2.0.0",
+                                                "version", version,
                                                 "heapUsedMb", heapUsedMb,
-                                                "heapMaxMb", heapMaxMb),
+                                                "heapMaxMb", heapMaxMb,
+                                                "serverName", serverName,
+                                                "ipAddress", ipAddress,
+                                                "description", description
+                                        ),
                                 "trafficCumulative", Map.of(
                                                 "inbound", msgInTotal,
                                                 "outbound", msgOutTotal),

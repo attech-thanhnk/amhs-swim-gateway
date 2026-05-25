@@ -84,8 +84,15 @@ public class MessageLog {
     // PROCESSING STATUS
     // =========================
 
-    @Column(name = "processing_status", length = 30)
-    private String processingStatus; // SUCCESS / FAILED
+    // =========================
+    // 1 = RECEIVED
+    // 2 = TRANSFORMED
+    // 3 = PUBLISHED
+    // 4 = FAILED
+    // =========================
+
+    @Column(name = "processing_status")
+    private String processingStatus;
 
     @Column(name = "processing_step", length = 50)
     private String processingStep; // PARSING / ROUTING / SENDING
