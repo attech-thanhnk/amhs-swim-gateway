@@ -1,18 +1,11 @@
 package vn.asg.cp.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Response DTO cho batch operations.
  */
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
 public class BatchOperationResponse {
 
     private int processed;
@@ -20,12 +13,39 @@ public class BatchOperationResponse {
     private int failed;
     private List<BatchError> errors = new ArrayList<>();
 
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
+    public BatchOperationResponse() {}
+
+    public BatchOperationResponse(int processed, int succeeded, int failed, List<BatchError> errors) {
+        this.processed = processed;
+        this.succeeded = succeeded;
+        this.failed = failed;
+        this.errors = errors != null ? errors : new ArrayList<>();
+    }
+
+    public int getProcessed() { return processed; }
+    public void setProcessed(int processed) { this.processed = processed; }
+    public int getSucceeded() { return succeeded; }
+    public void setSucceeded(int succeeded) { this.succeeded = succeeded; }
+    public int getFailed() { return failed; }
+    public void setFailed(int failed) { this.failed = failed; }
+    public List<BatchError> getErrors() { return errors; }
+    public void setErrors(List<BatchError> errors) { this.errors = errors; }
+
     public static class BatchError {
         private Long msgid;
         private String error;
+
+        public BatchError() {}
+
+        public BatchError(Long msgid, String error) {
+            this.msgid = msgid;
+            this.error = error;
+        }
+
+        public Long getMsgid() { return msgid; }
+        public void setMsgid(Long msgid) { this.msgid = msgid; }
+        public String getError() { return error; }
+        public void setError(String error) { this.error = error; }
     }
 
     public void addError(Long msgid, String error) {

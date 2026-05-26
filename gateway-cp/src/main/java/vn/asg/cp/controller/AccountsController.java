@@ -20,7 +20,7 @@ import java.util.Map;
  * CRUD /api/accounts + connect/disconnect
  */
 @RestController
-@RequestMapping("/api/accounts")
+@RequestMapping("/api/v1/accounts")
 @RequiredArgsConstructor
 public class AccountsController {
 
@@ -124,7 +124,13 @@ public class AccountsController {
                 .orElseThrow(() -> new ResourceNotFoundException("Account", id));
 
         String host = acc.getHost();
-        int port = acc.getPort() != null ? acc.getPort() : 5672;
+        if (host == null || host.isBlank()) {
+            throw new ValidationException("Địa chỉ IP/Host của tài khoản không được để trống");
+        }
+        if (acc.getPort() == null) {
+            throw new ValidationException("Cổng kết nối (Port) của tài khoản không được để trống");
+        }
+        int port = acc.getPort();
 
         long latencyMs = tcpPing(host, port);
         if (latencyMs < 0) {

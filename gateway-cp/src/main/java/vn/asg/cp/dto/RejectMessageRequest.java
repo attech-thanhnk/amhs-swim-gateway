@@ -2,17 +2,18 @@ package vn.asg.cp.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 /**
  * Request DTO để reject UNROUTED message.
  */
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
 public class RejectMessageRequest {
+
+    public RejectMessageRequest() {}
+
+    public RejectMessageRequest(String reason, String note) {
+        this.reason = reason;
+        this.note = note;
+    }
 
     /**
      * Lý do reject.
@@ -26,4 +27,9 @@ public class RejectMessageRequest {
      */
     @Size(max = 500, message = "Note max 500 characters")
     private String note;
+
+    public String getReason() { return reason; }
+    public void setReason(String reason) { this.reason = reason; }
+    public String getNote() { return note; }
+    public void setNote(String note) { this.note = note; }
 }

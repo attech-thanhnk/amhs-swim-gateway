@@ -1,8 +1,6 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
-import lombok.*;
-
 import java.time.LocalDateTime;
 
 /**
@@ -10,10 +8,6 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "system_log")
-@Data
-@NoArgsConstructor
-@Builder
-@AllArgsConstructor
 public class SystemLog {
 
     @Id
@@ -37,4 +31,19 @@ public class SystemLog {
     /** READ / UNREAD */
     @Column(name = "status", length = 10)
     private String status;
+
+    public SystemLog() {}
+
+    public String getUuid() { return uuid; }
+    public void setUuid(String uuid) { this.uuid = uuid; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+    public String getLevel() { return level; }
+    public void setLevel(String level) { this.level = level; }
+    public String getModule() { return module; }
+    public void setModule(String module) { this.module = module; }
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
 }

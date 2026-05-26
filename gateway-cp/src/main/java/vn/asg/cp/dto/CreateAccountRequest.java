@@ -1,11 +1,12 @@
 package vn.asg.cp.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.Data;
 
-@Data
+
 @Schema(description = "Request to create a new AMQP/AMHS account")
 public class CreateAccountRequest {
+
+    public CreateAccountRequest() {}
 
     @Schema(description = "Account name (unique identifier)",
             example = "solace-broker-primary",
@@ -43,4 +44,20 @@ public class CreateAccountRequest {
     @Schema(description = "Optional note",
             example = "Primary Solace broker")
     private String note;
+    public String getAccountName() { return accountName; }
+    public void setAccountName(String accountName) { this.accountName = accountName; }
+    public String getProtocol() { return protocol; }
+    public void setProtocol(String protocol) { this.protocol = protocol; }
+    public String getHost() { return host; }
+    public void setHost(String host) { this.host = host; }
+    public Integer getPort() { return port; }
+    public void setPort(Integer port) { this.port = port; }
+    public String getConfigJson() { return configJson; }
+    public void setConfigJson(String configJson) { this.configJson = configJson; }
+    public Boolean getTlsEnabled() { return tlsEnabled; }
+    public void setTlsEnabled(Boolean tlsEnabled) { this.tlsEnabled = tlsEnabled; }
+    public String getSaslMechanism() { return saslMechanism; }
+    public void setSaslMechanism(String saslMechanism) { this.saslMechanism = saslMechanism; }
+    public String getNote() { return note; }
+    public void setNote(String note) { this.note = note; }
 }

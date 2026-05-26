@@ -1,11 +1,11 @@
 package vn.asg.cp.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.Data;
 
-@Data
 @Schema(description = "Request to manually route an unrouted message")
 public class RouteMessageRequest {
+
+    public RouteMessageRequest() {}
 
     @Schema(description = "AFTN originator address (8 characters)",
             example = "VVHHZQZX",
@@ -24,4 +24,11 @@ public class RouteMessageRequest {
             example = "Manually routed by operator",
             maxLength = 500)
     private String note;
+
+    public String getOriginator() { return originator; }
+    public void setOriginator(String originator) { this.originator = originator; }
+    public String getRecipients() { return recipients; }
+    public void setRecipients(String recipients) { this.recipients = recipients; }
+    public String getNote() { return note; }
+    public void setNote(String note) { this.note = note; }
 }

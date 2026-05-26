@@ -45,14 +45,13 @@ public class MetricsCollectorScheduler {
             long msgIn = gwinRepository.count();
             long msgOut = gwoutRepository.countByStatus(2); // STATUS_SENT
 
-            PerformanceMetrics metrics = PerformanceMetrics.builder()
-                    .timestamp(Instant.now())
-                    .cpuUsage(cpuLoad)
-                    .heapMemory(heapMb)
-                    .activeThreads(threads)
-                    .msgInCount((int) msgIn)
-                    .msgOutCount((int) msgOut)
-                    .build();
+            PerformanceMetrics metrics = new PerformanceMetrics();
+            metrics.setTimestamp(Instant.now());
+            metrics.setCpuUsage(cpuLoad);
+            metrics.setHeapMemory(heapMb);
+            metrics.setActiveThreads(threads);
+            metrics.setMsgInCount((int) msgIn);
+            metrics.setMsgOutCount((int) msgOut);
 
             metricsRepository.save(metrics);
             log.debug("Metrics collected: cpu={}% heap={}MB threads={}", cpuLoad, heapMb, threads);

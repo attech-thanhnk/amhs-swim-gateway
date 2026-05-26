@@ -1,8 +1,6 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
-import lombok.*;
-
 import java.time.Instant;
 
 /**
@@ -10,10 +8,6 @@ import java.time.Instant;
  */
 @Entity
 @Table(name = "message_archive")
-@Data
-@NoArgsConstructor
-@Builder
-@AllArgsConstructor
 public class MessageArchive {
 
     @Id
@@ -50,4 +44,95 @@ public class MessageArchive {
 
     @Column(name = "processing_status", length = 20)
     private String processingStatus;
+
+    public MessageArchive() {
+    }
+
+    public String getUuid() {
+        return uuid;
+    }
+
+    public void setUuid(String uuid) {
+        this.uuid = uuid;
+    }
+
+    public String getMsgId() {
+        return msgId;
+    }
+
+    public void setMsgId(String msgId) {
+        this.msgId = msgId;
+    }
+
+    public String getMtsId() {
+        return mtsId;
+    }
+
+    public void setMtsId(String mtsId) {
+        this.mtsId = mtsId;
+    }
+
+    public String getIpmId() {
+        return ipmId;
+    }
+
+    public void setIpmId(String ipmId) {
+        this.ipmId = ipmId;
+    }
+
+    public String getAmqpMessageId() {
+        return amqpMessageId;
+    }
+
+    public void setAmqpMessageId(String amqpMessageId) {
+        this.amqpMessageId = amqpMessageId;
+    }
+
+    public String getRecipients() {
+        return recipients;
+    }
+
+    public void setRecipients(String recipients) {
+        this.recipients = recipients;
+    }
+
+    public String getPriority() {
+        return priority;
+    }
+
+    public void setPriority(String priority) {
+        this.priority = priority;
+    }
+
+    public String getDirection() {
+        return direction;
+    }
+
+    public void setDirection(String direction) {
+        this.direction = direction;
+    }
+
+    public Instant getTimestamp() {
+        return timestamp;
+    }
+
+    public void setTimestamp(Instant timestamp) {
+        this.timestamp = timestamp;
+    }
+
+    public String getRawContent() {
+        return rawContent;
+    }
+
+    public void setRawContent(String rawContent) {
+        this.rawContent = rawContent;
+    }
+
+    public String getProcessingStatus() {
+        return processingStatus;
+    }
+
+    public void setProcessingStatus(String processingStatus) {
+        this.processingStatus = processingStatus;
+    }
 }

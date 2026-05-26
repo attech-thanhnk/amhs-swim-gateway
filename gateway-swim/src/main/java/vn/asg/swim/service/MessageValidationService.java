@@ -10,14 +10,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * EUR Doc 047 Compliance: Message Validation Service
+ * Tuân thủ EUR Doc 047: Dịch vụ Kiểm thử tính Hợp lệ của Bản tin (Message Validation Service)
  *
- * Validates AMQP messages according to EUR Doc 047 requirements:
- * - C-02, C-03: Conversion direction check
- * - C-05, S-08: Message size validation
- * - C-07, S-09: Recipients count validation
- * - S-06, S-07: Mandatory fields validation
- * - S-11, S-15: AFTN address format validation
+ * Thực hiện kiểm thử tính hợp lệ của các bản tin AMQP theo các yêu cầu của tài liệu EUR Doc 047:
+ * - C-02, C-03: Kiểm tra chiều chuyển đổi định dạng (Conversion direction)
+ * - C-05, S-08: Kiểm tra giới hạn kích thước bản tin (Message size)
+ * - C-07, S-09: Kiểm tra số lượng người nhận (Recipients count)
+ * - S-06, S-07: Kiểm tra các trường bắt buộc (Mandatory fields)
+ * - S-11, S-15: Kiểm tra định dạng địa chỉ AFTN (AFTN address format)
  */
 @Service
 @RequiredArgsConstructor
@@ -27,7 +27,7 @@ public class MessageValidationService {
     private final ConfigService configService;
 
     /**
-     * Validation result container
+     * Đối tượng chứa kết quả kiểm thử (Validation Result Container)
      */
     public static class ValidationResult {
         private final boolean valid;
@@ -66,32 +66,31 @@ public class MessageValidationService {
     }
 
     /**
-     * EUR Doc 047 §4.5.1 - Validate SWIM→AMHS message
+     * EUR Doc 047 §4.5.1 - Kiểm thử bản tin chiều SWIM → AMHS
      *
-     * Checks:
-     * - C-02: Conversion direction allows SWIM→AMHS
-     * - S-06: Mandatory fields present
-     * - S-08: Message size within limit
-     * - S-09: Recipients count within limit
+     * Thực hiện kiểm tra:
+     * - C-02: Chiều chuyển đổi định dạng có cho phép SWIM → AMHS
+     * - S-06: Sự hiện diện của các trường bắt buộc (Mandatory fields)
+     * - S-08: Kích thước bản tin trong giới hạn cho phép
+     * - S-09: Số lượng người nhận trong giới hạn cho phép
      */
     public ValidationResult validateSwimToAmhs(String messageId, Message msg, String payload) {
         List<String> errors = new ArrayList<>();
 
-        // C-02: Check conversion direction
+        // C-02: Kiểm tra chiều chuyển đổi định dạng
         String direction = configService.getConversionDir();
         if ("AMHS_TO_SWIM".equals(direction)) {
             errors.add("Conversion direction is AMHS_TO_SWIM - SWIM→AMHS messages not allowed");
             return ValidationResult.failure(errors);
         }
 
-        // S-06: Validate mandatory AMQP fields
+        // S-06: Kiểm thử các trường AMQP bắt buộc
         try {
             if (messageId == null || messageId.isBlank()) {
                 errors.add("Mandatory field 'message-id' (JMSMessageID) is missing");
             }
 
-            // Priority and Timestamp: warning instead of rejection to handle non-compliant
-            // test tools
+            // Priority và Timestamp: chỉ đưa ra cảnh báo thay vì từ chối bản tin nhằm tương thích với các công cụ kiểm thử không hoàn toàn tuân thủ
             try {
                 msg.getJMSPriority();
             } catch (Exception e) {
@@ -103,7 +102,7 @@ public class MessageValidationService {
                 log.warn("Message {}: Mandatory field 'creation-time' (JMSTimestamp) is missing", messageId);
             }
 
-            // Required: data or amqp-value (payload)
+            // Bắt buộc: trường data hoặc amqp-value (payload)
             if (payload == null || payload.isBlank()) {
                 errors.add("Mandatory field 'data/amqp-value' (message body) is missing");
             }
@@ -112,7 +111,7 @@ public class MessageValidationService {
             errors.add("Failed to read AMQP message properties: " + e.getMessage());
         }
 
-        // S-08: Check message size
+        // S-08: Kiểm tra kích thước bản tin
         if (payload != null) {
             int maxSize = configService.getMaxMsgDataSize();
             int actualSize = payload.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
@@ -129,24 +128,24 @@ public class MessageValidationService {
     }
 
     /**
-     * EUR Doc 047 §4.4.1 - Validate AMHS→SWIM message
+     * EUR Doc 047 §4.4.1 - Kiểm thử bản tin chiều AMHS → SWIM
      *
-     * Checks:
-     * - C-03: Conversion direction allows AMHS→SWIM
-     * - C-05: Message size within limit
-     * - C-07: Recipients count within limit
+     * Thực hiện kiểm tra:
+     * - C-03: Chiều chuyển đổi định dạng có cho phép AMHS → SWIM
+     * - C-05: Kích thước bản tin trong giới hạn cho phép
+     * - C-07: Số lượng người nhận trong giới hạn cho phép
      */
     public ValidationResult validateAmhsToSwim(String payload, String recipients) {
         List<String> errors = new ArrayList<>();
 
-        // C-03: Check conversion direction
+        // C-03: Kiểm tra chiều chuyển đổi định dạng
         String direction = configService.getConversionDir();
         if ("SWIM_TO_AMHS".equals(direction)) {
             errors.add("Conversion direction is SWIM_TO_AMHS - AMHS→SWIM messages not allowed");
             return ValidationResult.failure(errors);
         }
 
-        // C-05: Check message size
+        // C-05: Kiểm tra kích thước bản tin
         if (payload != null) {
             int maxSize = configService.getMaxMsgDataSize();
             int actualSize = payload.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
@@ -156,7 +155,7 @@ public class MessageValidationService {
             }
         }
 
-        // C-07: Check recipients count
+        // C-07: Kiểm tra số lượng người nhận
         if (recipients != null && !recipients.isBlank()) {
             String[] recipientArray = recipients.trim().split("\\s+");
             int maxRecipients = configService.getMaxMsgRecipients();
@@ -174,9 +173,9 @@ public class MessageValidationService {
     }
 
     /**
-     * EUR Doc 047 §4.5.2.4 - Validate AFTN address format
+     * EUR Doc 047 §4.5.2.4 - Kiểm thử định dạng địa chỉ AFTN
      *
-     * S-11, S-15: AFTN address must be exactly 8 uppercase alphanumeric characters
+     * S-11, S-15: Địa chỉ AFTN phải có đúng 8 ký tự alphanumeric viết hoa
      */
     public ValidationResult validateAftnAddress(String aftn, String fieldName) {
         if (aftn == null || aftn.isBlank()) {
@@ -185,13 +184,13 @@ public class MessageValidationService {
 
         String trimmed = aftn.trim();
 
-        // Must be exactly 8 characters
+        // Phải có đúng 8 ký tự
         if (trimmed.length() != 8) {
             return ValidationResult.failure(String.format("%s '%s' must be exactly 8 characters (actual: %d)",
                     fieldName, trimmed, trimmed.length()));
         }
 
-        // Must be uppercase alphanumeric
+        // Phải là ký tự alphanumeric viết hoa
         if (!trimmed.matches("[A-Z0-9]{8}")) {
             return ValidationResult.failure(String.format("%s '%s' must contain only uppercase letters and digits",
                     fieldName, trimmed));
@@ -201,9 +200,9 @@ public class MessageValidationService {
     }
 
     /**
-     * EUR Doc 047 - Validate space-separated AFTN addresses
+     * EUR Doc 047 - Kiểm thử danh sách địa chỉ AFTN phân tách bằng dấu cách
      *
-     * S-09, S-11: Validate recipients list
+     * S-09, S-11: Kiểm thử danh sách người nhận (recipients list)
      */
     public ValidationResult validateAftnRecipients(String recipients) {
         if (recipients == null || recipients.isBlank()) {
@@ -213,13 +212,13 @@ public class MessageValidationService {
         List<String> errors = new ArrayList<>();
         String[] addresses = recipients.trim().split("\\s+");
 
-        // S-09: Check count
+        // S-09: Kiểm tra số lượng người nhận
         int maxRecipients = configService.getMaxMsgRecipients();
         if (addresses.length > maxRecipients) {
             errors.add(String.format("Recipients count %d exceeds maximum %d", addresses.length, maxRecipients));
         }
 
-        // S-11: Validate each address format
+        // S-11: Kiểm thử định dạng của từng địa chỉ cụ thể
         for (int i = 0; i < addresses.length; i++) {
             ValidationResult result = validateAftnAddress(addresses[i], "Recipient[" + i + "]");
             if (!result.isValid()) {
@@ -235,7 +234,7 @@ public class MessageValidationService {
     }
 
     /**
-     * Check if conversion direction allows the specified direction
+     * Kiểm tra xem chiều chuyển đổi hiện tại có cho phép chiều mong muốn hay không
      */
     public boolean isDirectionAllowed(String direction) {
         String configDir = configService.getConversionDir();

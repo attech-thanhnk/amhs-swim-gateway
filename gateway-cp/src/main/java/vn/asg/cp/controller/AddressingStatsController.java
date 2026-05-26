@@ -16,7 +16,7 @@ import java.util.Map;
  * REST Controller for Addressing Statistics & Monitoring.
  */
 @RestController
-@RequestMapping("/api/addressing/stats")
+@RequestMapping("/api/v1/addressing/stats")
 @RequiredArgsConstructor
 public class AddressingStatsController {
 

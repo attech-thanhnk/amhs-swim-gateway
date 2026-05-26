@@ -10,8 +10,8 @@ import java.util.Optional;
 @Repository
 public interface MessageTypeRegistryRepository extends JpaRepository<MessageTypeRegistry, Long> {
 
-    /** Lấy tất cả loại điện văn đang active (dùng khi khởi động để cache) */
-    List<MessageTypeRegistry> findByActiveTrueOrderByPhaseAsc();
+    /** Lấy tất cả loại điện văn đang active */
+    List<MessageTypeRegistry> findByActiveTrue();
 
     /** Tra cứu theo message type key */
     Optional<MessageTypeRegistry> findByMessageType(String messageType);

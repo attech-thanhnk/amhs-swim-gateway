@@ -1,8 +1,7 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+
 
 /**
  * Bảng accounts — CP quản lý kết nối AMQP / X400.
@@ -10,9 +9,9 @@ import lombok.NoArgsConstructor;
  */
 @Entity
 @Table(name = "accounts")
-@Data
-@NoArgsConstructor
 public class Account {
+
+    public Account() {}
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -56,4 +55,32 @@ public class Account {
 
     @Column(name = "unsigned_messages_action", length = 30)
     private String unsignedMessagesAction;
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getAccountName() { return accountName; }
+    public void setAccountName(String accountName) { this.accountName = accountName; }
+    public String getProtocol() { return protocol; }
+    public void setProtocol(String protocol) { this.protocol = protocol; }
+    public String getHost() { return host; }
+    public void setHost(String host) { this.host = host; }
+    public Integer getPort() { return port; }
+    public void setPort(Integer port) { this.port = port; }
+    public String getConfigJson() { return configJson; }
+    public void setConfigJson(String configJson) { this.configJson = configJson; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public String getBindStatus() { return bindStatus; }
+    public void setBindStatus(String bindStatus) { this.bindStatus = bindStatus; }
+    public String getCertificatePath() { return certificatePath; }
+    public void setCertificatePath(String certificatePath) { this.certificatePath = certificatePath; }
+    public String getCertificatePassphrase() { return certificatePassphrase; }
+    public void setCertificatePassphrase(String certificatePassphrase) { this.certificatePassphrase = certificatePassphrase; }
+    public String getSaslMechanism() { return saslMechanism; }
+    public void setSaslMechanism(String saslMechanism) { this.saslMechanism = saslMechanism; }
+    public Boolean getTlsEnabled() { return tlsEnabled; }
+    public void setTlsEnabled(Boolean tlsEnabled) { this.tlsEnabled = tlsEnabled; }
+    public String getSignedMessagesAction() { return signedMessagesAction; }
+    public void setSignedMessagesAction(String signedMessagesAction) { this.signedMessagesAction = signedMessagesAction; }
+    public String getUnsignedMessagesAction() { return unsignedMessagesAction; }
+    public void setUnsignedMessagesAction(String unsignedMessagesAction) { this.unsignedMessagesAction = unsignedMessagesAction; }
 }

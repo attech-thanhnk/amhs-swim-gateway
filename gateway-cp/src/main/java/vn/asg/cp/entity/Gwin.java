@@ -1,9 +1,6 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.time.LocalDateTime;
 
 /**
@@ -13,9 +10,17 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "gwin")
-@Data
-@NoArgsConstructor
 public class Gwin {
+
+    public Gwin() {}
+
+    // Status constants
+    public static final int STATUS_PENDING = 0;
+    public static final int STATUS_PROCESSING = 1;
+    public static final int STATUS_SENT = 2;
+    public static final int STATUS_FAILED = 3;
+    public static final int STATUS_DEAD = 4;
+    public static final int STATUS_UNROUTED = 5;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -53,6 +58,10 @@ public class Gwin {
     /** Arrival timestamp from AMQP broker */
     @Column(name = "time")
     private LocalDateTime time;
+
+    /** Original JSON/TEXT payload received from SWIM */
+    @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
+    private String payloadContent;
 
     /** Converted plain text payload for AMHS */
     @Column(name = "TEXT", columnDefinition = "MEDIUMTEXT")

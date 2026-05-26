@@ -1,9 +1,6 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.time.LocalDateTime;
 
 /**
@@ -13,9 +10,15 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "gwout")
-@Data
-@NoArgsConstructor
 public class Gwout {
+
+    public Gwout() {}
+
+    // Status constants
+    public static final int STATUS_PENDING = 0;
+    public static final int STATUS_PROCESSING = 1;
+    public static final int STATUS_SENT = 2;
+    public static final int STATUS_DEAD = 3;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

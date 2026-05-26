@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 import vn.asg.cp.repository.MessageTypeRegistryRepository;
 
 @RestController
-@RequestMapping("/api/metadata")
+@RequestMapping("/api/v1/metadata")
 @RequiredArgsConstructor
 public class MetadataController {
 

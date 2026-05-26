@@ -3,8 +3,12 @@ package vn.asg.swim.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import vn.asg.converter.ConverterFacade;
+import vn.asg.converter.core.ConversionResult;
+import vn.asg.converter.core.OutputFormat;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.MessageConversionLog;
+import vn.asg.swim.exception.ConversionException;
 import vn.asg.swim.repository.MessageConversionLogRepository;
 
 import java.time.LocalDate;
@@ -12,8 +16,8 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * Conversion logic for the SWIM → AMHS pipeline.
- * Maps priority, OHI, body part type, and filing time according to Spec §4.3.
+ * Logic chuyển đổi định dạng bản tin (conversion) cho luồng SWIM và AMHS.
+ * Ánh xạ độ ưu tiên, OHI, body part type và filing time theo đặc tả.
  */
 @Service
 @RequiredArgsConstructor
@@ -21,88 +25,61 @@ import java.time.format.DateTimeFormatter;
 public class MessageConversionService {
 
     private final MessageConversionLogRepository conversionLogRepo;
+    private final ConverterFacade converterFacade;
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     /**
-     * Converts AMHS plain text body → SWIM format.
-     * [Phase 1] Returns raw text; wrapping may be added later.
+     * Chuyển đổi TAC sang JSON (chiều AMHS sang SWIM).
      */
-    public String toSwim(String amhsBody, String messageType) {
-        // [Phase 1 Stub]
-        // Phase 2, 3: convert text ATS message to FIXM/IWXXM XML/JSON based on
-        // messageType
-        if (amhsBody == null)
+    public String toSwim(String amhsBody, String messageType) throws ConversionException {
+        if (amhsBody == null || amhsBody.isBlank()) {
             return "";
-        return amhsBody;
+        }
+
+        ConversionResult result = converterFacade.convert(amhsBody, messageType, OutputFormat.JSON);
+        if (!result.isSuccess()) {
+            throw new ConversionException(result.getErrorMessage(), messageType, "TAC", "JSON");
+        }
+        return result.getPayload();
     }
 
     /**
-     * Converts SWIM body → AMHS plain text format.
-     * [Phase 1] Returns raw or extracts text from XML.
+     * Chuyển đổi JSON sang TAC (chiều SWIM sang AMHS).
      */
-    public String toAmhs(String swimBody, String subject) {
-        // [Phase 1 Stub]
-        // Phase 2: parse XML/JSON SWIM format and return plain text ATS message (TAC
-        // format)
-        if (swimBody == null)
+    public String toAmhs(String swimBody, String messageType) throws ConversionException {
+        if (swimBody == null || swimBody.isBlank()) {
             return "";
-        return swimBody;
-    }
+        }
 
-    // ─── Priority Mapping §4.3.1 ──────────────────────────────────────────────
+        // Đã là định dạng TAC rồi, trả về luôn
+        if (swimBody.trim().startsWith("(")) {
+            return swimBody.trim();
+        }
 
-    /**
-     * Converts priority (int 0-9) to ATS priority string (SS/DD/FF/GG/KK).
-     */
-    public String mapPriorityToAts(int amqpPriority) {
-        return switch (amqpPriority) {
-            case 6 -> "SS";
-            case 5 -> "DD";
-            case 4 -> "FF";
-            case 3 -> "GG";
-            default -> "KK";
-        };
+        ConversionResult result = converterFacade.convert(swimBody, messageType, OutputFormat.TEXT);
+        if (!result.isSuccess()) {
+            throw new ConversionException(result.getErrorMessage(), messageType, "JSON", "TAC");
+        }
+        return result.getPayload();
     }
 
     /**
-     * Converts ATS priority string to AMQP numeric priority.
+     * Ánh xạ độ ưu tiên ATS (SS/DD/FF/GG/KK) sang giá trị số AMQP (0-9).
      */
     public byte mapAtsPriorityToAmqp(String atsPriority) {
-        if (atsPriority == null)
-            return 2;
-        return switch (atsPriority.toUpperCase()) {
-            case "SS" -> 6;
-            case "DD" -> 5;
-            case "FF" -> 4;
-            case "GG" -> 3;
-            default -> 2;
-        };
+        return (byte) vn.asg.swim.model.AmqpProperties.mapAtsPriorityToAmqp(atsPriority);
     }
 
     /**
-     * SWIM → AMHS: Maps AMQP priority (0-9) to ATS string.
+     * Ánh xạ độ ưu tiên AMQP (0-9) sang định dạng ATS (SS/DD/FF/GG/KK).
      */
     public String mapAmqpPriorityToAts(int amqpPriority) {
-        if (amqpPriority >= 6)
-            return "SS";
-        if (amqpPriority == 5)
-            return "DD";
-        if (amqpPriority == 4)
-            return "FF";
-        if (amqpPriority == 3)
-            return "GG";
-        return "KK";
+        return vn.asg.swim.model.AmqpProperties.mapPriorityToAts(amqpPriority);
     }
 
-    // ─── OHI §4.3.6 ──────────────────────────────────────────────────────────
-
     /**
-     * Truncates OHI according to rules in §4.3.6.
-     *
-     * @param ohi          Original OHI value
-     * @param amqpPriority AMQP priority (0-9)
-     * @return Processed OHI or null if empty
+     * Cắt ngắn thông tin OHI theo đặc tả: độ ưu tiên >= 6 tối đa 48 ký tự, ngược lại tối đa 53 ký tự.
      */
     public String processOhi(String ohi, int amqpPriority) {
         if (ohi == null || ohi.isBlank())
@@ -111,8 +88,9 @@ public class MessageConversionService {
         return ohi.length() > maxLen ? ohi.substring(0, maxLen) : ohi;
     }
 
-    // ─── amhs_content_encoding §4.3.3 ────────────────────────────────────────
-
+    /**
+     * Ánh xạ loại body part sang bảng mã tương ứng (IA5, ISO-646, ISO-8859-1).
+     */
     public String mapBodyPartTypeToEncoding(String bodyPartType) {
         if (bodyPartType == null)
             return null;
@@ -129,80 +107,75 @@ public class MessageConversionService {
     }
 
     /**
-     * Logs after successful AMQP publish (AMHS → SWIM direction).
-     * EUR Doc 047 §4.3.4e,f (G-13, G-14): Log MTS-ID and IPM-ID
+     * Ghi log chuyển đổi chiều gửi đi AMHS sang SWIM.
      */
     public void logAmhsToSwim(Gwout gwout, String amqpMessageId, String status, String actionTaken,
             String mtsId, String ipmId) {
         try {
-            conversionLogRepo.save(MessageConversionLog.builder()
-                    .date(LocalDate.now().format(DATE_FMT))
-                    .type("AMHS")
-                    .category("OUT")
-                    .referenceId(gwout.getMsgid())
-                    .messageId(gwout.getAmhsid())
-                    .mtsId(mtsId) // EUR Doc 047 §4.3.4e (G-13)
-                    .ipmId(ipmId) // EUR Doc 047 §4.3.4f (G-14)
-                    .amqpMessageId(amqpMessageId)
-                    .priority(mapPriorityToAts(gwout.getPriority() != null ? gwout.getPriority() : 2))
-                    .ohi(gwout.getOptionalHeading())
-                    .origin(gwout.getOrigin())
-                    .filingTime(gwout.getFilingTime())
-                    .content(gwout.getText())
-                    .convertedTime(LocalDateTime.now())
-                    .actionTaken(actionTaken)
-                    .status(status)
-                    .build());
+            MessageConversionLog logEntry = new MessageConversionLog();
+            logEntry.setDate(LocalDate.now().format(DATE_FMT));
+            logEntry.setType("AMHS");
+            logEntry.setCategory("OUT");
+            logEntry.setReferenceId(gwout.getMsgid());
+            logEntry.setMessageId(gwout.getAmhsid());
+            logEntry.setMtsId(mtsId);
+            logEntry.setIpmId(ipmId);
+            logEntry.setAmqpMessageId(amqpMessageId);
+            logEntry.setPriority(vn.asg.swim.model.AmqpProperties.mapPriorityToAts(gwout.getPriority() != null ? gwout.getPriority() : 2));
+            logEntry.setOhi(gwout.getOptionalHeading());
+            logEntry.setOrigin(gwout.getOrigin());
+            logEntry.setFilingTime(gwout.getFilingTime());
+            logEntry.setContent(gwout.getText());
+            logEntry.setConvertedTime(LocalDateTime.now());
+            logEntry.setActionTaken(actionTaken);
+            logEntry.setStatus(status);
+            conversionLogRepo.save(logEntry);
         } catch (Exception e) {
             log.error("Failed to write conversion log for gwout#{}: {}", gwout.getMsgid(), e.getMessage());
         }
     }
 
     /**
-     * Overload method for backward compatibility (without MTS/IPM IDs)
+     * Log chuyển đổi AMHS sang SWIM (không kèm theo MTS/IPM ID).
      */
     public void logAmhsToSwim(Gwout gwout, String amqpMessageId, String status, String actionTaken) {
         logAmhsToSwim(gwout, amqpMessageId, status, actionTaken, null, null);
     }
 
     /**
-     * Logs after receiving AMQP and writing to Gwin (SWIM → AMHS direction).
-     * EUR Doc 047 §4.3.4f (G-14): Log IPM-ID if available.
+     * Ghi log chuyển đổi chiều nhận về SWIM sang AMHS.
      */
     public void logSwimToAmhs(String amqpMessageId, String originator,
             String status, String actionTaken,
             String rejectionReason, String ipmId) {
         try {
-            conversionLogRepo.save(MessageConversionLog.builder()
-                    .date(LocalDate.now().format(DATE_FMT))
-                    .type("SWIM")
-                    .category("IN")
-                    .amqpMessageId(amqpMessageId)
-                    .ipmId(ipmId)
-                    .origin(originator)
-                    .convertedTime(LocalDateTime.now())
-                    .actionTaken(actionTaken)
-                    .status(status)
-                    .nonDeliveryReason(rejectionReason)
-                    .build());
+            MessageConversionLog logEntry = new MessageConversionLog();
+            logEntry.setDate(LocalDate.now().format(DATE_FMT));
+            logEntry.setType("SWIM");
+            logEntry.setCategory("IN");
+            logEntry.setAmqpMessageId(amqpMessageId);
+            logEntry.setIpmId(ipmId);
+            logEntry.setOrigin(originator);
+            logEntry.setConvertedTime(LocalDateTime.now());
+            logEntry.setActionTaken(actionTaken);
+            logEntry.setStatus(status);
+            logEntry.setNonDeliveryReason(rejectionReason);
+            conversionLogRepo.save(logEntry);
         } catch (Exception e) {
             log.error("Failed to write conversion log for AMQP {}: {}", amqpMessageId, e.getMessage());
         }
     }
 
     /**
-     * Overload without ipmId for backward compatibility (rejection paths).
+     * Log chuyển đổi SWIM sang AMHS (không kèm theo IPM-ID).
      */
     public void logSwimToAmhs(String amqpMessageId, String originator,
             String status, String actionTaken, String rejectionReason) {
         logSwimToAmhs(amqpMessageId, originator, status, actionTaken, rejectionReason, null);
     }
 
-    // EUR Doc 047 compliance items handled via AlertService calls in dispatch
-    // services.
-
     /**
-     * Validate filing_time: must be exactly 6 digits (DDhhmm).
+     * Kiểm tra định dạng thời gian nộp (filing time) gồm 6 chữ số (DDhhmm).
      */
     public boolean isValidFilingTime(String ft) {
         return ft != null && ft.matches("\\d{6}");

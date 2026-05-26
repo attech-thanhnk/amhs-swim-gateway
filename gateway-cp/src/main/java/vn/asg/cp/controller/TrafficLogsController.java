@@ -18,7 +18,7 @@ import java.util.Map;
  * GET /api/traffic-logs — tra cứu lịch sử điện văn
  */
 @RestController
-@RequestMapping("/api/traffic-logs")
+@RequestMapping("/api/v1/traffic-logs")
 @RequiredArgsConstructor
 public class TrafficLogsController {
 
