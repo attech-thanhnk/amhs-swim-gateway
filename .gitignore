@@ -12,3 +12,6 @@ nul
 
 # Logs
 *.log
+
+docs/
+gateway-cp/.env

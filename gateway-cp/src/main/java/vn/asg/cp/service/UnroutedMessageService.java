@@ -92,8 +92,8 @@ public class UnroutedMessageService {
             throw new IllegalStateException("Message is not UNROUTED: status=" + gwin.getStatus());
         }
 
-        // Update status to DEAD
-        gwin.setStatus(Gwin.STATUS_DEAD);
+        // Update status to FAILED
+        gwin.setStatus(Gwin.STATUS_FAILED);
         // Store rejection reason in amqpProperties (temporary solution)
         String rejectionInfo = String.format("{\"rejection_reason\":\"%s\",\"rejection_note\":\"%s\"}",
                 request.getReason(), request.getNote() != null ? request.getNote() : "");

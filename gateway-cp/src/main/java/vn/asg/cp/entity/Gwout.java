@@ -78,46 +78,23 @@ public class Gwout {
 
     /**
      * Trạng thái tổng. Phản ánh tình trạng của tất cả gwout_dispatch con.
-     * 0=PENDING, 1=PROCESSING, 2=SENT, 3=DEAD
+     * 0=PENDING, 1=PROCESSING, 2=TRANSFORMED, 3=PUBLISHED, 4=FAILED
      */
     @Column(name = "status")
     private Integer status = STATUS_PENDING;
 
-    /** Converted JSON/TEXT content */
-    @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
-    private String payloadContent;
+    // Dạng lỗi
+    @Column(name = "error_type")
+    private Integer errorType = UNDEFINED;
 
     // Status constants
-    public Long getMsgid() { return msgid; }
-    public void setMsgid(Long msgid) { this.msgid = msgid; }
-    public String getAmhsid() { return amhsid; }
-    public void setAmhsid(String amhsid) { this.amhsid = amhsid; }
-    public Integer getPriority() { return priority; }
-    public void setPriority(Integer priority) { this.priority = priority; }
-    public LocalDateTime getTime() { return time; }
-    public void setTime(LocalDateTime time) { this.time = time; }
-    public String getFilingTime() { return filingTime; }
-    public void setFilingTime(String filingTime) { this.filingTime = filingTime; }
-    public String getText() { return text; }
-    public void setText(String text) { this.text = text; }
-    public String getBodyType() { return bodyType; }
-    public void setBodyType(String bodyType) { this.bodyType = bodyType; }
-    public String getOrigin() { return origin; }
-    public void setOrigin(String origin) { this.origin = origin; }
-    public String getAddress() { return address; }
-    public void setAddress(String address) { this.address = address; }
-    public String getOptionalHeading() { return optionalHeading; }
-    public void setOptionalHeading(String optionalHeading) { this.optionalHeading = optionalHeading; }
-    public LocalDateTime getAmhsTtl() { return amhsTtl; }
-    public void setAmhsTtl(LocalDateTime amhsTtl) { this.amhsTtl = amhsTtl; }
-    public String getAmhsRegisteredId() { return amhsRegisteredId; }
-    public void setAmhsRegisteredId(String amhsRegisteredId) { this.amhsRegisteredId = amhsRegisteredId; }
-    public Boolean getAmhsDeliveryReport() { return amhsDeliveryReport; }
-    public void setAmhsDeliveryReport(Boolean amhsDeliveryReport) { this.amhsDeliveryReport = amhsDeliveryReport; }
-    public String getContentType() { return contentType; }
-    public void setContentType(String contentType) { this.contentType = contentType; }
-    public Integer getStatus() { return status; }
-    public void setStatus(Integer status) { this.status = status; }
-    public String getPayloadContent() { return payloadContent; }
-    public void setPayloadContent(String payloadContent) { this.payloadContent = payloadContent; }
+    public static final int STATUS_PENDING = 0;
+    public static final int STATUS_PROCESSING = 1;
+    public static final int STATUS_TRANSFORMED = 2;
+    public static final int STATUS_PUBLISHED = 3;
+    public static final int STATUS_FAILED = 4;
+
+    public static final int UNDEFINED = 0;
+    public static final int CONVERT_FAILED = 1;
+    public static final int SEND_FAILED = 2;
 }

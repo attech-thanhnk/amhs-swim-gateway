@@ -96,42 +96,25 @@ public class Gwin {
 
     /**
      * Global Status.
-     * 0=PENDING, 1=PROCESSING, 2=SENT, 3=FAILED, 4=DEAD, 5=UNROUTED
+     * 0=PENDING, 1=PROCESSING, 2=TRANSFORMED, 3=SENT, 4=FAILED, 5=UNROUTED
      */
     @Column(name = "status")
     private Integer status = STATUS_PENDING;
 
+    // Dạng lỗi
+    @Column(name = "error_type")
+    private Integer errorType = UNDEFINED;
+
     // Status constants
-    public Long getMsgid() { return msgid; }
-    public void setMsgid(Long msgid) { this.msgid = msgid; }
-    public String getCpa() { return cpa; }
-    public void setCpa(String cpa) { this.cpa = cpa; }
-    public String getMessageId() { return messageId; }
-    public void setMessageId(String messageId) { this.messageId = messageId; }
-    public String getSource() { return source; }
-    public void setSource(String source) { this.source = source; }
-    public String getSubject() { return subject; }
-    public void setSubject(String subject) { this.subject = subject; }
-    public String getAmqpProperties() { return amqpProperties; }
-    public void setAmqpProperties(String amqpProperties) { this.amqpProperties = amqpProperties; }
-    public Byte getPriority() { return priority; }
-    public void setPriority(Byte priority) { this.priority = priority; }
-    public LocalDateTime getTime() { return time; }
-    public void setTime(LocalDateTime time) { this.time = time; }
-    public String getPayloadContent() { return payloadContent; }
-    public void setPayloadContent(String payloadContent) { this.payloadContent = payloadContent; }
-    public String getText() { return text; }
-    public void setText(String text) { this.text = text; }
-    public String getBodyType() { return bodyType; }
-    public void setBodyType(String bodyType) { this.bodyType = bodyType; }
-    public String getContentType() { return contentType; }
-    public void setContentType(String contentType) { this.contentType = contentType; }
-    public String getOrigin() { return origin; }
-    public void setOrigin(String origin) { this.origin = origin; }
-    public String getAddress() { return address; }
-    public void setAddress(String address) { this.address = address; }
-    public String getAddressingSource() { return addressingSource; }
-    public void setAddressingSource(String addressingSource) { this.addressingSource = addressingSource; }
-    public Integer getStatus() { return status; }
-    public void setStatus(Integer status) { this.status = status; }
+    public static final int STATUS_PENDING = 0;
+    public static final int STATUS_PROCESSING = 1;
+    public static final int STATUS_TRANSFORMED = 2;
+    public static final int STATUS_SENT = 3;
+    public static final int STATUS_FAILED = 4;
+    public static final int STATUS_UNROUTED = 5;
+
+
+    public static final int UNDEFINED = 0;
+    public static final int CONVERT_FAILED = 1;
+    public static final int SEND_FAILED = 2;
 }
