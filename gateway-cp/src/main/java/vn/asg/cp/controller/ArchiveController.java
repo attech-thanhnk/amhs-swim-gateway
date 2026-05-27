@@ -17,7 +17,7 @@ import java.util.Map;
  * GET /api/archive — xem lại điện văn raw lưu trữ
  */
 @RestController
-@RequestMapping("/api/v1/archive")
+@RequestMapping("/api/archive")
 @RequiredArgsConstructor
 public class ArchiveController {
 

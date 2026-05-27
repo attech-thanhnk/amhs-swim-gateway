@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
  * monitoring.
  */
 @RestController
-@RequestMapping("/api/v1/admin")
+@RequestMapping("/api/admin")
 @RequiredArgsConstructor
 public class AdminController {
 

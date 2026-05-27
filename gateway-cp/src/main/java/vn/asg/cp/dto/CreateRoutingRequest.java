@@ -1,7 +1,9 @@
 package vn.asg.cp.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
 
+@Data
 @Schema(description = "Request to create a new routing rule")
 public class CreateRoutingRequest {
 

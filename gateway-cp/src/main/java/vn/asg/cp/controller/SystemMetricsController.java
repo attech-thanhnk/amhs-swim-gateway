@@ -17,7 +17,7 @@ import java.util.Optional;
  * GET /api/system/metrics — giám sát tài nguyên máy chủ
  */
 @RestController
-@RequestMapping("/api/v1/system")
+@RequestMapping("/api/system")
 @RequiredArgsConstructor
 public class SystemMetricsController {
 

@@ -20,7 +20,7 @@ import java.util.Map;
  * CRUD /api/accounts + connect/disconnect
  */
 @RestController
-@RequestMapping("/api/v1/accounts")
+@RequestMapping("/api/accounts")
 @RequiredArgsConstructor
 public class AccountsController {
 

@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/messages")
+@RequestMapping("/api/messages")
 @RequiredArgsConstructor
 public class MessagesController {
 

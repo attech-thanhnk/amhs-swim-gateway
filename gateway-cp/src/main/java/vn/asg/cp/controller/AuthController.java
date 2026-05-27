@@ -17,7 +17,7 @@ import java.util.Map;
  * POST /api/auth/logout — đăng xuất (stateless, client tự xóa token)
  */
 @RestController
-@RequestMapping("/api/v1/auth")
+@RequestMapping("/api/auth")
 @RequiredArgsConstructor
 @Slf4j
 public class AuthController {

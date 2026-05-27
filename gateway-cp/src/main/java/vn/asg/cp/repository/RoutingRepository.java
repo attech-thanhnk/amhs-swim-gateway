@@ -13,7 +13,7 @@ import java.util.List;
 @Repository
 public interface RoutingRepository extends JpaRepository<Routing, Integer>, JpaSpecificationExecutor<Routing> {
 
-  List<Routing> findByDirectionAndActiveTrueOrderByPriorityAsc(String direction);
+//  List<Routing> findByDirectionAndActiveTrueOrderByPriorityAsc(String direction);
 
   @Query("""
       SELECT r FROM Routing r

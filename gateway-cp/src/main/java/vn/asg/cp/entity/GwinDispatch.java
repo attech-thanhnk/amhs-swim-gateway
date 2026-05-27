@@ -2,6 +2,8 @@ package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * Bảng gwin_dispatch — Từng lệnh gửi vào AMHS cho mỗi recipient.
@@ -10,9 +12,9 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "gwin_dispatch")
+@Data
+@NoArgsConstructor
 public class GwinDispatch {
-
-    public GwinDispatch() {}
 
     // Status constants
     public static final String STATUS_PENDING = "PENDING";
@@ -90,29 +92,4 @@ public class GwinDispatch {
     public void preUpdate() {
         updatedAt = LocalDateTime.now();
     }
-
-    // Status constants
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public Long getGwinId() { return gwinId; }
-    public void setGwinId(Long gwinId) { this.gwinId = gwinId; }
-    public String getAmhsAddress() { return amhsAddress; }
-    public void setAmhsAddress(String amhsAddress) { this.amhsAddress = amhsAddress; }
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
-    public Integer getRetryCount() { return retryCount; }
-    public void setRetryCount(Integer retryCount) { this.retryCount = retryCount; }
-    public LocalDateTime getNextRetryAt() { return nextRetryAt; }
-    public void setNextRetryAt(LocalDateTime nextRetryAt) { this.nextRetryAt = nextRetryAt; }
-    public String getLastError() { return lastError; }
-    public void setLastError(String lastError) { this.lastError = lastError; }
-    public String getFailedStep() { return failedStep; }
-    public void setFailedStep(String failedStep) { this.failedStep = failedStep; }
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-    public LocalDateTime getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
-    public LocalDateTime getSentAt() { return sentAt; }
-    public void setSentAt(LocalDateTime sentAt) { this.sentAt = sentAt; }
 }

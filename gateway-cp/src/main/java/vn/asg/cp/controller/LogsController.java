@@ -18,7 +18,7 @@ import java.util.Map;
  * Controller quản lý System Logs với khả năng lọc linh hoạt (Specification).
  */
 @RestController
-@RequestMapping("/api/v1/logs")
+@RequestMapping("/api/logs")
 @RequiredArgsConstructor
 public class LogsController {
 
@@ -32,33 +32,36 @@ public class LogsController {
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "100") int size) {
 
-        // Xây dựng Specification động
-        Specification<SystemLog> spec = Specification.where(null);
-
-        if (StringUtils.hasText(after)) {
-            LocalDateTime afterDt = LocalDateTime.parse(after);
-            spec = spec.and((r, q, cb) -> cb.greaterThan(r.get("timestamp"), afterDt));
-        }
-
-        if (!"ALL".equalsIgnoreCase(level)) {
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("level"), level));
-        }
-
-        if (!"ALL".equalsIgnoreCase(module)) {
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("module"), module));
-        }
-
+        Page<SystemLog> result;
         PageRequest pageRequest = PageRequest.of(page, size, Sort.by("timestamp").descending());
-        Page<SystemLog> result = logRepository.findAll(spec, pageRequest);
+
+        if (after != null) {
+            LocalDateTime afterDt = LocalDateTime.parse(after);
+            if (!"ALL".equals(level) && !"ALL".equals(module)) {
+                result = logRepository.findByLevelAndModuleAndTimestampAfter(level, module, afterDt, pageRequest);
+            } else {
+                result = logRepository.findByTimestampAfter(afterDt, pageRequest);
+            }
+        } else {
+            if (!"ALL".equals(level) || !"ALL".equals(module)) {
+                result = logRepository.findByLevelContainingAndModuleContaining(
+                        "ALL".equals(level) ? "" : level,
+                        "ALL".equals(module) ? "" : module,
+                        pageRequest);
+            } else {
+                result = logRepository.findAll(pageRequest);
+            }
+        }
 
         LocalDateTime latestTs = result.getContent().stream()
                 .map(SystemLog::getTimestamp)
+                .filter(ts -> ts != null)
                 .max(LocalDateTime::compareTo)
-                .orElse(null);
+                .orElse(LocalDateTime.now());
 
         return ResponseEntity.ok(Map.of(
                 "content", result.getContent(),
-                "latestTimestamp", latestTs != null ? latestTs.toString() : "",
+                "latestTimestamp", latestTs.toString(),
                 "totalElements", result.getTotalElements()));
     }
 }

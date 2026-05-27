@@ -3,6 +3,8 @@ package vn.asg.cp.entity;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * Routing Table — Defines Simple Routing Rules.
@@ -10,6 +12,8 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "routing")
+@Data
+@NoArgsConstructor
 public class Routing {
 
     @Id

@@ -1,12 +1,16 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * Bảng message_type_registry — Danh mục các loại điện văn ATS.
  */
 @Entity
 @Table(name = "message_type_registry")
+@Data
+@NoArgsConstructor
 public class MessageTypeRegistry {
 
     @Id
@@ -24,17 +28,4 @@ public class MessageTypeRegistry {
 
     @Column(name = "note", length = 500)
     private String note;
-
-    public MessageTypeRegistry() {}
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public String getMessageType() { return messageType; }
-    public void setMessageType(String messageType) { this.messageType = messageType; }
-    public String getDetectPattern() { return detectPattern; }
-    public void setDetectPattern(String detectPattern) { this.detectPattern = detectPattern; }
-    public Boolean getActive() { return active; }
-    public void setActive(Boolean active) { this.active = active; }
-    public String getNote() { return note; }
-    public void setNote(String note) { this.note = note; }
 }

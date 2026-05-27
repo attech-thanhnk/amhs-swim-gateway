@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
  * JVM, Disk, Kết nối account và Thống kê luồng điện văn.
  */
 @RestController
-@RequestMapping("/api/v1/monitor")
+@RequestMapping("/api/monitor")
 @RequiredArgsConstructor
 public class MonitorController {
 

@@ -16,7 +16,7 @@ import java.util.List;
  * Quản lý cấu hình hệ thống (gateway_config).
  */
 @RestController
-@RequestMapping("/api/v1/config")
+@RequestMapping("/api/config")
 @RequiredArgsConstructor
 public class GatewayConfigController {
 

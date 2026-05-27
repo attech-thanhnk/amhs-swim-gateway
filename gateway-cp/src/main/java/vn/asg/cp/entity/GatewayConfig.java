@@ -2,15 +2,17 @@ package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * Bảng gateway_config — tham số cấu hình hệ thống, SWIM Component đọc và cache.
  */
 @Entity
 @Table(name = "gateway_config")
+@Data
+@NoArgsConstructor
 public class GatewayConfig {
-
-    public GatewayConfig() {}
 
     @Id
     @Column(name = "config_key", length = 100)
@@ -24,12 +26,4 @@ public class GatewayConfig {
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-    public String getConfigKey() { return configKey; }
-    public void setConfigKey(String configKey) { this.configKey = configKey; }
-    public String getConfigValue() { return configValue; }
-    public void setConfigValue(String configValue) { this.configValue = configValue; }
-    public String getDescription() { return description; }
-    public void setDescription(String description) { this.description = description; }
-    public LocalDateTime getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }
