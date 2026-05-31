@@ -10,8 +10,8 @@
     <version>1.0.0</version>
     <packaging>pom</packaging>
 
-    <name>ASG Gateway Parent</name>
-    <description>AMHS/SWIM Gateway (ASG) — Parent POM</description>
+    <name>ASG Gateway</name>
+    <description>AMHS/SWIM Gateway</description>
 
     <modules>
         <module>gateway-swim</module>

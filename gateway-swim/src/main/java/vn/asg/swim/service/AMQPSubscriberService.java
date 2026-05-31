@@ -15,13 +15,15 @@ import vn.asg.swim.model.ResolvedAddressing;
 import vn.asg.swim.repository.GwinRepository;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 
 /**
  * Nhận bản tin SWIM, kiểm tra hợp lệ và lưu vào bảng gwin.
@@ -49,6 +51,12 @@ public class AMQPSubscriberService {
     private final List<Session> activeSessions = new CopyOnWriteArrayList<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile List<String> currentSubscribedQueues = new CopyOnWriteArrayList<>();
+
+    // Cache cho deduplication để giảm tải DB (Lưu trong 1 giờ, tối đa 10,000 bản tin)
+    private final Cache<String, Boolean> deduplicationCache = Caffeine.newBuilder()
+            .expireAfterWrite(1, TimeUnit.HOURS)
+            .maximumSize(10000)
+            .build();
 
     /**
      * Bắt đầu tiến trình subscribe bất đồng bộ sau khi khởi tạo.
@@ -99,19 +107,21 @@ public class AMQPSubscriberService {
     private void subscribeQueue(String queue) {
         Session session = null;
         try {
-            session = connectionManager.createSession();
+            // Sử dụng CLIENT_ACKNOWLEDGE để đảm bảo tin nhắn chỉ được xác nhận khi đã xử lý xong
+            session = connectionManager.createSession(Session.CLIENT_ACKNOWLEDGE);
             MessageConsumer consumer = connectionManager.createConsumer(session, queue);
             consumer.setMessageListener(msg -> {
                 try {
                     handleMessage(msg, queue);
                 } catch (Exception e) {
                     log.error("Error handling AMQP message from queue {}: {}", queue, e.getMessage(), e);
+                    // Không acknowledge nếu có lỗi nghiêm trọng để Broker có thể gửi lại (retry)
                 }
             });
 
             // Chỉ add vào list khi subscribe thành công
             activeSessions.add(session);
-            log.debug("Subscribed successfully to queue: {}", queue);
+            log.debug("Subscribed successfully to queue: {} (CLIENT_ACKNOWLEDGE)", queue);
 
         } catch (JMSException e) {
             log.error("Failed to subscribe to queue {}: {}", queue, e.getMessage());
@@ -143,31 +153,35 @@ public class AMQPSubscriberService {
                 log.info("AMQP message has no JMSMessageID, generated synthetic ID: {}", amqpMsgId);
             }
         }
-        log.info("Received AMQP message: {} from topic: {}", amqpMsgId, queue);
+        log.info("Processing AMQP message: {} from {}", amqpMsgId, queue);
 
         // Chống lặp bản tin (Loopback prevention).
         String originGw = amqpMsg.getStringProperty("amhs_gateway_id");
         if (configService.getGatewayId().equals(originGw)) {
-            log.info("Loopback detected for message {}. Dropping message to prevent infinite loop.", amqpMsgId);
+            log.info("Loopback detected for message {}. Dropping message.", amqpMsgId);
+            amqpMsg.acknowledge(); // Acknowledge để xóa khỏi hàng đợi vì đây là tin lặp từ chính mình
             return;
         }
 
-        // Loại bỏ bản tin trùng lặp (Deduplication).
-        if (gwinRepository.existsByMessageId(amqpMsgId)) {
-            log.warn("AMQP message {} already exists in gwin. Ignoring duplicate.", amqpMsgId);
+        // Loại bỏ bản tin trùng lặp (Deduplication) dùng Cache + DB.
+        if (deduplicationCache.getIfPresent(amqpMsgId) != null || gwinRepository.existsByMessageId(amqpMsgId)) {
+            log.warn("AMQP message {} already exists. Ignoring duplicate.", amqpMsgId);
+            deduplicationCache.put(amqpMsgId, true);
+            amqpMsg.acknowledge(); // Đã xử lý rồi nên acknowledge để xóa
             return;
         }
 
         // Kiểm tra quyền hạn người dùng (Authorization).
         if (!authorizationService.isSwimUserAuthorized(amqpMsg)) {
-            log.warn("AMQP message {} UNAUTHORIZED - rejected by authorization policy", amqpMsgId);
+            log.warn("AMQP message {} UNAUTHORIZED - rejected", amqpMsgId);
             alertService.create(
                     GwAlert.TYPE_VALIDATION_ERROR,
                     GwAlert.SEV_WARNING,
-                    "Unauthorized SWIM message rejected: " + amqpMsgId,
+                    "Unauthorized SWIM message: " + amqpMsgId,
                     "gwin", null);
             conversionService.logSwimToAmhs(amqpMsgId, null, "REJECTED", "unauthorized",
                     "SWIM user not authorized");
+            amqpMsg.acknowledge(); // Từ chối vĩnh viễn nên acknowledge
             return;
         }
 
@@ -212,7 +226,8 @@ public class AMQPSubscriberService {
             conversionService.logSwimToAmhs(amqpMsgId, null, "REJECTED", "validation-failed",
                     validationResult.getErrorMessage());
 
-            // Bỏ qua không lưu gwin nếu validation thất bại.
+            // Acknowledge vì bản tin không hợp lệ không cần nhận lại
+            amqpMsg.acknowledge();
             return;
         }
 
@@ -293,6 +308,7 @@ public class AMQPSubscriberService {
                         "gwin", null);
                 conversionService.logSwimToAmhs(amqpMsgId, resolved.originator(), "REJECTED",
                         "atsmhs-validation-failed", "Binary content not supported in BASIC mode");
+                amqpMsg.acknowledge(); // Acknowledge vì không hỗ trợ
                 return;
             }
 
@@ -340,8 +356,13 @@ public class AMQPSubscriberService {
 
             try {
                 gwinRepository.save(gwin);
+                // Sau khi lưu DB thành công, cập nhật cache và acknowledge bản tin
+                deduplicationCache.put(amqpMsgId, true);
+                amqpMsg.acknowledge();
             } catch (DataIntegrityViolationException e) {
-                log.warn("AMQP message {} already exists (race condition). Ignoring.", amqpMsgId);
+                log.warn("AMQP message {} already exists (race condition).", amqpMsgId);
+                deduplicationCache.put(amqpMsgId, true);
+                amqpMsg.acknowledge();
                 return;
             }
 
@@ -354,6 +375,8 @@ public class AMQPSubscriberService {
 
         } catch (Exception e) {
             log.error("AMQP {} Fatal Error: {}", amqpMsgId, e.getMessage());
+            // KHÔNG acknowledge để Broker có thể retry nếu là lỗi tạm thời (ví dụ mất kết nối DB)
+            throw new RuntimeException("Fatal error during message processing, message will be retried", e);
         }
     }
 

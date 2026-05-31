@@ -13,7 +13,7 @@
 
     <artifactId>gateway-swim</artifactId>
     <packaging>jar</packaging>
-    <name>ASG Gateway — SWIM Component</name>
+    <name>SWIM Component</name>
 
     <dependencies>
         <!-- Spring Boot -->
@@ -86,6 +86,12 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Caffeine Cache for Deduplication -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
     </dependencies>
 
     <build>
@@ -93,6 +99,13 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
                 <configuration>
                     <excludes>
                         <exclude>

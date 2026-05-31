@@ -7,7 +7,6 @@ WORKDIR /app
 # Copy POM files and source code to leverage Docker cache
 COPY pom.xml .
 COPY gateway-converter ./gateway-converter
-COPY gateway-swim ./gateway-swim
 COPY gateway-cp ./gateway-cp
 
 # Build only gateway-cp and its dependencies

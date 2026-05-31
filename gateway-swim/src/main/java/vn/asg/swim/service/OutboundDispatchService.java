@@ -213,7 +213,11 @@ public class OutboundDispatchService {
             message.setJMSTimestamp(System.currentTimeMillis());
 
             producer.send(message);
+            log.info("Successfully published message {} to topic: {}", message.getJMSMessageID(), topic);
 
+        } catch (JMSException e) {
+            log.error("JMS failure while publishing message to {}: {}", topic, e.getMessage());
+            throw e;
         } finally {
             // Giải phóng tài nguyên theo thứ tự ngược lại để tránh rò rỉ
             if (producer != null) {

@@ -13,5 +13,6 @@ nul
 # Logs
 *.log
 
-docs/
-gateway-cp/.env
+# Deployment
+*.jar
+asg-swim-jar-deployment/

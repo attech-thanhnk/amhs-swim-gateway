@@ -8,8 +8,18 @@ import vn.asg.swim.entity.Gwin;
 
 import java.util.List;
 
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
+import java.time.LocalDateTime;
+
 @Repository
 public interface GwinRepository extends JpaRepository<Gwin, Long> {
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM Gwin g WHERE g.time < :cutoffDate")
+    int deleteOldMessages(@Param("cutoffDate") LocalDateTime cutoffDate);
 
     /**
      * Poll batch gwin PENDING, ORDER BY priority ASC, time ASC.

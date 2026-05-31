@@ -8,7 +8,9 @@ WORKDIR /app
 COPY pom.xml .
 COPY gateway-converter ./gateway-converter
 COPY gateway-swim ./gateway-swim
-COPY gateway-cp ./gateway-cp
+
+# Remove gateway-cp module from parent pom.xml inside container to build in isolation
+RUN sed -i '/<module>gateway-cp<\/module>/d' pom.xml
 
 # Build only gateway-swim and its dependency module (gateway-converter)
 # Use BuildKit cache mounting to speed up Maven builds

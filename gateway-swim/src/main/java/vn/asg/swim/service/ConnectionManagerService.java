@@ -16,6 +16,9 @@ import jakarta.jms.*;
 import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.repository.AccountRepository;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -77,6 +80,12 @@ public class ConnectionManagerService {
 
     private final AtomicInteger reconnectAttempt = new AtomicInteger(0);
     private static final int MAX_BACKOFF_MS = 30_000;
+
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "amqp-reconnection-scheduler");
+        t.setDaemon(true);
+        return t;
+    });
 
     /**
      * Khởi tạo kết nối AMQP sau khi khởi dựng.
@@ -230,34 +239,32 @@ public class ConnectionManagerService {
     }
 
     /**
-     * Lập lịch kết nối lại tự động khi gặp sự cố mất kết nối.
+     * Lập lịch kết nối lại tự động khi gặp sự cố mất kết nối bằng ScheduledExecutorService.
      */
     private void scheduleReconnect() {
         int attempt = reconnectAttempt.incrementAndGet();
         long delay = Math.min(1000L * (1L << Math.min(attempt - 1, 5)), MAX_BACKOFF_MS);
         log.warn("Scheduling AMQP reconnect in {}ms (attempt #{})", delay, attempt);
-        Thread t = new Thread(() -> {
-            try {
-                Thread.sleep(delay);
-                connect();
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-            }
-        });
-        t.setDaemon(true);
-        t.setName("amqp-reconnect-" + attempt);
-        t.start();
+
+        scheduler.schedule(this::connect, delay, TimeUnit.MILLISECONDS);
     }
 
     /**
-     * Tạo session mới, sao chép kết nối cục bộ để tránh lỗi tương tranh luồng (TOCTOU).
+     * Tạo session mới với chế độ AUTO_ACKNOWLEDGE mặc định.
      */
     public Session createSession() throws JMSException {
+        return createSession(Session.AUTO_ACKNOWLEDGE);
+    }
+
+    /**
+     * Tạo session mới với chế độ xác nhận bản tin (acknowledge mode) tùy chỉnh.
+     */
+    public Session createSession(int acknowledgeMode) throws JMSException {
         Connection conn = this.connection;  // Bản sao cục bộ để tránh lỗi tương tranh luồng
         if (!connected.get() || conn == null) {
             throw new JMSException("AMQP not connected");
         }
-        return conn.createSession(false, Session.AUTO_ACKNOWLEDGE);
+        return conn.createSession(false, acknowledgeMode);
     }
 
     /**
@@ -283,6 +290,10 @@ public class ConnectionManagerService {
     @PreDestroy
     public void shutdown() {
         try {
+            scheduler.shutdown();
+            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                scheduler.shutdownNow();
+            }
             if (connection != null) {
                 connection.close();
                 connected.set(false);
@@ -290,7 +301,7 @@ public class ConnectionManagerService {
                 log.info("AMQP connection closed");
             }
         } catch (Exception e) {
-            log.warn("Error closing AMQP connection: {}", e.getMessage());
+            log.warn("Error closing AMQP service: {}", e.getMessage());
         }
     }
 }

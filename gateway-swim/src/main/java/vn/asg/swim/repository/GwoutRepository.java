@@ -9,8 +9,18 @@ import vn.asg.swim.entity.Gwout;
 
 import java.util.List;
 
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
+import java.time.LocalDateTime;
+
 @Repository
 public interface GwoutRepository extends JpaRepository<Gwout, Long> {
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM Gwout g WHERE g.time < :cutoffDate")
+    int deleteOldMessages(@Param("cutoffDate") LocalDateTime cutoffDate);
 
         /**
          * Poll batch bản ghi PENDING, ORDER BY priority ASC, time ASC.

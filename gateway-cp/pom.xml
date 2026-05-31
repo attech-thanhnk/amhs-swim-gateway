@@ -14,7 +14,7 @@
 
     <artifactId>gateway-cp</artifactId>
     <packaging>jar</packaging>
-    <name>ASG Gateway — Control Position Backend</name>
+    <name>Control Position Backend</name>
 
     <dependencies>
         <!-- Spring Boot -->

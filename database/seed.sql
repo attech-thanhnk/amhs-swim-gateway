@@ -120,7 +120,7 @@ INSERT IGNORE INTO `cp_users` (`uuid`, `username`, `password`, `role`, `created_
 -- 4. accounts
 -- ============================================================
 INSERT IGNORE INTO `accounts` (`account_name`, `protocol`, `host`, `port`, `config_json`, `status`, `bind_status`) VALUES
-('solace-broker-primary', 'AMQP', '127.0.0.1', 5672,
+('solace-broker-primary', 'AMQP', 'host.docker.internal', 5672,
  '{"username":"admin","password":"admin","vpn":"default"}', 'ACTIVE', 'DISCONNECTED');
 
 -- ============================================================

@@ -13,8 +13,8 @@
 
     <artifactId>gateway-converter</artifactId>
     <packaging>jar</packaging>
-    <name>ASG Gateway Converter</name>
-    <description>TAC → JSON/TEXT Converter module</description>
+    <name>Converter</name>
+    <description>Converter module</description>
 
 
     <dependencies>
