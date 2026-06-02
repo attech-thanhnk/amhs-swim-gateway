@@ -10,7 +10,7 @@ COPY gateway-converter ./gateway-converter
 COPY gateway-swim ./gateway-swim
 COPY gateway-cp ./gateway-cp
 
-# Build only gateway-cp and its dependencies
+# Build only gateway-cp and its dependency module (gateway-converter)
 # Use BuildKit cache mounting to speed up Maven builds
 RUN --mount=type=cache,target=/root/.m2 mvn clean package -pl gateway-cp -am -DskipTests
 
@@ -27,8 +27,8 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 # Copy the built jar file
 COPY --from=builder /app/gateway-cp/target/gateway-cp-*.jar app.jar
 
-# Expose port (default 8080)
-EXPOSE 8080
+# Expose port (default 8180)
+EXPOSE 8180
 
 # Run with G1GC garbage collector optimized for production JVM
 ENTRYPOINT ["java", "-XX:+UseG1GC", "-jar", "app.jar"]

@@ -1,30 +1,34 @@
-version: '3.8'
 
 services:
   # -------------------------------------------------------------
-  # 1. Database Service (MySQL)
+  # 1. SWIM Component Service (gateway-swim)
   # -------------------------------------------------------------
-  mysql-db:
-    image: mysql:8.0
-    container_name: asg-mysql-db
+  gateway-swim:
+    build:
+      context: ./
+      dockerfile: ./gateway-swim/Dockerfile
+    container_name: asg-gateway-swim
     restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: "123456"
-      MYSQL_DATABASE: "asg_db"
-      TZ: "UTC"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
-      - "3306:3306"
-    volumes:
-      # Persistent volume for MySQL database storage
-      - mysql_data:/var/lib/mysql
-      # Automatically import database schema and seed data on initial creation
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - "8181:8181"
+    environment:
+      - SERVER_PORT=8181
+      - DB_URL=jdbc:mysql://host.docker.internal:3306/asg_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&useUnicode=true&characterEncoding=UTF-8
+      - DB_USER=root
+      - DB_PASS=123456
+      - AMQP_HOST=host.docker.internal
+      - AMQP_PORT=5672
+      - AMQP_USER=admin
+      - AMQP_PASS=admin
+      - RETENTION_DAYS=30
+      - LOG_LEVEL_ASG=DEBUG
     networks:
       - asg-network
 
@@ -33,58 +37,28 @@ services:
   # -------------------------------------------------------------
   gateway-cp:
     build:
-      context: ./gateway-cp
-      dockerfile: Dockerfile.jar
+      context: ./
+      dockerfile: ./gateway-cp/Dockerfile
     container_name: asg-gateway-cp
     restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
-      - "8180:8180"  # Map to internal dynamic port 8180 from DB config SERVER_PORT_CP
+      - "8180:8180"
     environment:
       - SERVER_PORT=8180
-      - DB_URL=jdbc:mysql://mysql-db:3306/asg_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&useUnicode=true&characterEncoding=UTF-8
+      - DB_URL=jdbc:mysql://host.docker.internal:3306/asg_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&useUnicode=true&characterEncoding=UTF-8
       - DB_USER=root
       - DB_PASS=123456
       - LOG_LEVEL_ASG=INFO
-    depends_on:
-      mysql-db:
-        condition: service_healthy
     networks:
       - asg-network
 
-  # -------------------------------------------------------------
-  # 3. SWIM Component Service (gateway-swim)
-  # -------------------------------------------------------------
-  gateway-swim:
-    build:
-      context: ./gateway-swim
-      dockerfile: Dockerfile.jar
-    container_name: asg-gateway-swim
-    restart: always
-    ports:
-      - "8181:8181"  # Map to internal dynamic port 8181 from DB config SERVER_PORT_SWIM
-    environment:
-      - SERVER_PORT=8181
-      - DB_URL=jdbc:mysql://mysql-db:3306/asg_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&useUnicode=true&characterEncoding=UTF-8
-      - DB_USER=root
-      - DB_PASS=123456
-      - AMQP_HOST=127.0.0.1      # Connects to solace-broker-primary active database configuration
-      - AMQP_PORT=5672
-      - AMQP_USER=admin
-      - AMQP_PASS=admin
-      - LOG_LEVEL_ASG=DEBUG
-    depends_on:
-      mysql-db:
-        condition: service_healthy
-    networks:
-      - asg-network
-
-# -------------------------------------------------------------
-# Networks & Volumes definitions
-# -------------------------------------------------------------
 networks:
   asg-network:
     driver: bridge
-
-volumes:
-  mysql_data:
-    driver: local
