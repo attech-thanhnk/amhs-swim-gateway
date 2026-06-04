@@ -10,6 +10,8 @@ import vn.asg.cp.entity.Account;
 import vn.asg.cp.exception.ResourceNotFoundException;
 import vn.asg.cp.exception.ValidationException;
 import vn.asg.cp.repository.AccountRepository;
+import java.util.Map;
+import java.util.HashMap;
 
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -62,7 +64,7 @@ public class AccountsController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Account> update(@PathVariable("id") Long id, @RequestBody UpdateAccountRequest request) {
+    public ResponseEntity<Map<String, Object>> update(@PathVariable("id") Long id, @RequestBody UpdateAccountRequest request) {
         Account existing = accountRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", id));
 
@@ -77,16 +79,30 @@ public class AccountsController {
         if (request.getSaslMechanism() != null)
             existing.setSaslMechanism(request.getSaslMechanism());
 
-        return ResponseEntity.ok(accountRepository.save(existing));
+        try {
+            Account updated = accountRepository.save(existing);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Account updated successfully");
+            response.put("data", updated);
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            throw new ValidationException("Failed to update account: " + e.getMessage());
+        }
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable("id") Long id) {
+    public ResponseEntity<Map<String, Object>> delete(@PathVariable("id") Long id) {
         if (!accountRepository.existsById(id)) {
             throw new ResourceNotFoundException("Account", id);
         }
         accountRepository.deleteById(id);
-        return ResponseEntity.noContent().build();
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "Account deleted successfully");
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{id}/connect")
@@ -98,12 +114,14 @@ public class AccountsController {
         account.setBindStatus("CONNECTING");
         accountRepository.save(account);
 
-        return ResponseEntity.ok(Map.of("result", "success",
-                "message", "Account enabled. SWIM component will auto-reload configuration."));
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "Account enabled. SWIM component will auto-reload configuration.");
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{id}/disconnect")
-    public ResponseEntity<Map<String, String>> disconnect(@PathVariable("id") Long id) {
+    public ResponseEntity<Map<String, Object>> disconnect(@PathVariable("id") Long id) {
         Account account = accountRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", id));
 
@@ -111,8 +129,10 @@ public class AccountsController {
         account.setBindStatus("DISCONNECTED");
         accountRepository.save(account);
 
-        return ResponseEntity.ok(Map.of("result", "success",
-                "message", "Account disabled. SWIM component will auto-reload configuration."));
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "Account disabled. SWIM component will auto-reload configuration.");
+        return ResponseEntity.ok(response);
     }
 
     /**
