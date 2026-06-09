@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.*;
 import vn.asg.cp.dto.CreateAccountRequest;
 import vn.asg.cp.dto.UpdateAccountRequest;
 import vn.asg.cp.entity.Account;
+import vn.asg.cp.service.SystemHistoryService;
 import vn.asg.cp.exception.ResourceNotFoundException;
 import vn.asg.cp.exception.ValidationException;
 import vn.asg.cp.repository.AccountRepository;
@@ -16,7 +17,7 @@ import java.util.HashMap;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 
 /**
  * CRUD /api/accounts + connect/disconnect
@@ -27,6 +28,8 @@ import java.util.Map;
 public class AccountsController {
 
     private final AccountRepository accountRepository;
+
+    private final SystemHistoryService systemHistoryService;
 
     @GetMapping
     public ResponseEntity<List<Account>> list() {
@@ -60,7 +63,20 @@ public class AccountsController {
         account.setStatus("ACTIVE");
         account.setBindStatus("DISCONNECTED");
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(accountRepository.save(account));
+        Account savedAccount =
+                accountRepository.save(account);
+
+        systemHistoryService.info(
+                "ACCOUNT_CREATED",
+                String.format(
+                        "Account '%s' created",
+                        savedAccount.getAccountName()
+                )
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(savedAccount);
     }
 
     @PutMapping("/{id}")
@@ -82,6 +98,31 @@ public class AccountsController {
         try {
             Account updated = accountRepository.save(existing);
 
+            StringBuilder changes = new StringBuilder();
+            String oldHost = existing.getHost();
+            if (request.getHost() != null) {
+                existing.setHost(request.getHost());
+            }
+            if (!Objects.equals(oldHost, request.getHost())) {
+
+                changes.append(
+                        String.format(
+                                "Host: %s -> %s%n",
+                                existing.getHost(),
+                                request.getHost()
+                        )
+                );
+            }
+
+            systemHistoryService.info(
+                    "ACCOUNT_UPDATED",
+                    String.format(
+                        "Account '%s' updated. %s",
+                        updated.getAccountName(),
+                        changes
+                    )
+            );
+            
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("message", "Account updated successfully");
@@ -89,20 +130,51 @@ public class AccountsController {
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            systemHistoryService.error(
+                    "ACCOUNT_UPDATE_FAILED",
+                    String.format(
+                            "Failed to update account '%s'",
+                            existing.getAccountName()
+                    ),
+                    e.getMessage()
+            );
             throw new ValidationException("Failed to update account: " + e.getMessage());
         }
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> delete(@PathVariable("id") Long id) {
-        if (!accountRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Account", id);
+    public ResponseEntity<Map<String, Object>> delete(
+            @PathVariable("id") Long id) {
+        Account account = accountRepository.findById(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Account", id));
+        try {
+            accountRepository.delete(account);
+            systemHistoryService.warn(
+                    "ACCOUNT_DELETED",
+                    String.format(
+                            "Account '%s' deleted",
+                            account.getAccountName()
+                    )
+            );
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Account deleted successfully");
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            systemHistoryService.error(
+                    "ACCOUNT_DELETE_FAILED",
+                    String.format(
+                            "Failed to delete account '%s'",
+                            account.getAccountName()
+                    ),
+                    e.getMessage()
+            );
+            throw new ValidationException(
+                    "Failed to delete account: " + e.getMessage()
+            );
         }
-        accountRepository.deleteById(id);
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("message", "Account deleted successfully");
-        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{id}/connect")
@@ -114,25 +186,29 @@ public class AccountsController {
         account.setBindStatus("CONNECTING");
         accountRepository.save(account);
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("message", "Account enabled. SWIM component will auto-reload configuration.");
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(Map.of("result", "success",
+                "message", "Account enabled. SWIM component will auto-reload configuration."));
     }
 
     @PostMapping("/{id}/disconnect")
-    public ResponseEntity<Map<String, Object>> disconnect(@PathVariable("id") Long id) {
+    public ResponseEntity<Map<String, String>> disconnect(@PathVariable("id") Long id) {
         Account account = accountRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", id));
+
+        systemHistoryService.info(
+                "ACCOUNT_DISCONNECTED",
+                String.format(
+                        "Account '%s' disconnected",
+                        account.getAccountName()
+                )
+        );
 
         account.setStatus("INACTIVE");
         account.setBindStatus("DISCONNECTED");
         accountRepository.save(account);
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("message", "Account disabled. SWIM component will auto-reload configuration.");
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(Map.of("result", "success",
+                "message", "Account disabled. SWIM component will auto-reload configuration."));
     }
 
     /**

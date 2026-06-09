@@ -5,7 +5,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import vn.asg.cp.entity.Routing;
 import vn.asg.cp.repository.AccountRepository;
-import vn.asg.cp.repository.MessageArchiveRepository;
 import vn.asg.cp.repository.MessageConversionLogRepository;
 import vn.asg.cp.repository.RoutingRepository;
 
@@ -25,7 +24,6 @@ import java.util.stream.Collectors;
 public class AdminController {
 
     private final MessageConversionLogRepository conversionLogRepository;
-    private final MessageArchiveRepository archiveRepository;
     private final AccountRepository accountRepository;
     private final RoutingRepository routingRepository;
 
@@ -33,15 +31,6 @@ public class AdminController {
     public ResponseEntity<?> deleteOldData(@RequestBody Map<String, Object> body) {
         return ResponseEntity
                 .ok(Map.of("deletedCount", 0, "message", "Periodic background task for log cleanup completed."));
-    }
-
-    @DeleteMapping("/data/all")
-    public ResponseEntity<?> deleteAllData() {
-        long count = conversionLogRepository.count() + archiveRepository.count();
-        conversionLogRepository.deleteAll();
-        archiveRepository.deleteAll();
-        return ResponseEntity
-                .ok(Map.of("deletedCount", count, "message", "All logging database records have been cleared."));
     }
 
     @PostMapping("/maintenance")

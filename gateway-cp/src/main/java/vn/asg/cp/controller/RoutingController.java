@@ -6,12 +6,15 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import vn.asg.cp.dto.CreateRoutingRequest;
 import vn.asg.cp.dto.UpdateRoutingRequest;
+import vn.asg.cp.service.SystemHistoryService;
 import vn.asg.cp.entity.Routing;
 import vn.asg.cp.exception.ResourceNotFoundException;
 import vn.asg.cp.exception.ValidationException;
 import vn.asg.cp.repository.RoutingRepository;
 
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 
 /**
  * Các API xử lý CRUD cho cấu hình định tuyến (Routing).
@@ -22,6 +25,8 @@ import java.util.List;
 public class RoutingController {
 
     private final RoutingRepository routingRepository;
+
+    private final SystemHistoryService systemHistoryService;
 
     @GetMapping
     public ResponseEntity<List<Routing>> list() {
@@ -58,7 +63,18 @@ public class RoutingController {
 
         sanitizeTopic(routing);
 //        validateNoConflict(routing); // Kiểm tra xung đột cấu hình trước khi lưu
-        return ResponseEntity.status(HttpStatus.CREATED).body(routingRepository.save(routing));
+
+        Routing saved = routingRepository.save(routing);
+
+        systemHistoryService.info(
+                "ROUTING_CREATED",
+                String.format(
+                        "Routing '%s' created",
+                        saved.getId()
+                )
+        );
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
     }
 
     private void sanitizeTopic(Routing routing) {
@@ -102,9 +118,52 @@ public class RoutingController {
 
         sanitizeTopic(existing);
 //        validateNoConflict(existing); // Kiểm tra xung đột cấu hình trước khi cập nhật
-        return ResponseEntity.ok(routingRepository.save(existing));
+        Routing updated = routingRepository.save(existing);
+        systemHistoryService.info(
+                "ROUTING_UPDATED",
+                String.format(
+                        "Routing '%s' updated",
+                        updated.getId()
+                )
+        );
+        
+        return ResponseEntity.ok(updated);
     }
 
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Map<String, Object>> delete(
+            @PathVariable("id") int id) {
+        Routing routing = routingRepository.findById(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Routing", id));
+        try {
+            routingRepository.delete(routing);
+            systemHistoryService.warn(
+                    "ROUTING_DELETED",
+                    String.format(
+                            "Routing '%s' deleted",
+                            routing.getId()
+                    )
+            );
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Routing deleted successfully");
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            systemHistoryService.error(
+                    "ROUTING_DELETE_FAILED",
+                    String.format(
+                            "Failed to delete routing '%s'",
+                            routing.getId()
+                    ),
+                    e.getMessage()
+            );
+            throw new ValidationException(
+                    "Failed to delete routing: " + e.getMessage()
+            );
+        }
+    }
 //    /**
 //     * Kiểm tra không trùng lặp (xung đột) cấu hình với các luật khác.
 //     */
