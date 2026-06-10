@@ -59,6 +59,46 @@ services:
     networks:
       - asg-network
 
+  # -------------------------------------------------------------
+  # 3. MySQL Database Service
+  # -------------------------------------------------------------
+  mysql:
+    image: mysql:5.7.44
+    container_name: asg-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: asg_db
+      MYSQL_USER: attech
+      MYSQL_PASSWORD: 123456
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - asg-network
+    commands: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: asg-phpmyadmin
+    restart: always
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_ARBITRARY: 1
+    ports:
+      - "8080:80"
+    depends_on:
+      - mysql
+    networks:
+      - asg-network
+
+volumes:
+  mysql-data:
+    driver: local
+    
 networks:
   asg-network:
     driver: bridge
