@@ -1,10 +1,9 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
+import java.time.LocalDateTime;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
 
 /**
  * Gwin Table — Represents INBOUND messages received from SWIM AMQP, waiting to
@@ -17,6 +16,17 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 public class Gwin {
 
+    // Status constants
+    public static final int STATUS_PENDING = 0;
+    public static final int STATUS_PROCESSING = 1;
+    public static final int STATUS_TRANSFORMED = 2;
+    public static final int STATUS_SENT = 3;
+    public static final int STATUS_FAILED = 4;
+    public static final int STATUS_UNROUTED = 5;
+
+    public static final int UNDEFINED = 0;
+    public static final int CONVERT_FAILED = 1;
+    public static final int SEND_FAILED = 2;
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long msgid;
@@ -53,6 +63,10 @@ public class Gwin {
     /** Arrival timestamp from AMQP broker */
     @Column(name = "time")
     private LocalDateTime time;
+
+    /** Original JSON/TEXT payload received from SWIM */
+    @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
+    private String payloadContent;
 
     /** Converted plain text payload for AMHS */
     @Column(name = "TEXT", columnDefinition = "MEDIUMTEXT")
@@ -95,17 +109,4 @@ public class Gwin {
     // Dạng lỗi
     @Column(name = "error_type")
     private Integer errorType = UNDEFINED;
-
-    // Status constants
-    public static final int STATUS_PENDING = 0;
-    public static final int STATUS_PROCESSING = 1;
-    public static final int STATUS_TRANSFORMED = 2;
-    public static final int STATUS_SENT = 3;
-    public static final int STATUS_FAILED = 4;
-    public static final int STATUS_UNROUTED = 5;
-
-
-    public static final int UNDEFINED = 0;
-    public static final int CONVERT_FAILED = 1;
-    public static final int SEND_FAILED = 2;
 }

@@ -1,10 +1,9 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
+import java.time.LocalDateTime;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
 
 /**
  * Bảng gwout — Message nhận từ AMHS Component, chờ SWIM Component publish lên
@@ -16,6 +15,17 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 public class Gwout {
+
+    // Status constants
+    public static final int STATUS_PENDING = 0;
+    public static final int STATUS_PROCESSING = 1;
+    public static final int STATUS_TRANSFORMED = 2;
+    public static final int STATUS_PUBLISHED = 3;
+    public static final int STATUS_FAILED = 4;
+
+    public static final int UNDEFINED = 0;
+    public static final int CONVERT_FAILED = 1;
+    public static final int SEND_FAILED = 2;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -83,15 +93,4 @@ public class Gwout {
     // Dạng lỗi
     @Column(name = "error_type")
     private Integer errorType = UNDEFINED;
-
-    // Status constants
-    public static final int STATUS_PENDING = 0;
-    public static final int STATUS_PROCESSING = 1;
-    public static final int STATUS_TRANSFORMED = 2;
-    public static final int STATUS_PUBLISHED = 3;
-    public static final int STATUS_FAILED = 4;
-
-    public static final int UNDEFINED = 0;
-    public static final int CONVERT_FAILED = 1;
-    public static final int SEND_FAILED = 2;
 }

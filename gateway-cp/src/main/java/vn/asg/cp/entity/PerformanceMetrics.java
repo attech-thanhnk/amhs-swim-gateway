@@ -1,9 +1,8 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
-import lombok.*;
-
 import java.time.Instant;
+import lombok.*;
 
 /**
  * Bảng performance_metrics — SWIM Component ghi định kỳ.

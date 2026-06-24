@@ -21,7 +21,10 @@ public interface RoutingRepository extends JpaRepository<Routing, Integer> {
                         """)
         List<Routing> findBestMatchOut(@Param("type") String type, Pageable pageable);
 
-        @Query("""
+        /** Tìm các luật định tuyến đang active theo hướng và ưu tiên */
+    List<Routing> findByDirectionAndActiveTrueOrderByPriorityAsc(String direction);
+
+    @Query("""
                         SELECT r FROM Routing r
                         WHERE r.direction = 'IN'
                           AND r.active = true

@@ -11,4 +11,4 @@ public class UpdateConfigRequest {
             example = "5",
             required = true)
     private String value;
-}
+    }

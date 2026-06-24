@@ -4,7 +4,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import vn.asg.cp.entity.SystemLog;
 import vn.asg.cp.repository.SystemLogRepository;
@@ -13,7 +15,7 @@ import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * GET /api/logs — xem log hệ thống real-time (polling)
+ * Controller quản lý System Logs với khả năng lọc linh hoạt (Specification).
  */
 @RestController
 @RequestMapping("/api/logs")

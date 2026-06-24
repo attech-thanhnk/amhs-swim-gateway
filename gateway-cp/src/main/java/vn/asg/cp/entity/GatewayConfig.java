@@ -1,10 +1,9 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
+import java.time.LocalDateTime;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
 
 /**
  * Bảng gateway_config — tham số cấu hình hệ thống, SWIM Component đọc và cache.

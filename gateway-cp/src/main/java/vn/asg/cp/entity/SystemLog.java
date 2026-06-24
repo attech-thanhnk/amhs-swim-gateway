@@ -1,9 +1,8 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
-import lombok.*;
-
 import java.time.LocalDateTime;
+import lombok.*;
 
 /**
  * Bảng system_log — SWIM Component ghi khi có lỗi/sự kiện quan trọng, CP đọc.

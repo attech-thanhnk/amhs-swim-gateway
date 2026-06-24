@@ -1,9 +1,8 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
-import lombok.*;
-
 import java.time.LocalDateTime;
+import lombok.*;
 
 /**
  * Bảng message_conversion_log — traffic log sau mỗi lần chuyển đổi điện văn.
@@ -39,6 +38,9 @@ public class MessageConversionLog {
 
     @Column(name = "ipm_id", length = 256)
     private String ipmId;
+
+    @Column(name = "mts_id", length = 256)
+    private String mtsId;
 
     @Column(name = "amqp_message_id", length = 256)
     private String amqpMessageId;

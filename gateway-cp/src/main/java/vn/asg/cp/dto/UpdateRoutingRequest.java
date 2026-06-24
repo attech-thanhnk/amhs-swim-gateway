@@ -50,6 +50,10 @@ public class UpdateRoutingRequest {
             example = "true")
     private Boolean active;
 
+    @Schema(description = "Output format choice: true=JSON, false=TAC Forward",
+            example = "true")
+    private Boolean convertToJson;
+
     @Schema(description = "Optional note/description",
             example = "Updated routing rule")
     private String note;

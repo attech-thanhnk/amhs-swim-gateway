@@ -7,14 +7,17 @@ import org.springframework.web.bind.annotation.*;
 import vn.asg.cp.dto.CreateAccountRequest;
 import vn.asg.cp.dto.UpdateAccountRequest;
 import vn.asg.cp.entity.Account;
+import vn.asg.cp.service.SystemHistoryService;
 import vn.asg.cp.exception.ResourceNotFoundException;
 import vn.asg.cp.exception.ValidationException;
 import vn.asg.cp.repository.AccountRepository;
+import java.util.Map;
+import java.util.HashMap;
 
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 
 /**
  * CRUD /api/accounts + connect/disconnect
@@ -25,6 +28,8 @@ import java.util.Map;
 public class AccountsController {
 
     private final AccountRepository accountRepository;
+
+    private final SystemHistoryService systemHistoryService;
 
     @GetMapping
     public ResponseEntity<List<Account>> list() {
@@ -58,11 +63,24 @@ public class AccountsController {
         account.setStatus("ACTIVE");
         account.setBindStatus("DISCONNECTED");
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(accountRepository.save(account));
+        Account savedAccount =
+                accountRepository.save(account);
+
+        systemHistoryService.info(
+                "ACCOUNT_CREATED",
+                String.format(
+                        "Account '%s' created",
+                        savedAccount.getAccountName()
+                )
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(savedAccount);
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Account> update(@PathVariable("id") Long id, @RequestBody UpdateAccountRequest request) {
+    public ResponseEntity<Map<String, Object>> update(@PathVariable("id") Long id, @RequestBody UpdateAccountRequest request) {
         Account existing = accountRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", id));
 
@@ -77,16 +95,86 @@ public class AccountsController {
         if (request.getSaslMechanism() != null)
             existing.setSaslMechanism(request.getSaslMechanism());
 
-        return ResponseEntity.ok(accountRepository.save(existing));
+        try {
+            Account updated = accountRepository.save(existing);
+
+            StringBuilder changes = new StringBuilder();
+            String oldHost = existing.getHost();
+            if (request.getHost() != null) {
+                existing.setHost(request.getHost());
+            }
+            if (!Objects.equals(oldHost, request.getHost())) {
+
+                changes.append(
+                        String.format(
+                                "Host: %s -> %s%n",
+                                existing.getHost(),
+                                request.getHost()
+                        )
+                );
+            }
+
+            systemHistoryService.info(
+                    "ACCOUNT_UPDATED",
+                    String.format(
+                        "Account '%s' updated. %s",
+                        updated.getAccountName(),
+                        changes
+                    )
+            );
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Account updated successfully");
+            response.put("data", updated);
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            systemHistoryService.error(
+                    "ACCOUNT_UPDATE_FAILED",
+                    String.format(
+                            "Failed to update account '%s'",
+                            existing.getAccountName()
+                    ),
+                    e.getMessage()
+            );
+            throw new ValidationException("Failed to update account: " + e.getMessage());
+        }
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable("id") Long id) {
-        if (!accountRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Account", id);
+    public ResponseEntity<Map<String, Object>> delete(
+            @PathVariable("id") Long id) {
+        Account account = accountRepository.findById(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Account", id));
+        try {
+            accountRepository.delete(account);
+            systemHistoryService.warn(
+                    "ACCOUNT_DELETED",
+                    String.format(
+                            "Account '%s' deleted",
+                            account.getAccountName()
+                    )
+            );
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Account deleted successfully");
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            systemHistoryService.error(
+                    "ACCOUNT_DELETE_FAILED",
+                    String.format(
+                            "Failed to delete account '%s'",
+                            account.getAccountName()
+                    ),
+                    e.getMessage()
+            );
+            throw new ValidationException(
+                    "Failed to delete account: " + e.getMessage()
+            );
         }
-        accountRepository.deleteById(id);
-        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/connect")
@@ -107,6 +195,14 @@ public class AccountsController {
         Account account = accountRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", id));
 
+        systemHistoryService.info(
+                "ACCOUNT_DISCONNECTED",
+                String.format(
+                        "Account '%s' disconnected",
+                        account.getAccountName()
+                )
+        );
+
         account.setStatus("INACTIVE");
         account.setBindStatus("DISCONNECTED");
         accountRepository.save(account);
@@ -124,7 +220,13 @@ public class AccountsController {
                 .orElseThrow(() -> new ResourceNotFoundException("Account", id));
 
         String host = acc.getHost();
-        int port = acc.getPort() != null ? acc.getPort() : 5672;
+        if (host == null || host.isBlank()) {
+            throw new ValidationException("Địa chỉ IP/Host của tài khoản không được để trống");
+        }
+        if (acc.getPort() == null) {
+            throw new ValidationException("Cổng kết nối (Port) của tài khoản không được để trống");
+        }
+        int port = acc.getPort();
 
         long latencyMs = tcpPing(host, port);
         if (latencyMs < 0) {

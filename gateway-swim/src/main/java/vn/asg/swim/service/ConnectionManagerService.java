@@ -1,12 +1,14 @@
 package vn.asg.swim.service;
 
-import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.qpid.jms.JmsConnectionFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
-
+import org.jasypt.encryption.StringEncryptor;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.jms.*;
@@ -18,10 +20,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Manages AMQP 1.0 connections to the Solace broker.
- * Supports PLAIN auth, TLS, and auto-reconnect with exponential backoff.
- * Configuration prioritizes the `accounts` table in the database (synced with
- * CP).
+ * Quản lý kết nối AMQP 1.0 tới Solace broker.
+ * Hỗ trợ xác thực PLAIN, TLS và tự động kết nối lại khi gặp sự cố.
  */
 
 @Service
@@ -32,48 +32,86 @@ public class ConnectionManagerService {
     private final AccountRepository accountRepository;
     private final AlertService alertService;
     private final SystemLogService systemLogService;
+    private final ApplicationContext applicationContext;
 
-    @Value("${amqp.default.host:localhost}")
+    @Value("${amqp.default.host}")
     private String defaultHost;
 
-    @Value("${amqp.default.port:5672}")
-    private int defaultPort;
+    @Value("${amqp.default.port}")
+    private Integer defaultPort;
 
-    @Value("${amqp.default.username:admin}")
+    @Value("${amqp.default.username}")
     private String defaultUsername;
 
-    @Value("${amqp.default.password:admin}")
+    @Value("${amqp.default.password}")
     private String defaultPassword;
 
     @Value("${amqp.default.tls:false}")
     private boolean defaultTls;
 
-    @Getter
     private Connection connection;
 
-    @Getter
     private final AtomicBoolean connected = new AtomicBoolean(false);
+    private String bindStatus = BIND_DISCONNECTED;
 
-    @Getter
-    private String bindStatus = "DISCONNECTED";
+    public static final String BIND_CONNECTED = "CONNECTED";
+    public static final String BIND_CONNECTING = "CONNECTING";
+    public static final String BIND_DISCONNECTED = "DISCONNECTED";
+
+    /**
+     * Lấy đối tượng kết nối AMQP hiện tại.
+     */
+    public Connection getConnection() { return connection; }
+
+    /**
+     * Kiểm tra trạng thái kết nối AMQP.
+     */
+    public AtomicBoolean getConnected() { return connected; }
+
+    /**
+     * Lấy trạng thái liên kết.
+     */
+    public String getBindStatus() { return bindStatus; }
 
     private Long activeAccountId = null;
 
     private final AtomicInteger reconnectAttempt = new AtomicInteger(0);
     private static final int MAX_BACKOFF_MS = 30_000;
 
+    /**
+     * Khởi tạo kết nối AMQP sau khi khởi dựng.
+     */
     @PostConstruct
     public void init() {
         connect();
     }
 
+    /**
+     * Giải mã mật khẩu nếu ở định dạng mã hóa.
+     */
+    private String decryptIfEncrypted(String val) {
+        if (val != null && val.startsWith("ENC(") && val.endsWith(")")) {
+            try {
+                StringEncryptor encryptor = applicationContext.getBean(StringEncryptor.class);
+                String cipherText = val.substring(4, val.length() - 1);
+                return encryptor.decrypt(cipherText);
+            } catch (Exception e) {
+                log.error("Jasypt decryption failed: {}", e.getMessage());
+            }
+        }
+        return val;
+    }
+
+    /**
+     * Thực hiện kết nối tới Solace broker.
+     */
     public synchronized void connect() {
         try {
-            // Prioritize Database Account configuration
+            // Ưu tiên lấy cấu hình tài khoản từ cơ sở dữ liệu
             var activeAcc = accountRepository.findFirstByProtocolAndStatusIgnoreCase("AMQP", "ACTIVE").orElse(null);
 
             String currentHost = defaultHost;
-            int currentPort = defaultPort;
+            Integer currentPort = defaultPort;
             String currentUser = defaultUsername;
             String currentPass = defaultPassword;
             boolean currentTls = defaultTls;
@@ -81,9 +119,22 @@ public class ConnectionManagerService {
             if (activeAcc != null) {
                 activeAccountId = activeAcc.getId();
                 currentHost = activeAcc.getHost();
-                currentPort = activeAcc.getPort() != null ? activeAcc.getPort() : currentPort;
-                currentUser = activeAcc.getAccountName();
-                currentPass = activeAcc.getCertificatePassphrase();
+                currentPort = activeAcc.getPort();
+                String configJson = activeAcc.getConfigJson();
+                if (configJson != null && !configJson.isBlank()) {
+                    try {
+                        ObjectMapper mapper = new ObjectMapper();
+                        JsonNode node = mapper.readTree(configJson);
+                        if (node.has("username")) {
+                            currentUser = node.get("username").asText();
+                        }
+                        if (node.has("password")) {
+                            currentPass = node.get("password").asText();
+                        }
+                    } catch (Exception e) {
+                        log.warn("Failed to parse configJson for account {}: {}", activeAcc.getAccountName(), e.getMessage());
+                    }
+                }
                 currentTls = activeAcc.getTlsEnabled() != null ? activeAcc.getTlsEnabled() : currentTls;
 
                 log.info("**********************************************************");
@@ -91,51 +142,78 @@ public class ConnectionManagerService {
                 log.info("**********************************************************");
             } else {
                 activeAccountId = null;
+                if (currentHost == null || currentHost.isBlank() ||
+                    currentPort == null || 
+                    currentUser == null || currentUser.isBlank()) {
+                    throw new java.lang.IllegalStateException("Cấu hình AMQP Broker không tìm thấy trong Database và properties!");
+                }
                 log.warn("**********************************************************");
                 log.warn("FALLBACK (application.properties)");
                 log.warn("**********************************************************");
             }
 
+            // Giải mã mật khẩu nếu được mã hóa bằng Jasypt
+            currentPass = decryptIfEncrypted(currentPass);
+
             String scheme = currentTls ? "amqps" : "amqp";
             String url = String.format("%s://%s:%d", scheme, currentHost, currentPort);
 
             log.info("Connecting to AMQP broker at {} as '{}'...", url, currentUser);
-            updateBindStatus("CONNECTING");
+            updateBindStatus(BIND_CONNECTING);
 
             JmsConnectionFactory factory = new JmsConnectionFactory(url);
             factory.setUsername(currentUser);
             factory.setPassword(currentPass);
 
-            Connection conn = factory.createConnection();
-            conn.setExceptionListener(ex -> {
-                log.error("AMQP connection exception: {}", ex.getMessage());
-                connected.set(false);
-                updateBindStatus("DISCONNECTED");
-                alertService.create(GwAlert.TYPE_CONNECTION_LOST, GwAlert.SEV_CRITICAL,
-                        "AMQP connection lost: " + ex.getMessage(), null, null);
-                scheduleReconnect();
-            });
-            conn.start();
+            Connection newConn = null;
+            try {
+                newConn = factory.createConnection();
+                newConn.setExceptionListener(ex -> {
+                    log.error("AMQP connection exception: {}", ex.getMessage());
+                    connected.set(false);
+                    updateBindStatus(BIND_DISCONNECTED);
+                    alertService.create(GwAlert.TYPE_CONNECTION_LOST, GwAlert.SEV_CRITICAL,
+                            "AMQP connection lost: " + ex.getMessage(), null, null);
+                    scheduleReconnect();
+                });
+                newConn.start();
 
-            this.connection = conn;
-            this.connected.set(true);
-            updateBindStatus("CONNECTED");
-            this.reconnectAttempt.set(0);
+                // Đóng kết nối cũ trước khi gán kết nối mới để tránh rò rỉ tài nguyên
+                Connection oldConn = this.connection;
+                if (oldConn != null) {
+                    try {
+                        oldConn.close();
+                        log.debug("Closed old AMQP connection");
+                    } catch (Exception ignored) {}
+                }
 
-            log.info("AMQP broker connected: {}", url);
-            systemLogService.log(GwAlert.SEV_INFO, "SWIM_COMPONENT",
-                    "AMQP connection established: " + url);
+                this.connection = newConn;
+                this.connected.set(true);
+                updateBindStatus(BIND_CONNECTED);
+                this.reconnectAttempt.set(0);
+
+                log.info("AMQP broker connected: {}", url);
+                systemLogService.log(GwAlert.SEV_INFO, "SWIM_COMPONENT",
+                         "AMQP connection established: " + url);
+
+            } catch (Exception ex) {
+                // Giải phóng kết nối mới nếu thiết lập thất bại
+                if (newConn != null) {
+                    try { newConn.close(); } catch (Exception ignored) {}
+                }
+                throw ex;
+            }
 
         } catch (Exception e) {
             log.error("AMQP connection failed: {}", e.getMessage());
             connected.set(false);
-            updateBindStatus("DISCONNECTED");
+            updateBindStatus(BIND_DISCONNECTED);
             scheduleReconnect();
         }
     }
 
     /**
-     * Updates connection status both in-memory and in the Database for CP display
+     * Cập nhật trạng thái liên kết kết nối.
      */
     private void updateBindStatus(String status) {
         this.bindStatus = status;
@@ -151,6 +229,9 @@ public class ConnectionManagerService {
         }
     }
 
+    /**
+     * Lập lịch kết nối lại tự động khi gặp sự cố mất kết nối.
+     */
     private void scheduleReconnect() {
         int attempt = reconnectAttempt.incrementAndGet();
         long delay = Math.min(1000L * (1L << Math.min(attempt - 1, 5)), MAX_BACKOFF_MS);
@@ -168,30 +249,44 @@ public class ConnectionManagerService {
         t.start();
     }
 
+    /**
+     * Tạo session mới, sao chép kết nối cục bộ để tránh lỗi tương tranh luồng (TOCTOU).
+     */
     public Session createSession() throws JMSException {
-        if (!connected.get() || connection == null) {
+        Connection conn = this.connection;  // Bản sao cục bộ để tránh lỗi tương tranh luồng
+        if (!connected.get() || conn == null) {
             throw new JMSException("AMQP not connected");
         }
-        return connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+        return conn.createSession(false, Session.AUTO_ACKNOWLEDGE);
     }
 
+    /**
+     * Tạo MessageProducer gửi tin nhắn tới topic chỉ định.
+     */
     public MessageProducer createProducer(Session session, String destination) throws JMSException {
         Destination dest = session.createTopic(destination);
         return session.createProducer(dest);
     }
 
+    /**
+     * Tạo MessageConsumer nhận tin nhắn từ topic chỉ định.
+     */
     public MessageConsumer createConsumer(Session session, String topic) throws JMSException {
         Destination dest = session.createTopic(topic);
-        return session.createConsumer(dest);
+        // Sử dụng noLocal=true để tránh nhận lại tin nhắn do chính mình gửi lên (Echo Cancellation)
+        return session.createConsumer(dest, null, true);
     }
 
+    /**
+     * Đóng kết nối AMQP khi kết thúc chương trình.
+     */
     @PreDestroy
     public void shutdown() {
         try {
             if (connection != null) {
                 connection.close();
                 connected.set(false);
-                updateBindStatus("DISCONNECTED");
+                updateBindStatus(BIND_DISCONNECTED);
                 log.info("AMQP connection closed");
             }
         } catch (Exception e) {

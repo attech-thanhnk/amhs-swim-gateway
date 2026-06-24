@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE hibernate-configuration PUBLIC "-//Hibernate/Hibernate Configuration DTD 3.0//EN" "http://www.hibernate.org/dtd/hibernate-configuration-3.0.dtd">
+<hibernate-configuration>
+    <session-factory>
+        <property name="hibernate.dialect">org.hibernate.dialect.MySQLDialect</property>
+        <!--property name="hibernate.connection.driver_class">com.mysql.jdbc.Driver</property -->
+        <property name="hibernate.connection.driver_class">com.mysql.cj.jdbc.Driver</property>
+        <property name="hibernate.connection.url">jdbc:mysql://192.168.1.173:3306/iwxxm</property>
+        <property name="hibernate.connection.username">iwxxm</property>
+        <property name="hibernate.connection.password">p@ssw0rd123</property>
+        <property name="hibernate.connection.useUnicode">true</property>
+        <property name="hibernate.connection.characterEncoding">UTF-8</property> 
+        <property name="hibernate.connection.charSet">UTF-8</property> 
+        <property name="hibernate.show_sql">false</property>
+        <property name="hibernate.query.factory_class">org.hibernate.hql.internal.classic.ClassicQueryTranslatorFactory</property>
+        <property name="hibernate.current_session_context_class">thread</property>
+        <property name="hibernate.c3p0.min_size">2</property>
+        <property name="hibernate.c3p0.max_size">10</property>
+        <property name="hibernate.c3p0.timeout">25200</property>
+        <property name="hibernate.c3p0.max_statements">0</property>
+        <property name="hibernate.c3p0.idle_test_period">0</property>
+        <!-- retry connection after break -->
+        <property name="hibernate.c3p0.autoCommitOnClose">false</property>
+        <property name="hibernate.c3p0.acquireRetryDelay">5000</property>
+        <property name="hibernate.c3p0.acquireRetryAttempts">1</property>
+        <property name="hibernate.c3p0.breakAfterAcquireFailure">false</property>
+        <!-- determines how many connections at a time c3p0 will try to acquire when the pool is exhausted. -->
+        <property name="hibernate.c3p0.acquire_increment">3</property>
+        <!--property name="hibernate.c3p0.idle_test_period">14400</property-->
+        <property name="hibernate.c3p0.preferredTestQuery">select 1;</property>
+        <mapping class="com.attech.iwxxm.db.entities.Monitor"/>
+        <mapping class="com.attech.iwxxm.db.entities.Queue"/>
+        <mapping class="com.attech.iwxxm.db.entities.Message"/>
+        
+    </session-factory>
+</hibernate-configuration>

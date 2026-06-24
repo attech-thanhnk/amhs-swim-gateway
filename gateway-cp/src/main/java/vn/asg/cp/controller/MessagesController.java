@@ -108,7 +108,7 @@ public class MessagesController {
         Gwin msg = gwinRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Inbound message", msgid));
 
-        msg.setStatus(0); // 0 = PENDING for retry
+        msg.setStatus(Gwin.STATUS_PENDING);
         gwinRepository.save(msg);
 
         return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Queued for retry"));
@@ -119,7 +119,7 @@ public class MessagesController {
         Gwout msg = gwoutRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Outbound message", msgid));
 
-        msg.setStatus(0); // 0 = PENDING for retry
+        msg.setStatus(Gwout.STATUS_PENDING);
         gwoutRepository.save(msg);
 
         return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Queued for retry"));

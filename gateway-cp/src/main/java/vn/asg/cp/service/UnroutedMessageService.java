@@ -18,13 +18,7 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 /**
- * Service for managing UNROUTED messages.
- * <p>
- * Handles:
- * - Get UNROUTED messages
- * - Manual routing
- * - Rejection
- * - Batch operations
+ * Dịch vụ xử lý bản tin UNROUTED.
  */
 @Service
 @RequiredArgsConstructor
@@ -34,7 +28,7 @@ public class UnroutedMessageService {
     private final GwinRepository gwinRepository;
 
     /**
-     * Get all UNROUTED messages (status = 5).
+     * Lấy danh sách bản tin UNROUTED phân trang.
      */
     public Page<Gwin> getUnroutedMessages(LocalDateTime fromTime, LocalDateTime toTime,
             String source, Pageable pageable) {
@@ -57,7 +51,7 @@ public class UnroutedMessageService {
     }
 
     /**
-     * Get UNROUTED message by ID.
+     * Lấy bản tin UNROUTED theo ID.
      */
     public Optional<Gwin> getUnroutedMessageById(Long msgid) {
         return gwinRepository.findById(msgid)
@@ -65,7 +59,7 @@ public class UnroutedMessageService {
     }
 
     /**
-     * Manually route UNROUTED message.
+     * Phân phối thủ công bản tin UNROUTED.
      */
     @Transactional
     public Gwin manuallyRoute(Long msgid, ManualRouteRequest request) {
@@ -87,7 +81,7 @@ public class UnroutedMessageService {
     }
 
     /**
-     * Reject UNROUTED message.
+     * Từ chối bản tin UNROUTED.
      */
     @Transactional
     public Gwin rejectMessage(Long msgid, RejectMessageRequest request) {
@@ -110,7 +104,7 @@ public class UnroutedMessageService {
     }
 
     /**
-     * Batch route UNROUTED messages.
+     * Phân phối thủ công hàng loạt bản tin UNROUTED.
      */
     @Transactional
     public BatchOperationResponse batchRoute(BatchRouteRequest request) {
@@ -163,14 +157,14 @@ public class UnroutedMessageService {
     }
 
     /**
-     * Get UNROUTED count for statistics.
+     * Lấy tổng số lượng bản tin UNROUTED.
      */
     public long getUnroutedCount() {
         return gwinRepository.countByStatus(Gwin.STATUS_UNROUTED);
     }
 
     /**
-     * Get UNROUTED count in time range.
+     * Lấy số lượng bản tin UNROUTED trong khoảng thời gian chỉ định.
      */
     public long getUnroutedCountInRange(LocalDateTime fromTime, LocalDateTime toTime) {
         return gwinRepository.countByStatusAndTimeBetween(Gwin.STATUS_UNROUTED, fromTime, toTime);

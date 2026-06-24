@@ -7,15 +7,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * EUR Doc 047 §3.5 - Authorization Service
+ * EUR Doc 047 §3.5 - Dịch vụ Xác thực Quyền hạn (Authorization Service)
  *
- * Checks authorization for AMHS and SWIM users/enterprises.
+ * Kiểm tra quyền hạn (authorization) đối với người dùng AMHS và SWIM.
  *
- * Configuration Modes (C-19, C-20):
- * - ALL: Accept all users (no filtering)
- * - BY_LIST: Accept only users in whitelist
- * - BY_PRMD: Accept only users from specific PRMD (AMHS only)
- * - BY_ENTERPRISE: Accept only specific SWIM enterprises (SWIM only)
+ * Các chế độ Cấu hình (C-19, C-20):
+ * - ALL: Chấp nhận tất cả người dùng (không lọc)
+ * - BY_LIST: Chỉ chấp nhận người dùng trong whitelist
+ * - BY_PRMD: Chỉ chấp nhận người dùng từ PRMD cụ thể (chỉ dành cho AMHS)
+ * - BY_ENTERPRISE: Chỉ chấp nhận các doanh nghiệp SWIM cụ thể (chỉ dành cho
+ * SWIM)
  */
 @Service
 @RequiredArgsConstructor
@@ -25,15 +26,15 @@ public class AuthorizationService {
     private final ConfigService configService;
 
     /**
-     * EUR Doc 047 §4.4.1 - Check AMHS user authorization (C-19)
+     * EUR Doc 047 §4.4.1 - Kiểm tra quyền hạn người dùng AMHS (C-19)
      *
-     * @param originator AFTN address or X.400 O/R address
-     * @return true if authorized
+     * @param originator Địa chỉ AFTN hoặc địa chỉ X.400 O/R
+     * @return true nếu được phép truy cập
      */
     public boolean isAmhsUserAuthorized(String originator) {
         if (originator == null || originator.isBlank()) {
             log.debug("Authorization: AMHS user check skipped (no originator)");
-            return true; // Allow messages without originator
+            return true; // Cho phép bản tin không có originator
         }
 
         String mode = configService.get(ConfigService.KEY_AUTHORIZED_AMHS_USERS);
@@ -53,10 +54,10 @@ public class AuthorizationService {
     }
 
     /**
-     * EUR Doc 047 §4.5.1 - Check SWIM user authorization (C-20)
+     * EUR Doc 047 §4.5.1 - Kiểm tra quyền hạn người dùng SWIM (C-20)
      *
-     * @param amqpMsg AMQP message (check user-id, enterprise properties)
-     * @return true if authorized
+     * @param amqpMsg Bản tin AMQP (kiểm tra các thuộc tính user-id, enterprise)
+     * @return true nếu được phép truy cập
      */
     public boolean isSwimUserAuthorized(Message amqpMsg) {
         String mode = configService.get(ConfigService.KEY_AUTHORIZED_SWIM_USERS);
@@ -67,7 +68,7 @@ public class AuthorizationService {
         }
 
         try {
-            // Try to get user-id from AMQP message
+            // Thử lấy thông tin user-id từ bản tin AMQP
             String userId = amqpMsg.getStringProperty("user_id");
             String enterprise = amqpMsg.getStringProperty("swim_enterprise");
 
@@ -81,12 +82,12 @@ public class AuthorizationService {
             };
         } catch (JMSException e) {
             log.warn("Authorization: Failed to read SWIM user properties: {}", e.getMessage());
-            return true; // Allow on error (fail-open)
+            return true; // Cho phép đi qua nếu gặp lỗi (fail-open)
         }
     }
 
     /**
-     * Check if AMHS originator is in whitelist
+     * Kiểm tra xem originator AMHS có nằm trong whitelist hay không
      */
     private boolean checkAmhsWhitelist(String originator) {
         String whitelist = configService.get("AUTHORIZED_AMHS_ADDRESSES");
@@ -101,7 +102,7 @@ public class AuthorizationService {
     }
 
     /**
-     * Check if AMHS originator is from authorized PRMD
+     * Kiểm tra xem originator AMHS có thuộc PRMD được cấp quyền hay không
      */
     private boolean checkAmhsPrmd(String originator) {
         String authorizedPrmds = configService.get("AUTHORIZED_AMHS_PRMDS");
@@ -110,9 +111,9 @@ public class AuthorizationService {
             return true;
         }
 
-        // AFTN address format: XXXXYYYYZ (first 4 chars = location, next 3 = unit, last
-        // 1 = letter)
-        // PRMD typically matches location code (first 2-4 chars)
+        // Định dạng địa chỉ AFTN: XXXXYYYYZ (4 ký tự đầu = location, 3 ký tự tiếp =
+        // unit, ký tự cuối cùng = letter)
+        // PRMD thường khớp với mã vị trí (2-4 ký tự đầu tiên)
         if (originator.length() < 4) {
             log.debug("Authorization: AMHS BY_PRMD → DENY {} (invalid format)", originator);
             return false;
@@ -126,7 +127,7 @@ public class AuthorizationService {
     }
 
     /**
-     * Check if SWIM user is in whitelist
+     * Kiểm tra xem người dùng SWIM có nằm trong whitelist hay không
      */
     private boolean checkSwimWhitelist(String userId) {
         if (userId == null || userId.isBlank()) {
@@ -146,7 +147,7 @@ public class AuthorizationService {
     }
 
     /**
-     * Check if SWIM message is from authorized enterprise
+     * Kiểm tra xem bản tin SWIM có thuộc doanh nghiệp được cấp quyền hay không
      */
     private boolean checkSwimEnterprise(String enterprise) {
         if (enterprise == null || enterprise.isBlank()) {

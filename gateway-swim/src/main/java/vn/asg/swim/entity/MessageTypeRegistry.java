@@ -1,18 +1,13 @@
 package vn.asg.swim.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 /**
  * MessageTypeRegistry entity — List of ATS message types, identification
- * patterns, and geographic scope logic.
- * This relatively static data is cached within the MessageDetectService.
+ * patterns, and active status.
  */
 @Entity
 @Table(name = "message_type_registry")
-@Data
-@NoArgsConstructor
 public class MessageTypeRegistry {
 
     @Id
@@ -33,20 +28,54 @@ public class MessageTypeRegistry {
     @Column(name = "detect_pattern", length = 255, nullable = false)
     private String detectPattern;
 
-    /** Parser complexity: easy / medium / hard */
-    @Column(name = "difficulty", length = 10, nullable = false)
-    private String difficulty;
-
-    /** Implementation Phase: 1=High Priority, 2=Medium, 3=Low */
-    @Column(name = "phase", nullable = false)
-    private Byte phase = 1;
-
     /** 0=Disabled, 1=Enabled */
     @Column(name = "active", nullable = false)
     private Boolean active = true;
 
-    /** Technical notes. Example: "For TAF AMD, scope is at word[3]" */
+    /** Technical notes. */
     @Column(name = "note", length = 500)
     private String note;
 
+    public MessageTypeRegistry() {
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getMessageType() {
+        return messageType;
+    }
+
+    public void setMessageType(String messageType) {
+        this.messageType = messageType;
+    }
+
+    public String getDetectPattern() {
+        return detectPattern;
+    }
+
+    public void setDetectPattern(String detectPattern) {
+        this.detectPattern = detectPattern;
+    }
+
+    public Boolean getActive() {
+        return active;
+    }
+
+    public void setActive(Boolean active) {
+        this.active = active;
+    }
+
+    public String getNote() {
+        return note;
+    }
+
+    public void setNote(String note) {
+        this.note = note;
+    }
 }

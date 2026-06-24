@@ -1,0 +1,104 @@
+
+services:
+  # -------------------------------------------------------------
+  # 1. SWIM Component Service (gateway-swim)
+  # -------------------------------------------------------------
+  gateway-swim:
+    build:
+      context: ./
+      dockerfile: ./gateway-swim/Dockerfile
+    container_name: asg-gateway-swim
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "8181:8181"
+    environment:
+      - SERVER_PORT=8181
+      - DB_URL=jdbc:mysql://host.docker.internal:3306/asg_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&useUnicode=true&characterEncoding=UTF-8
+      - DB_USER=root
+      - DB_PASS=123456
+      - AMQP_HOST=host.docker.internal
+      - AMQP_PORT=5672
+      - AMQP_USER=admin
+      - AMQP_PASS=admin
+      - RETENTION_DAYS=30
+      - LOG_LEVEL_ASG=DEBUG
+    networks:
+      - asg-network
+
+  # -------------------------------------------------------------
+  # 2. Control Position Component Service (gateway-cp)
+  # -------------------------------------------------------------
+  gateway-cp:
+    build:
+      context: ./
+      dockerfile: ./gateway-cp/Dockerfile
+    container_name: asg-gateway-cp
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "8180:8180"
+    environment:
+      - SERVER_PORT=8180
+      - DB_URL=jdbc:mysql://host.docker.internal:3306/asg_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&useUnicode=true&characterEncoding=UTF-8
+      - DB_USER=root
+      - DB_PASS=123456
+      - LOG_LEVEL_ASG=INFO
+    networks:
+      - asg-network
+
+  # -------------------------------------------------------------
+  # 3. MySQL Database Service
+  # -------------------------------------------------------------
+  mysql:
+    image: mysql:5.7.44
+    container_name: asg-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: asg_db
+      MYSQL_USER: attech
+      MYSQL_PASSWORD: 123456
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - asg-network
+    commands: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: asg-phpmyadmin
+    restart: always
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_ARBITRARY: 1
+    ports:
+      - "8080:80"
+    depends_on:
+      - mysql
+    networks:
+      - asg-network
+
+volumes:
+  mysql-data:
+    driver: local
+    
+networks:
+  asg-network:
+    driver: bridge

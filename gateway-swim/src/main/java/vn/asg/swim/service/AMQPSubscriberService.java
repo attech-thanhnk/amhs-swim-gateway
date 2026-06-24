@@ -5,6 +5,8 @@ import jakarta.annotation.PreDestroy;
 import jakarta.jms.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import vn.asg.swim.entity.Gwin;
@@ -15,12 +17,14 @@ import vn.asg.swim.repository.GwinRepository;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * SWIM → AMHS: subscribes to topics from Solace, validates and records into
- * gwin with PENDING status.
- * Dispatching to AMHS MTA is handled by InboundDispatchService.
+ * Nhận bản tin SWIM, kiểm tra hợp lệ và lưu vào bảng gwin.
  */
 @Service
 @RequiredArgsConstructor
@@ -37,10 +41,18 @@ public class AMQPSubscriberService {
     private final AuthorizationService authorizationService;
     private final AtsmhsServiceLevelResolver atsmhsResolver;
     private final ConfigService configService;
+    private final MessageDetectService detectService;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
-    private final List<Session> activeSessions = new ArrayList<>();
+    // Tập hợp an toàn đa luồng để tránh ConcurrentModificationException khi
+    // subscribe/unsubscribe đồng thời
+    private final List<Session> activeSessions = new CopyOnWriteArrayList<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private volatile List<String> currentSubscribedQueues = new CopyOnWriteArrayList<>();
 
+    /**
+     * Bắt đầu tiến trình subscribe bất đồng bộ sau khi khởi tạo.
+     */
     @PostConstruct
     public void startSubscribing() {
         Thread t = new Thread(() -> {
@@ -55,6 +67,9 @@ public class AMQPSubscriberService {
         t.start();
     }
 
+    /**
+     * Thực hiện subscribe toàn bộ các queue/topic inbound đang hoạt động.
+     */
     public synchronized void subscribeAll() {
         if (!connectionManager.getConnected().get()) {
             log.warn("AMQP not connected, subscriber will retry later");
@@ -67,21 +82,24 @@ public class AMQPSubscriberService {
         List<String> queues = routingService.getActiveInboundTopics();
         if (queues.isEmpty()) {
             log.warn("No active inbound queues found for subscription");
+            currentSubscribedQueues.clear();
             return;
         }
 
         for (String queue : queues) {
             subscribeQueue(queue);
         }
+        currentSubscribedQueues = new CopyOnWriteArrayList<>(queues);
         log.info("Subscribed to {} queues: {}", queues.size(), queues);
     }
 
+    /**
+     * Subscribe queue: khởi tạo session và consumer, giải phóng nếu lỗi.
+     */
     private void subscribeQueue(String queue) {
+        Session session = null;
         try {
-            Session session = connectionManager.createSession();
-            activeSessions.add(session);
-
-            // Can change to createQueue if P2P, project spec requires topic
+            session = connectionManager.createSession();
             MessageConsumer consumer = connectionManager.createConsumer(session, queue);
             consumer.setMessageListener(msg -> {
                 try {
@@ -91,18 +109,24 @@ public class AMQPSubscriberService {
                 }
             });
 
+            // Chỉ add vào list khi subscribe thành công
+            activeSessions.add(session);
+            log.debug("Subscribed successfully to queue: {}", queue);
+
         } catch (JMSException e) {
             log.error("Failed to subscribe to queue {}: {}", queue, e.getMessage());
+            // Giải phóng session nếu subscribe thất bại
+            if (session != null) {
+                try {
+                    session.close();
+                } catch (Exception ignored) {
+                }
+            }
         }
     }
 
     /**
-     * Validate AMQP message, resolve AMHS addressing, and write to Gwin.
-     * <p>
-     * Resulting Status:
-     * - PENDING: Resolution successful, ready for dispatch.
-     * - UNROUTED: Failed to resolve address, waiting for manual operator
-     * intervention.
+     * Kiểm tra tính hợp lệ bản tin AMQP, phân giải địa chỉ và ghi vào Gwin.
      */
     @Transactional
     public void handleMessage(Message amqpMsg, String queue) throws JMSException {
@@ -115,19 +139,26 @@ public class AMQPSubscriberService {
                         "gwin", null);
                 return;
             } else {
-                amqpMsgId = "GW-GEN-" + java.util.UUID.randomUUID().toString();
+                amqpMsgId = "GW-GEN-" + UUID.randomUUID().toString();
                 log.info("AMQP message has no JMSMessageID, generated synthetic ID: {}", amqpMsgId);
             }
         }
         log.info("Received AMQP message: {} from topic: {}", amqpMsgId, queue);
 
-        // Deduplication (prevent duplicate processing per spec)
+        // Chống lặp bản tin (Loopback prevention).
+        String originGw = amqpMsg.getStringProperty("amhs_gateway_id");
+        if (configService.getGatewayId().equals(originGw)) {
+            log.info("Loopback detected for message {}. Dropping message to prevent infinite loop.", amqpMsgId);
+            return;
+        }
+
+        // Loại bỏ bản tin trùng lặp (Deduplication).
         if (gwinRepository.existsByMessageId(amqpMsgId)) {
             log.warn("AMQP message {} already exists in gwin. Ignoring duplicate.", amqpMsgId);
             return;
         }
 
-        // EUR Doc 047 §4.5.1 - Authorization check (C-20)
+        // Kiểm tra quyền hạn người dùng (Authorization).
         if (!authorizationService.isSwimUserAuthorized(amqpMsg)) {
             log.warn("AMQP message {} UNAUTHORIZED - rejected by authorization policy", amqpMsgId);
             alertService.create(
@@ -140,7 +171,7 @@ public class AMQPSubscriberService {
             return;
         }
 
-        // 0. Extract body FIRST for validation
+        // 0. Trích xuất body bản tin.
         String textPayload = null;
         byte[] binaryPayload = null;
         if (amqpMsg instanceof TextMessage tm) {
@@ -148,9 +179,8 @@ public class AMQPSubscriberService {
         } else if (amqpMsg instanceof BytesMessage bm) {
             byte[] buf = new byte[(int) bm.getBodyLength()];
             bm.readBytes(buf);
-            // Thử decode UTF-8: nếu là XML/text thì giữ nguyên chuỗi
-            // (Solace Try Me! gửi BytesMessage nhưng nội dung là text)
-            String asUtf8 = new String(buf, java.nio.charset.StandardCharsets.UTF_8).stripLeading();
+            // Chuyển đổi sang text nếu có định dạng XML/JSON/Plain text.
+            String asUtf8 = new String(buf, StandardCharsets.UTF_8).stripLeading();
             if (asUtf8.startsWith("<") || isProbablyText(asUtf8)) {
                 textPayload = asUtf8;
             } else {
@@ -162,9 +192,9 @@ public class AMQPSubscriberService {
         }
 
         String finalContent = textPayload != null ? textPayload
-                : (binaryPayload != null ? java.util.Base64.getEncoder().encodeToString(binaryPayload) : null);
+                : (binaryPayload != null ? Base64.getEncoder().encodeToString(binaryPayload) : null);
 
-        // EUR Doc 047 Validation: C-02, S-06, S-08, S-09
+        // Kiểm tra tính hợp lệ bản tin theo EUR Doc 047.
         MessageValidationService.ValidationResult validationResult = validationService.validateSwimToAmhs(amqpMsgId,
                 amqpMsg,
                 finalContent);
@@ -172,7 +202,7 @@ public class AMQPSubscriberService {
         if (!validationResult.isValid()) {
             log.error("AMQP message {} validation FAILED: {}", amqpMsgId, validationResult.getErrorMessage());
 
-            // EUR Doc 047 §4.5.1: Reject + log + alert CP on validation failure
+            // Từ chối bản tin, tạo log và cảnh báo nếu validation thất bại.
             alertService.create(
                     GwAlert.TYPE_VALIDATION_ERROR,
                     GwAlert.SEV_ERROR,
@@ -182,11 +212,11 @@ public class AMQPSubscriberService {
             conversionService.logSwimToAmhs(amqpMsgId, null, "REJECTED", "validation-failed",
                     validationResult.getErrorMessage());
 
-            // Do not save to gwin - message is rejected
+            // Bỏ qua không lưu gwin nếu validation thất bại.
             return;
         }
 
-        // 1. Priority
+        // 1. Phân giải độ ưu tiên (JMS Priority).
         int priority;
         try {
             priority = amqpMsg.getJMSPriority();
@@ -195,13 +225,13 @@ public class AMQPSubscriberService {
             priority = 2;
         }
 
-        // 2. Content type and subject
+        // 2. Trích xuất Content-Type và Subject.
         String contentType = amqpMsg.getStringProperty("JMS_AMQP_CONTENT_TYPE");
         String subject = amqpMsg.getStringProperty("amhs_subject");
         if (subject == null)
             subject = "SWIM_INTERWORKING";
 
-        // EUR Doc 047 §4.5.2.1: Read AMQP application properties (S-05, S-24, S-25)
+        // Trích xuất các thuộc tính ứng dụng AMQP theo đặc tả.
         String atsPriority = amqpMsg.getStringProperty("ats_priority");
         String amhsAtsFt = amqpMsg.getStringProperty("amhs_ats_ft");
         String amhsAtsOhi = amqpMsg.getStringProperty("amhs_ats_ohi");
@@ -210,49 +240,50 @@ public class AMQPSubscriberService {
         String amhsContentEncoding = amqpMsg.getStringProperty("amhs_content_encoding");
         String amhsMessageSigned = amqpMsg.getStringProperty("amhs_message_signed");
 
-        // S-05: ats_priority overrides JMSPriority
+        // ats_priority ghi đè JMSPriority theo đặc tả.
         if (atsPriority != null && !atsPriority.isBlank()) {
             priority = vn.asg.swim.model.AmqpProperties.mapAtsPriorityToAmqp(atsPriority);
             log.debug("AMQP {}: ats_priority={} → priority={}", amqpMsgId, atsPriority, priority);
         }
 
-        // Build JSON for amqp_properties field
-        StringBuilder propsJson = new StringBuilder("{");
+        // Chuyển đổi các thuộc tính ứng dụng sang định dạng JSON.
+        java.util.Map<String, String> props = new java.util.LinkedHashMap<>();
         if (atsPriority != null)
-            propsJson.append("\"ats_priority\":\"").append(atsPriority).append("\",");
+            props.put("ats_priority", atsPriority);
         if (amhsAtsFt != null)
-            propsJson.append("\"amhs_ats_ft\":\"").append(amhsAtsFt).append("\",");
+            props.put("amhs_ats_ft", amhsAtsFt);
         if (amhsAtsOhi != null)
-            propsJson.append("\"amhs_ats_ohi\":\"").append(amhsAtsOhi).append("\",");
+            props.put("amhs_ats_ohi", amhsAtsOhi);
         if (amhsIpmId != null)
-            propsJson.append("\"amhs_ipm_id\":\"").append(amhsIpmId).append("\",");
+            props.put("amhs_ipm_id", amhsIpmId);
         if (amhsBodypartType != null)
-            propsJson.append("\"amhs_bodypart_type\":\"").append(amhsBodypartType).append("\",");
+            props.put("amhs_bodypart_type", amhsBodypartType);
         if (amhsContentEncoding != null)
-            propsJson.append("\"amhs_content_encoding\":\"").append(amhsContentEncoding).append("\",");
+            props.put("amhs_content_encoding", amhsContentEncoding);
         if (amhsMessageSigned != null)
-            propsJson.append("\"amhs_message_signed\":\"").append(amhsMessageSigned).append("\",");
+            props.put("amhs_message_signed", amhsMessageSigned);
         if (contentType != null)
-            propsJson.append("\"content_type\":\"").append(contentType).append("\",");
+            props.put("content_type", contentType);
         if (subject != null)
-            propsJson.append("\"subject\":\"").append(subject).append("\",");
-        // Remove trailing comma
-        if (propsJson.charAt(propsJson.length() - 1) == ',') {
-            propsJson.setLength(propsJson.length() - 1);
+            props.put("subject", subject);
+
+        String tempJson = "{}";
+        try {
+            tempJson = objectMapper.writeValueAsString(props);
+        } catch (Exception e) {
+            log.error("Failed to serialize AMQP properties to JSON for message {}: {}", amqpMsgId, e.getMessage());
         }
-        propsJson.append("}");
+        final String amqpPropertiesJson = tempJson;
 
-        final String amqpPropertiesJson = propsJson.toString();
-
-        // 3. Resolve AMHS addressing
+        // 3. Phân giải địa chỉ AMHS gửi và nhận (Addressing resolution).
         ResolvedAddressing resolved = addressingResolver.resolve(amqpMsg, queue, finalContent);
 
-        // EUR Doc 047 §3.3.3 - ATSMHS Service Level check (C-08 → C-12)
+        // Kiểm tra cấp độ dịch vụ ATSMHS theo đặc tả.
         if (resolved.isResolved()) {
             String serviceLevel = atsmhsResolver.resolve(contentType, resolved.recipients());
             boolean hasBinaryContent = binaryPayload != null;
 
-            // C-10: Basic mode cannot handle binary content
+            // Chế độ BASIC không hỗ trợ nội dung nhị phân (binary).
             if (!atsmhsResolver.validateContent(serviceLevel, contentType, hasBinaryContent)) {
                 log.error("AMQP message {} REJECTED: BASIC ATSMHS mode cannot handle binary content", amqpMsgId);
                 alertService.create(
@@ -268,50 +299,67 @@ public class AMQPSubscriberService {
             log.debug("AMQP {}: ATSMHS service level = {}", amqpMsgId, serviceLevel);
         }
 
-        // 4. Create gwin record
+        // 4. Khởi tạo thực thể Gwin.
         Gwin gwin = new Gwin();
         gwin.setMessageId(amqpMsgId);
         gwin.setSource(queue);
         gwin.setSubject(subject);
-        gwin.setAmqpProperties(amqpPropertiesJson); // EUR Doc 047: Save all AMQP properties
+        gwin.setAmqpProperties(amqpPropertiesJson); // Lưu thuộc tính AMQP.
         gwin.setPriority((byte) Math.min(Math.max(priority, 0), 9));
         gwin.setTime(LocalDateTime.now());
-        gwin.setText(finalContent);
+        gwin.setPayloadContent(finalContent);
         gwin.setBodyType("text");
         gwin.setContentType(contentType);
         gwin.setOrigin(resolved.originator());
         gwin.setAddress(resolved.recipients());
         gwin.setAddressingSource(resolved.source());
 
-        if (resolved.isResolved()) {
-            gwin.setStatus(Gwin.STATUS_PENDING);
-            log.info("AMQP {} → gwin PENDING | source={} originator={} recipients={}",
-                    amqpMsgId, resolved.source(), resolved.originator(), resolved.recipients());
-        } else {
-            // UNRESOLVED: do not reject, save for manual operator intervention
-            gwin.setStatus(Gwin.STATUS_UNROUTED);
-            log.warn("AMQP {} → gwin UNROUTED | Failed to resolve AMHS address (queue={})",
-                    amqpMsgId, queue);
-            alertService.create(
-                    GwAlert.TYPE_ROUTING_ERROR,
-                    GwAlert.SEV_WARNING,
-                    "UNROUTED: Failed to resolve AMHS address for message " + amqpMsgId
-                            + " from queue " + queue,
-                    "gwin", null);
+        try {
+            String effectiveType = subject;
+            if ("SWIM_INTERWORKING".equals(subject)) {
+                String detected = detectService.detect(finalContent);
+                if (!"UNKNOWN".equals(detected)) {
+                    effectiveType = detected;
+                }
+            }
+
+            try {
+                String tac = conversionService.toAmhs(finalContent, effectiveType);
+                gwin.setText(tac);
+                gwin.setStatus(resolved.isResolved() ? Gwin.STATUS_PENDING : Gwin.STATUS_UNROUTED);
+            } catch (Exception e) {
+                log.error("AMQP {} Conversion FAILED: {}", amqpMsgId, e.getMessage());
+                alertService.create(
+                        GwAlert.TYPE_CONVERT_ERROR,
+                        GwAlert.SEV_WARNING,
+                        "Conversion failed for " + amqpMsgId + ": " + e.getMessage(),
+                        "gwin", null);
+                gwin.setText("CONVERSION_FAILED: " + e.getMessage() + "\n" + finalContent);
+                gwin.setStatus(Gwin.STATUS_UNROUTED);
+            }
+
+            try {
+                gwinRepository.save(gwin);
+            } catch (DataIntegrityViolationException e) {
+                log.warn("AMQP message {} already exists (race condition). Ignoring.", amqpMsgId);
+                return;
+            }
+
+            String actionTag = "received-" + resolved.source().toLowerCase().replaceAll("[^a-z0-9]", "_");
+            conversionService.logSwimToAmhs(amqpMsgId, resolved.originator(),
+                    gwin.getStatus().equals(Gwin.STATUS_PENDING) ? "OK" : "UNROUTED",
+                    actionTag,
+                    resolved.isResolved() ? null : "MISSING_AMHS_RECIPIENTS",
+                    amhsIpmId);
+
+        } catch (Exception e) {
+            log.error("AMQP {} Fatal Error: {}", amqpMsgId, e.getMessage());
         }
-
-        gwinRepository.save(gwin);
-
-        String actionTag = "received-" + resolved.source().toLowerCase().replaceAll("[^a-z0-9]", "_");
-        conversionService.logSwimToAmhs(amqpMsgId, resolved.originator(),
-                resolved.isResolved() ? "OK" : "UNROUTED",
-                actionTag,
-                resolved.isResolved() ? null : "MISSING_AMHS_RECIPIENTS",
-                amhsIpmId); // EUR Doc 047 §4.3.4f (G-14)
-
-        log.info("AMQP message {} written to gwin#{}", amqpMsgId, gwin.getMsgid());
     }
 
+    /**
+     * Dừng kết nối và đóng toàn bộ session active.
+     */
     public synchronized void stopAll() {
         running.set(false);
         activeSessions.forEach(s -> {
@@ -323,23 +371,45 @@ public class AMQPSubscriberService {
         activeSessions.clear();
     }
 
+    /**
+     * Dọn dẹp tài nguyên khi bean bị hủy.
+     */
     @PreDestroy
     public void destroy() {
         stopAll();
     }
 
     /**
-     * Checks if string is likely text (not binary).
-     * BytesMessage payload as text or Base64.
+     * Nhận biết dữ liệu văn bản.
      */
     private boolean isProbablyText(String s) {
         if (s == null || s.isEmpty())
             return false;
-        // Đếm ký tự điều khiển (ngoài tab, newline, carriage return)
+        // Đếm các ký tự điều khiển.
         long controlChars = s.chars()
                 .filter(c -> c < 32 && c != '\t' && c != '\n' && c != '\r')
                 .count();
-        // Nếu < 5% là ký tự điều khiển thì coi là text
+        // Trả về true nếu ít hơn 5% là ký tự điều khiển.
         return controlChars < s.length() * 0.05;
+    }
+
+    /**
+     * Định kỳ kiểm tra sự thay đổi cấu hình định tuyến inbound để re-subscribe.
+     */
+    @Scheduled(fixedDelay = 10000)
+    public void checkRoutingChanges() {
+        if (!running.get() || !connectionManager.getConnected().get()) {
+            return;
+        }
+        try {
+            List<String> activeQueues = routingService.getActiveInboundTopics();
+            if (!activeQueues.equals(currentSubscribedQueues)) {
+                log.info("Detected changes in active inbound routing rules. Current subscribed: {}, New active: {}. Re-subscribing...", 
+                        currentSubscribedQueues, activeQueues);
+                subscribeAll();
+            }
+        } catch (Exception e) {
+            log.error("Error checking routing changes for re-subscription: {}", e.getMessage());
+        }
     }
 }

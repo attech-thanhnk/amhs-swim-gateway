@@ -6,11 +6,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import vn.asg.cp.entity.CpUser;
+import vn.asg.cp.entity.User;
 import vn.asg.cp.repository.CpUserRepository;
+import vn.asg.cp.repository.UserRepository;
 import vn.asg.cp.security.JwtTokenProvider;
 
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * POST /api/auth/login — đăng nhập, trả về JWT
@@ -22,7 +25,8 @@ import java.util.Map;
 @Slf4j
 public class AuthController {
 
-    private final CpUserRepository userRepository;
+    private final CpUserRepository cpUserRepository;
+    private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
 
@@ -36,21 +40,21 @@ public class AuthController {
         String username = body.username;
         String password = body.password;
 
-        CpUser user = userRepository.findByUsername(username).orElse(null);
-        if (user == null || !passwordEncoder.matches(password, user.getPassword())) {
+        User user = userRepository.findByUsername(username).orElse(null);
+        if (user != null && password.equals(user.getPassword())) {
+            user.setLastLoginAt(LocalDateTime.now());
+            userRepository.save(user);
+
+            String token = tokenProvider.generateToken(user.getUsername(), user.getRole().toString());
+            return ResponseEntity.ok(Map.of(
+                    "token", token,
+                    "expiresIn", tokenProvider.getExpirationMs() / 1000,
+                    "username", user.getUsername(),
+                    "role", user.getRole(),
+                    "userId", user.getId()));
+        } else {
             return ResponseEntity.status(401).body(Map.of("error", "Invalid username or password"));
         }
-
-        // Cập nhật last_login
-        user.setLastLogin(LocalDateTime.now());
-        userRepository.save(user);
-
-        String token = tokenProvider.generateToken(user.getUsername(), user.getRole());
-        return ResponseEntity.ok(Map.of(
-                "token", token,
-                "expiresIn", tokenProvider.getExpirationMs() / 1000,
-                "username", user.getUsername(),
-                "role", user.getRole()));
     }
 
     @PostMapping("/logout")
@@ -73,7 +77,7 @@ public class AuthController {
         }
 
         String username = tokenProvider.getUsernameFromToken(token);
-        return userRepository.findByUsername(username).map(user -> {
+        return cpUserRepository.findByUsername(username).map(user -> {
             String newToken = tokenProvider.generateToken(user.getUsername(), user.getRole());
             return ResponseEntity.ok(Map.of(
                     "token", newToken,
@@ -99,12 +103,12 @@ public class AuthController {
         String token = authHeader.substring(7);
         String username = tokenProvider.getUsernameFromToken(token);
 
-        return userRepository.findByUsername(username).map(user -> {
+        return cpUserRepository.findByUsername(username).map(user -> {
             if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
                 return ResponseEntity.status(400).body(Map.of("error", "Incorrect old password"));
             }
             user.setPassword(passwordEncoder.encode(newPassword));
-            userRepository.save(user);
+            cpUserRepository.save(user);
             return ResponseEntity.ok(Map.of("message", "Password changed successfully"));
         }).orElse(ResponseEntity.status(404).build());
     }

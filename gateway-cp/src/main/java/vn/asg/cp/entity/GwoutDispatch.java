@@ -1,10 +1,9 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
+import java.time.LocalDateTime;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
 
 /**
  * Bảng gwout_dispatch — Từng lệnh publish lên AMQP cho mỗi recipient.
@@ -16,6 +15,18 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 public class GwoutDispatch {
+    // Status constants
+    public static final String STATUS_PENDING = "PENDING";
+    public static final String STATUS_PROCESSING = "PROCESSING";
+    public static final String STATUS_SENT = "SENT";
+    public static final String STATUS_FAILED = "FAILED";
+    public static final String STATUS_DEAD = "DEAD";
+
+    // Failed step constants
+    public static final String STEP_DETECT = "detect";
+    public static final String STEP_ROUTING = "routing";
+    public static final String STEP_CONVERT = "convert";
+    public static final String STEP_PUBLISH = "publish";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -99,17 +110,4 @@ public class GwoutDispatch {
     public void preUpdate() {
         updatedAt = LocalDateTime.now();
     }
-
-    // Status constants
-    public static final String STATUS_PENDING = "PENDING";
-    public static final String STATUS_PROCESSING = "PROCESSING";
-    public static final String STATUS_SENT = "SENT";
-    public static final String STATUS_FAILED = "FAILED";
-    public static final String STATUS_DEAD = "DEAD";
-
-    // Failed step constants
-    public static final String STEP_DETECT = "detect";
-    public static final String STEP_ROUTING = "routing";
-    public static final String STEP_CONVERT = "convert";
-    public static final String STEP_PUBLISH = "publish";
 }

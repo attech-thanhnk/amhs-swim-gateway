@@ -20,12 +20,21 @@ public class BatchOperationResponse {
     private int failed;
     private List<BatchError> errors = new ArrayList<>();
 
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
     public static class BatchError {
         private Long msgid;
         private String error;
+
+        public BatchError() {}
+
+        public BatchError(Long msgid, String error) {
+            this.msgid = msgid;
+            this.error = error;
+        }
+
+        public Long getMsgid() { return msgid; }
+        public void setMsgid(Long msgid) { this.msgid = msgid; }
+        public String getError() { return error; }
+        public void setError(String error) { this.error = error; }
     }
 
     public void addError(Long msgid, String error) {

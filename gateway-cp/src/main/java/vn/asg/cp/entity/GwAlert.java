@@ -1,10 +1,9 @@
 package vn.asg.cp.entity;
 
 import jakarta.persistence.*;
+import java.time.LocalDateTime;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
 
 /**
  * Bảng gw_alert — Cảnh báo gửi lên Control Position để operator xử lý.
@@ -14,6 +13,24 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 public class GwAlert {
+
+    // Alert type constants
+    public static final String TYPE_CONNECTION_LOST = "CONNECTION_LOST";
+    public static final String TYPE_MESSAGE_DEAD = "MESSAGE_DEAD";
+    public static final String TYPE_QUEUE_BACKLOG = "QUEUE_BACKLOG";
+    public static final String TYPE_CONVERT_ERROR = "CONVERT_ERROR";
+    public static final String TYPE_ROUTING_ERROR = "ROUTING_ERROR";
+
+    // Severity constants
+    public static final String SEV_INFO = "INFO";
+    public static final String SEV_WARNING = "WARNING";
+    public static final String SEV_ERROR = "ERROR";
+    public static final String SEV_CRITICAL = "CRITICAL";
+
+    // Status constants
+    public static final String STATUS_NEW = "NEW";
+    public static final String STATUS_ACKNOWLEDGED = "ACKNOWLEDGED";
+    public static final String STATUS_RESOLVED = "RESOLVED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -69,23 +86,4 @@ public class GwAlert {
     public void prePersist() {
         createdAt = LocalDateTime.now();
     }
-
-    // Alert type constants
-    public static final String TYPE_CONNECTION_LOST = "CONNECTION_LOST";
-    public static final String TYPE_MESSAGE_DEAD = "MESSAGE_DEAD";
-    public static final String TYPE_QUEUE_BACKLOG = "QUEUE_BACKLOG";
-    public static final String TYPE_CONVERT_ERROR = "CONVERT_ERROR";
-    public static final String TYPE_ROUTING_ERROR = "ROUTING_ERROR";
-    public static final String TYPE_VALIDATION_ERROR = "VALIDATION_ERROR";
-
-    // Severity constants
-    public static final String SEV_INFO = "INFO";
-    public static final String SEV_WARNING = "WARNING";
-    public static final String SEV_ERROR = "ERROR";
-    public static final String SEV_CRITICAL = "CRITICAL";
-
-    // Status constants
-    public static final String STATUS_NEW = "NEW";
-    public static final String STATUS_ACKNOWLEDGED = "ACKNOWLEDGED";
-    public static final String STATUS_RESOLVED = "RESOLVED";
 }

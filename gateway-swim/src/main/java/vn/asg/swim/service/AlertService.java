@@ -7,7 +7,7 @@ import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.repository.GwAlertRepository;
 
 /**
- * Creates gw_alert records for Control Position display to operators.
+ * Tạo bản ghi cảnh báo gw_alert.
  */
 @Service
 @RequiredArgsConstructor
@@ -17,14 +17,7 @@ public class AlertService {
     private final GwAlertRepository gwAlertRepository;
 
     /**
-     * Creates a new alert (Fault Management).
-     * Records to the dedicated gw_alert table (EUR Doc 047 compliance).
-     *
-     * @param alertType Alert type. Example: GwAlert.TYPE_MESSAGE_DEAD
-     * @param severity  Severity level. Example: GwAlert.SEV_CRITICAL
-     * @param message   Detailed message content.
-     * @param refTable  Related database table. Null if none.
-     * @param refId     Related record ID. Null if none.
+     * Tạo cảnh báo mới.
      */
     public void create(String alertType, String severity, String message,
             String refTable, Long refId) {
