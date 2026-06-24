@@ -93,4 +93,7 @@ public class Gwout {
     // Dạng lỗi
     @Column(name = "error_type")
     private Integer errorType = UNDEFINED;
+
+    @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
+    private Integer payloadContent;
 }

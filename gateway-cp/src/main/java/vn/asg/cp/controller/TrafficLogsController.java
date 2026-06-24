@@ -44,16 +44,16 @@ public class TrafficLogsController {
             spec = spec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("convertedTime"), toDt));
         }
         if (!"ALL".equals(direction)) {
-            // direction = AMHS_TO_SWIM → type=AMHS,category=OUT; SWIM_TO_AMHS →
-            // type=SWIM,category=IN
+            // direction = AMHS_TO_SWIM → type=AMHS,direction=OUT; SWIM_TO_AMHS →
+            // type=SWIM,direction=IN
             if ("AMHS_TO_SWIM".equals(direction)) {
                 spec = spec.and((r, q, cb) -> cb.and(
                         cb.equal(r.get("type"), "AMHS"),
-                        cb.equal(r.get("category"), "OUT")));
+                        cb.equal(r.get("direction"), "OUT")));
             } else if ("SWIM_TO_AMHS".equals(direction)) {
                 spec = spec.and((r, q, cb) -> cb.and(
                         cb.equal(r.get("type"), "SWIM"),
-                        cb.equal(r.get("category"), "IN")));
+                        cb.equal(r.get("direction"), "IN")));
             }
         }
         if (!"ALL".equals(status)) {

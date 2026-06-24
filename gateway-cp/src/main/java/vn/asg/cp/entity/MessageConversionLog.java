@@ -30,23 +30,26 @@ public class MessageConversionLog {
     private String type;
 
     /** IN / OUT */
-    @Column(name = "category", length = 12)
-    private String category;
-
-    @Column(name = "message_id", length = 256)
-    private String messageId;
+    @Column(name = "direction", length = 12)
+    private String direction;
 
     @Column(name = "ipm_id", length = 256)
     private String ipmId;
 
+    // Message Transfer System Identifier - Định danh
     @Column(name = "mts_id", length = 256)
     private String mtsId;
 
     @Column(name = "amqp_message_id", length = 256)
     private String amqpMessageId;
 
-    @Column(name = "priority", length = 12)
-    private String priority;
+    // AMHS priority
+    @Column(name = "amhs_priority", length = 12)
+    private String amhs_priority;
+
+    // SWIM priority
+    @Column(name = "swim_priority", length = 12)
+    private String swim_priority;
 
     @Column(name = "ohi", length = 64)
     private String ohi;
@@ -54,19 +57,34 @@ public class MessageConversionLog {
     @Column(name = "origin", length = 128)
     private String origin;
 
+    @Column(name = "recipients", length = 128)
+    private String recipients;
+
+    // ID routing khớp với điện văn này
+    @Column(name = "routing_id", length = 128)
+    private String routing_id;
+
     @Column(name = "filing_time", length = 20)
     private String filingTime;
 
     @Column(name = "subject", length = 512)
     private String subject;
 
+    // <SIGMET>SEV TURB</SIGMET>
+    @Column(name = "raw_content", columnDefinition = "TEXT")
+    private String raw_content;
+
+    // <iwxxm:SIGMET>...</iwxxm:SIGMET>
     @Column(name = "content", columnDefinition = "TEXT")
     private String content;
 
     @Column(name = "converted_time")
     private LocalDateTime convertedTime;
 
-    /** OK / ERROR / REJECT */
+    @Column(name = "created_time")
+    private LocalDateTime createdTime;
+
+    /** OK / ERROR / REJECT / UNROUTED */
     @Column(name = "status", length = 8)
     private String status;
 
