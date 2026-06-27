@@ -18,7 +18,7 @@ public class NotamParser implements MessageParser<NotamMessage> {
 
     // Header: (A0123/26 NOTAMN
     private static final Pattern HEADER_PATTERN =
-        Pattern.compile("\\((?<id>[A-Z]\\d{4}/\\d{2})\\s+(?<type>NOTAM[NRC])");
+        Pattern.compile("\\((?<id>[A-Z]\\d{4}/\\d{2}(?:[A-Z]\\d{2})?)\\s+(?<type>NOTAM[NRC])");
 
     // Q) VVHM/QFAAH/IV/NBO/A/000/999/1059N10645E005
     // Tọa độ có thể vắng mặt trong một số NOTAM nội địa
@@ -74,6 +74,12 @@ public class NotamParser implements MessageParser<NotamMessage> {
 
         // Cũng chuẩn bị phiên bản 1 dòng để parse các pattern cần liên tục
         String oneLiner = normalized.replace("\n", " ").replaceAll("\\s+", " ").trim();
+
+        // Loại bỏ rác phía sau dấu đóng ngoặc của bản tin NOTAM
+        int lastParen = oneLiner.lastIndexOf(')');
+        if (lastParen != -1) {
+            oneLiner = oneLiner.substring(0, lastParen + 1);
+        }
 
         NotamMessage msg = new NotamMessage();
 

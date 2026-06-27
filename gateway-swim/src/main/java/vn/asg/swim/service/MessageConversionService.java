@@ -129,7 +129,7 @@ public class MessageConversionService {
             logEntry.setConvertedTime(LocalDateTime.now());
             logEntry.setActionTaken(actionTaken);
             logEntry.setStatus(status);
-            conversionLogRepo.save(logEntry);
+            conversionLogRepo.saveAndFlush(logEntry);
         } catch (Exception e) {
             log.error("Failed to write conversion log for gwout#{}: {}", gwout.getMsgid(), e.getMessage());
         }

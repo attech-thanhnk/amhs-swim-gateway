@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import vn.asg.swim.entity.PerformanceMetrics;
+import vn.asg.swim.entity.MessageStatus;
 import vn.asg.swim.repository.GwinRepository;
 import vn.asg.swim.repository.GwoutRepository;
 import vn.asg.swim.repository.PerformanceMetricsRepository;
@@ -43,7 +44,7 @@ public class MetricsCollectorScheduler {
             int threads = ManagementFactory.getThreadMXBean().getThreadCount();
 
             long msgIn = gwinRepository.count();
-            long msgOut = gwoutRepository.countByStatus(2); // STATUS_SENT
+            long msgOut = gwoutRepository.countByStatus(MessageStatus.OUT_PUBLISHED.getValue());
 
             PerformanceMetrics metrics = new PerformanceMetrics();
             metrics.setTimestamp(Instant.now());

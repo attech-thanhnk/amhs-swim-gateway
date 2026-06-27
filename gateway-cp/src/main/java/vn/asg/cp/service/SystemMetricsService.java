@@ -32,6 +32,7 @@ public class SystemMetricsService {
     private SystemInfo systemInfo;
     private HardwareAbstractionLayer hal;
     private OperatingSystem os;
+    private oshi.software.os.OSProcess lastMysqlProcess = null;
 
     @PostConstruct
     public void init() {
@@ -254,34 +255,83 @@ public class SystemMetricsService {
     }
 
     private String getMysqlPid() throws Exception {
-        Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", "pgrep mysqld"});
-        BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
-        String pid = reader.readLine();
-        if (pid == null || pid.isEmpty()) {
-            throw new RuntimeException("MySQL process not found");
+        String osName = System.getProperty("os.name").toLowerCase();
+        if (osName.contains("win")) {
+            Process p = Runtime.getRuntime().exec(new String[]{"cmd.exe", "/c", "tasklist /FI \"IMAGENAME eq mysqld.exe\" /FO CSV /NH"});
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                String line = reader.readLine();
+                if (line != null && line.contains("mysqld.exe")) {
+                    String[] parts = line.split("\",\"");
+                    if (parts.length > 1) {
+                        return parts[1].replace("\"", ""); // The second column is PID
+                    }
+                }
+            }
+            throw new RuntimeException("MySQL process not found on Windows");
+        } else {
+            Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", "pgrep mysqld"});
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                String pid = reader.readLine();
+                if (pid == null || pid.isEmpty()) {
+                    throw new RuntimeException("MySQL process not found");
+                }
+                return pid;
+            }
         }
-        return pid;
     }
 
     private double[] getMysqlCpuRam(String pid) throws Exception {
-        Process p = Runtime.getRuntime()
-                .exec(new String[]{"sh", "-c", "ps -p " + pid + " -o %cpu,%mem --no-headers"});
+        String osName = System.getProperty("os.name").toLowerCase();
+        if (osName.contains("win")) {
+            if (os == null || hal == null) {
+                return new double[]{0, 0};
+            }
+            int ipid = Integer.parseInt(pid);
+            oshi.software.os.OSProcess currentProcess = os.getProcess(ipid);
+            if (currentProcess == null) {
+                return new double[]{0, 0};
+            }
+            double cpu = 0;
+            if (lastMysqlProcess != null && lastMysqlProcess.getProcessID() == ipid) {
+                cpu = currentProcess.getProcessCpuLoadBetweenTicks(lastMysqlProcess) * 100;
+            } else {
+                cpu = currentProcess.getProcessCpuLoadCumulative() * 100;
+            }
+            // Scale CPU to total system load by dividing by the number of logical cores (matching Windows Task Manager)
+            int logicalCores = hal.getProcessor().getLogicalProcessorCount();
+            if (logicalCores > 0) {
+                cpu = cpu / logicalCores;
+            }
+            
+            long totalMemory = hal.getMemory().getTotal();
+            double ram = 0;
+            if (totalMemory > 0) {
+                ram = (currentProcess.getResidentSetSize() * 100.0) / totalMemory;
+            }
+            
+            lastMysqlProcess = currentProcess;
+            return new double[]{cpu, ram};
+        } else {
+            Process p = Runtime.getRuntime()
+                    .exec(new String[]{"sh", "-c", "ps -p " + pid + " -o %cpu,%mem --no-headers"});
 
-        BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
-        String line = reader.readLine();
-        if (line == null || line.trim().isEmpty()) {
-            throw new RuntimeException("No data from ps command");
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                String line = reader.readLine();
+                if (line == null || line.trim().isEmpty()) {
+                    throw new RuntimeException("No data from ps command");
+                }
+                
+                String[] parts = line.trim().split("\\s+");
+                if (parts.length < 2) {
+                    throw new RuntimeException("Invalid ps output format");
+                }
+
+                double cpu = Double.parseDouble(parts[0]);
+                double ram = Double.parseDouble(parts[1]);
+
+                return new double[]{cpu, ram};
+            }
         }
-        
-        String[] parts = line.trim().split("\\s+");
-        if (parts.length < 2) {
-            throw new RuntimeException("Invalid ps output format");
-        }
-
-        double cpu = Double.parseDouble(parts[0]);
-        double ram = Double.parseDouble(parts[1]);
-
-        return new double[]{cpu, ram};
     }
 
     public long getJvmUptimeSeconds() {

@@ -439,7 +439,7 @@ public class FplMessage extends BaseMessage {
 
     private void appendArrFields(StringBuilder sb) {
         sb.append("-").append(aircraftId);
-        sb.append("-").append(departureIcao);
+        sb.append("-").append(departureIcao).append(actualDepartureTime != null ? actualDepartureTime : "");
         sb.append("-").append(destinationIcao).append(actualArrivalTime != null ? actualArrivalTime : "");
         String f18 = buildField18();
         if (!f18.equals("0")) sb.append("-").append(f18);
@@ -449,6 +449,8 @@ public class FplMessage extends BaseMessage {
         sb.append("-").append(aircraftId);
         sb.append("-").append(departureIcao).append(eobt != null ? eobt : "");
         sb.append("-").append(destinationIcao);
+        String f18 = buildField18();
+        if (!f18.equals("0")) sb.append("-").append(f18);
     }
 
     private void appendDlaFields(StringBuilder sb) {

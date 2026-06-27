@@ -14,6 +14,7 @@ import org.mockito.quality.Strictness;
 import org.springframework.dao.DataIntegrityViolationException;
 import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.Gwin;
+import vn.asg.swim.entity.MessageStatus;
 import vn.asg.swim.model.ResolvedAddressing;
 import vn.asg.swim.repository.GwinRepository;
 
@@ -290,7 +291,7 @@ class AMQPSubscriberServiceTest {
 
         // Then: Should save with UNROUTED status and create alert
         verify(gwinRepository).save(argThat(gwin -> {
-            assertEquals(Gwin.STATUS_UNROUTED, gwin.getStatus());
+            assertEquals(MessageStatus.IN_UNROUTED.getValue(), gwin.getStatus());
             assertTrue(gwin.getText().contains("CONVERSION_FAILED"));
             return true;
         }));
@@ -394,7 +395,7 @@ class AMQPSubscriberServiceTest {
 
         // Then: Should save with PENDING status
         verify(gwinRepository).save(argThat(gwin -> {
-            assertEquals(Gwin.STATUS_PENDING, gwin.getStatus());
+            assertEquals(MessageStatus.IN_PENDING.getValue(), gwin.getStatus());
             assertEquals("VVHHZPZX", gwin.getOrigin());
             assertEquals("VVHHZTZX VVTSZDYX", gwin.getAddress());
             assertEquals(ResolvedAddressing.SOURCE_ROUTING_RULE, gwin.getAddressingSource());
@@ -418,7 +419,7 @@ class AMQPSubscriberServiceTest {
 
         // Then: Should save with UNROUTED status
         verify(gwinRepository).save(argThat(gwin ->
-            gwin.getStatus().equals(Gwin.STATUS_UNROUTED)
+            gwin.getStatus().equals(MessageStatus.IN_UNROUTED.getValue())
         ));
     }
 }

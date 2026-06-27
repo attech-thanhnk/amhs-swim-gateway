@@ -11,6 +11,7 @@ import org.mockito.quality.Strictness;
 import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.GwoutDispatch;
+import vn.asg.swim.entity.MessageStatus;
 import vn.asg.swim.repository.GwoutDispatchRepository;
 import vn.asg.swim.repository.GwoutRepository;
 import vn.asg.swim.service.AlertService;
@@ -52,7 +53,7 @@ class GwoutPollerSchedulerTest {
         gwout = new Gwout();
         gwout.setMsgid(1L);
         gwout.setText("METAR VVTS 121200Z 09008KT 9999 FEW020 32/25 Q1010=");
-        gwout.setStatus(Gwout.STATUS_PENDING);
+        gwout.setStatus(MessageStatus.OUT_TRANSFORMED.getValue());
 
         connected = new AtomicBoolean(true);
         when(connectionManager.getConnected()).thenReturn(connected);
@@ -71,13 +72,13 @@ class GwoutPollerSchedulerTest {
         scheduler.pollGwoutAndCreateDispatches();
 
         // Then: Should not query database
-        verify(gwoutRepository, never()).findPendingBatch(anyInt());
+        verify(gwoutRepository, never()).findPendingPublishBatch(anyInt());
     }
 
     @Test
     void testPollGwout_EmptyBatch_ShouldDoNothing() {
         // Given: No pending gwout records
-        when(gwoutRepository.findPendingBatch(10)).thenReturn(List.of());
+        when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(List.of());
 
         // When
         scheduler.pollGwoutAndCreateDispatches();
@@ -92,14 +93,14 @@ class GwoutPollerSchedulerTest {
     void testNoRecipients_ShouldSetDead_AndCreateAlert() {
         // Given: gwout with no recipients
         gwout.setAddress(null);
-        when(gwoutRepository.findPendingBatch(10)).thenReturn(List.of(gwout));
+        when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(List.of(gwout));
 
         // When
         scheduler.pollGwoutAndCreateDispatches();
 
         // Then: Should set DEAD status
         verify(gwoutRepository).save(argThat(g ->
-            g.getStatus().equals(Gwout.STATUS_DEAD)
+            g.getStatus().equals(MessageStatus.OUT_FAILED.getValue())
         ));
 
         // Verify alert created (Issue #7 fix)
@@ -116,14 +117,14 @@ class GwoutPollerSchedulerTest {
     void testBlankRecipients_ShouldSetDead_AndCreateAlert() {
         // Given: gwout with blank recipients
         gwout.setAddress("   ");
-        when(gwoutRepository.findPendingBatch(10)).thenReturn(List.of(gwout));
+        when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(List.of(gwout));
 
         // When
         scheduler.pollGwoutAndCreateDispatches();
 
         // Then: Should set DEAD and alert
         verify(gwoutRepository).save(argThat(g ->
-            g.getStatus().equals(Gwout.STATUS_DEAD)
+            g.getStatus().equals(MessageStatus.OUT_FAILED.getValue())
         ));
         verify(alertService).create(
             eq(GwAlert.TYPE_VALIDATION_ERROR),
@@ -140,7 +141,7 @@ class GwoutPollerSchedulerTest {
     void testAftnValidation_ValidAddresses_ShouldCreateDispatches() {
         // Given: Valid AFTN addresses (8 uppercase letters)
         gwout.setAddress("VVHHZTZX VVTSZDYX VVNBZYYX");
-        when(gwoutRepository.findPendingBatch(10)).thenReturn(List.of(gwout));
+        when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(List.of(gwout));
 
         // When
         scheduler.pollGwoutAndCreateDispatches();
@@ -148,7 +149,7 @@ class GwoutPollerSchedulerTest {
         // Then: Should create 3 dispatches
         verify(gwoutDispatchRepository, times(3)).save(any(GwoutDispatch.class));
         verify(gwoutRepository).save(argThat(g ->
-            g.getStatus().equals(Gwout.STATUS_PROCESSING)
+            g.getStatus().equals(MessageStatus.OUT_PUBLISHING.getValue())
         ));
     }
 
@@ -156,7 +157,7 @@ class GwoutPollerSchedulerTest {
     void testAftnValidation_InvalidFormat_ShouldFilterOut() {
         // Given: Mixed valid and invalid addresses
         gwout.setAddress("VVHHZTZX invalid123 VVTS TOOLONGADDRESS VVNBZYYX");
-        when(gwoutRepository.findPendingBatch(10)).thenReturn(List.of(gwout));
+        when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(List.of(gwout));
 
         // When
         scheduler.pollGwoutAndCreateDispatches();
@@ -171,14 +172,14 @@ class GwoutPollerSchedulerTest {
     void testAftnValidation_AllInvalid_ShouldSetDead() {
         // Given: All addresses invalid
         gwout.setAddress("invalid123 abc TOOLONG");
-        when(gwoutRepository.findPendingBatch(10)).thenReturn(List.of(gwout));
+        when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(List.of(gwout));
 
         // When
         scheduler.pollGwoutAndCreateDispatches();
 
         // Then: Should set DEAD with alert
         verify(gwoutRepository).save(argThat(g ->
-            g.getStatus().equals(Gwout.STATUS_DEAD)
+            g.getStatus().equals(MessageStatus.OUT_FAILED.getValue())
         ));
         verify(alertService).create(
             eq(GwAlert.TYPE_VALIDATION_ERROR),
@@ -194,7 +195,7 @@ class GwoutPollerSchedulerTest {
     void testAftnValidation_LowercaseAddress_ShouldBeFiltered() {
         // Given: Lowercase addresses (invalid)
         gwout.setAddress("vvhhztzx VVTSZDYX");
-        when(gwoutRepository.findPendingBatch(10)).thenReturn(List.of(gwout));
+        when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(List.of(gwout));
 
         // When
         scheduler.pollGwoutAndCreateDispatches();
@@ -209,7 +210,7 @@ class GwoutPollerSchedulerTest {
     void testAftnValidation_WithCommaDelimiter_ShouldSplit() {
         // Given: Comma-separated addresses
         gwout.setAddress("VVHHZTZX,VVTSZDYX, VVNBZYYX");
-        when(gwoutRepository.findPendingBatch(10)).thenReturn(List.of(gwout));
+        when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(List.of(gwout));
 
         // When
         scheduler.pollGwoutAndCreateDispatches();
@@ -224,7 +225,7 @@ class GwoutPollerSchedulerTest {
     void testDuplicateRecipients_ShouldBeDistinct() {
         // Given: Duplicate recipients
         gwout.setAddress("VVHHZTZX VVTSZDYX VVHHZTZX VVTSZDYX");
-        when(gwoutRepository.findPendingBatch(10)).thenReturn(List.of(gwout));
+        when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(List.of(gwout));
 
         // When
         scheduler.pollGwoutAndCreateDispatches();
@@ -239,7 +240,7 @@ class GwoutPollerSchedulerTest {
     void testCreateDispatches_ShouldSetCorrectProperties() {
         // Given: Valid gwout
         gwout.setAddress("VVHHZTZX");
-        when(gwoutRepository.findPendingBatch(10)).thenReturn(List.of(gwout));
+        when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(List.of(gwout));
 
         // When
         scheduler.pollGwoutAndCreateDispatches();
@@ -252,9 +253,9 @@ class GwoutPollerSchedulerTest {
             return true;
         }));
 
-        // Gwout status should be updated to PROCESSING
+        // Gwout status should be updated to PUBLISHING
         verify(gwoutRepository).save(argThat(g ->
-            g.getStatus().equals(Gwout.STATUS_PROCESSING)
+            g.getStatus().equals(MessageStatus.OUT_PUBLISHING.getValue())
         ));
     }
 
@@ -266,14 +267,14 @@ class GwoutPollerSchedulerTest {
         Gwout gwout1 = new Gwout();
         gwout1.setMsgid(1L);
         gwout1.setAddress("VVHHZTZX");
-        gwout1.setStatus(Gwout.STATUS_PENDING);
+        gwout1.setStatus(MessageStatus.OUT_TRANSFORMED.getValue());
 
         Gwout gwout2 = new Gwout();
         gwout2.setMsgid(2L);
         gwout2.setAddress("VVTSZDYX VVNBZYYX");
-        gwout2.setStatus(Gwout.STATUS_PENDING);
+        gwout2.setStatus(MessageStatus.OUT_TRANSFORMED.getValue());
 
-        when(gwoutRepository.findPendingBatch(10)).thenReturn(Arrays.asList(gwout1, gwout2));
+        when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(Arrays.asList(gwout1, gwout2));
 
         // When
         scheduler.pollGwoutAndCreateDispatches();
@@ -291,12 +292,14 @@ class GwoutPollerSchedulerTest {
         Gwout gwout1 = new Gwout();
         gwout1.setMsgid(1L);
         gwout1.setAddress("VVHHZTZX");
+        gwout1.setStatus(MessageStatus.OUT_TRANSFORMED.getValue());
 
         Gwout gwout2 = new Gwout();
         gwout2.setMsgid(2L);
         gwout2.setAddress("VVTSZDYX");
+        gwout2.setStatus(MessageStatus.OUT_TRANSFORMED.getValue());
 
-        when(gwoutRepository.findPendingBatch(10)).thenReturn(Arrays.asList(gwout1, gwout2));
+        when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(Arrays.asList(gwout1, gwout2));
         doThrow(new RuntimeException("Database error"))
             .when(gwoutDispatchRepository).save(argThat(d -> d.getRecipient().equals("VVHHZTZX")));
 
@@ -377,6 +380,6 @@ class GwoutPollerSchedulerTest {
         scheduler.pollGwoutAndCreateDispatches();
 
         // Then: Should query with batch size 5
-        verify(gwoutRepository).findPendingBatch(5);
+        verify(gwoutRepository).findPendingPublishBatch(5);
     }
 }

@@ -40,46 +40,70 @@ public class GwoutPollerScheduler {
     private final AlertService alertService;
 
     /**
-     * Task 1: Poll PENDING gwout records → create dispatch rows for each recipient.
+     * Single Outbound Pipeline: Run conversion, dispatch creation, and publishing
+     * sequentially to prevent Spring Thread Starvation.
      */
     @Scheduled(fixedDelayString = "#{configService.getPollIntervalMs()}", initialDelay = 5000)
-    @Transactional
-    public void pollGwoutAndCreateDispatches() {
+    public void executeOutboundPipeline() {
         if (!connectionManager.getConnected().get()) {
-            log.debug("AMQP not connected, skipping gwout poll");
             return;
         }
 
+        // Step 1: Convert raw messages (status = 0 -> 2)
+        pollGwoutAndConvert();
+
+        // Step 2: Create dispatches (status = 2 -> 1)
+        pollGwoutAndCreateDispatches();
+
+        // Step 3: Publish dispatches to Solace (status = 1 -> 3/4)
+        pollDispatchesAndProcess();
+    }
+
+    void pollGwoutAndConvert() {
         int batchSize = configService.getInt("OUTBOUND_BATCH_SIZE");
         List<Gwout> batch;
         try {
-            batch = gwoutRepository.findPendingBatch(batchSize);
+            batch = gwoutRepository.findPendingConvertBatch(batchSize);
         } catch (Exception e) {
-            log.error("Error polling gwout: {}", e.getMessage());
+            log.error("Error polling gwout for convert: {}", e.getMessage());
             return;
         }
 
         if (batch.isEmpty())
             return;
-        log.debug("pollGwout: {} records found", batch.size());
 
         for (Gwout gwout : batch) {
             try {
-                createDispatches(gwout);
+                outboundDispatchService.convertOutboundMessage(gwout);
+            } catch (Exception e) {
+                log.error("Error converting gwout#{}: {}", gwout.getMsgid(), e.getMessage());
+            }
+        }
+    }
+
+    void pollGwoutAndCreateDispatches() {
+        int batchSize = configService.getInt("OUTBOUND_BATCH_SIZE");
+        List<Gwout> batch;
+        try {
+            batch = gwoutRepository.findPendingPublishBatch(batchSize);
+        } catch (Exception e) {
+            log.error("Error polling gwout for dispatch creation: {}", e.getMessage());
+            return;
+        }
+
+        if (batch.isEmpty())
+            return;
+
+        for (Gwout gwout : batch) {
+            try {
+                outboundDispatchService.createDispatches(gwout);
             } catch (Exception e) {
                 log.error("Error creating dispatches for gwout#{}: {}", gwout.getMsgid(), e.getMessage());
             }
         }
     }
 
-    /**
-     * Task 2: Poll PENDING/FAILED gwout_dispatch records → process.
-     */
-    @Scheduled(fixedDelayString = "#{configService.getPollIntervalMs()}", initialDelay = 6000)
-    public void pollDispatchesAndProcess() {
-        if (!connectionManager.getConnected().get())
-            return;
-
+    void pollDispatchesAndProcess() {
         int batchSize = configService.getInt("OUTBOUND_BATCH_SIZE");
         List<GwoutDispatch> dispatches;
         try {
@@ -96,57 +120,5 @@ public class GwoutPollerScheduler {
                 log.error("Unexpected error processing dispatch#{}: {}", dispatch.getId(), e.getMessage(), e);
             }
         }
-    }
-
-    /**
-     * Creates gwout_dispatch for each recipient in gwout.address.
-     */
-    private void createDispatches(Gwout gwout) {
-        String address = gwout.getAddress();
-        if (address == null || address.isBlank()) {
-            log.warn("gwout#{} has no recipients, skipping", gwout.getMsgid());
-            alertService.create(
-                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                    "gwout#" + gwout.getMsgid() + " has no recipients",
-                    "gwout", gwout.getMsgid());
-            gwout.setStatus(Gwout.STATUS_DEAD);
-            gwoutRepository.save(gwout);
-            return;
-        }
-
-        List<String> recipients = Arrays.stream(address.split("[,\\s]+"))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .filter(s -> {
-                    if (s.matches("^[A-Z]{8}$"))
-                        return true;
-                    log.warn("gwout#{} contains invalid AFTN address: {}", gwout.getMsgid(), s);
-                    return false;
-                })
-                .distinct()
-                .toList();
-
-        if (recipients.isEmpty()) {
-            log.warn("gwout#{} has no valid AFTN recipients after filtering", gwout.getMsgid());
-            alertService.create(
-                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                    "gwout#" + gwout.getMsgid() + " has no valid AFTN recipients",
-                    "gwout", gwout.getMsgid());
-            gwout.setStatus(Gwout.STATUS_DEAD);
-            gwoutRepository.save(gwout);
-            return;
-        }
-
-        for (String recipient : recipients) {
-            GwoutDispatch dispatch = new GwoutDispatch();
-            dispatch.setGwoutId(gwout.getMsgid());
-            dispatch.setRecipient(recipient);
-            dispatch.setStatus(GwoutDispatch.STATUS_PENDING);
-            gwoutDispatchRepository.save(dispatch);
-        }
-
-        gwout.setStatus(Gwout.STATUS_PROCESSING);
-        gwoutRepository.save(gwout);
-        log.debug("gwout#{} → {} dispatch(es) created", gwout.getMsgid(), recipients.size());
     }
 }

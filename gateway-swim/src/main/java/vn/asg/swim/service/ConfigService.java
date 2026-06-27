@@ -57,6 +57,17 @@ public class ConfigService {
     }
 
     /**
+     * Lấy giá trị cấu hình kiểu Integer có fallback về giá trị mặc định.
+     */
+    public int getInt(String key, int defaultValue) {
+        try {
+            return Integer.parseInt(get(key));
+        } catch (Exception e) {
+            return defaultValue;
+        }
+    }
+
+    /**
      * Lấy giá trị cấu hình kiểu Boolean.
      */
     public boolean getBoolean(String key) {

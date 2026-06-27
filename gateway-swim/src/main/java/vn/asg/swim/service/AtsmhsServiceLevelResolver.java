@@ -94,7 +94,7 @@ public class AtsmhsServiceLevelResolver {
 
         String[] recipientArray = recipients.trim().split("\\s+");
         for (String recipient : recipientArray) {
-            if (!extendedCapableAddresses.contains(recipient)) {
+            if (!containsExact(extendedCapableAddresses, recipient)) {
                 log.debug("ATSMHS: recipients-based → BASIC (recipient {} not extended-capable)", recipient);
                 return BASIC;
             }
@@ -102,6 +102,19 @@ public class AtsmhsServiceLevelResolver {
 
         log.debug("ATSMHS: recipients-based → EXTENDED (all recipients capable)");
         return EXTENDED;
+    }
+
+    private boolean containsExact(String configValue, String target) {
+        if (configValue == null || configValue.isBlank() || target == null || target.isBlank()) {
+            return false;
+        }
+        String[] items = configValue.split("[,;\\s]+");
+        for (String item : items) {
+            if (item.trim().equalsIgnoreCase(target.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

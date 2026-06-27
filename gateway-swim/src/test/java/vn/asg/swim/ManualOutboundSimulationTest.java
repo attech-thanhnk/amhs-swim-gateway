@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import vn.asg.swim.entity.Gwout;
+import vn.asg.swim.entity.MessageStatus;
 import vn.asg.swim.repository.GwoutRepository;
 import vn.asg.swim.service.ConnectionManagerService;
 
@@ -56,7 +57,7 @@ public class ManualOutboundSimulationTest {
         gwout.setAddress("VVNBZTZX VVHHZPZX"); 
         gwout.setPriority(3); // GG
         gwout.setText(fullAftnFpl);
-        gwout.setStatus(Gwout.STATUS_PENDING);
+        gwout.setStatus(MessageStatus.OUT_PENDING.getValue());
         gwout.setTime(LocalDateTime.now());
         gwout.setBodyType("text");
         gwout.setContentType("application/json");
@@ -78,7 +79,7 @@ public class ManualOutboundSimulationTest {
         metarOut.setAddress("VVTSZTZX");
         metarOut.setPriority(3);
         metarOut.setText(fullAftnMetar);
-        metarOut.setStatus(Gwout.STATUS_PENDING);
+        metarOut.setStatus(MessageStatus.OUT_PENDING.getValue());
         metarOut.setTime(LocalDateTime.now());
         metarOut.setBodyType("text");
         metarOut.setContentType("application/json");

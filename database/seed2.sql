@@ -109,12 +109,11 @@ INSERT IGNORE INTO `message_type_registry` (`message_type`, `detect_pattern`, `a
 ('UNKNOWN', 'UNKNOWN', 1, 'Loại không xác định');
 
 -- ============================================================
--- 3. cp_users
+-- 3. users
 -- ============================================================
-INSERT IGNORE INTO `cp_users` (`uuid`, `username`, `password`, `role`, `created_at`) VALUES
-('11111111-1111-1111-1111-111111111111', 'admin',
- '$2a$10$9rwGdXi0PX2nRAEVfQ3zKe0Y/8t2Dx6uxE4HOCjiuvA7.IofHGJzC',
- 'ADMIN', NOW());
+INSERT IGNORE INTO `users` (`id`, `username`, `password`, `email`, `full_name`, `role`, `is_active`, `created_at`, `updated_at`) VALUES
+(1, 'admin', '$2a$10$9rwGdXi0PX2nRAEVfQ3zKe0Y/8t2Dx6uxE4HOCjiuvA7.IofHGJzC', 'admin@example.com', 'System Administrator', 'admin', 1, NOW(), NOW()),
+(2, 'viewer', '$2a$10$9rwGdXi0PX2nRAEVfQ3zKe0Y/8t2Dx6uxE4HOCjiuvA7.IofHGJzC', 'viewer@example.com', 'Viewer User', 'viewer', 1, NOW(), NOW());
 
 -- ============================================================
 -- 4. accounts

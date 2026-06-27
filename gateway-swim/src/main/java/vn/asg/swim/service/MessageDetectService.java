@@ -8,8 +8,10 @@ import org.springframework.stereotype.Service;
 import vn.asg.swim.entity.MessageTypeRegistry;
 import vn.asg.swim.repository.MessageTypeRegistryRepository;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -59,11 +61,12 @@ public class MessageDetectService {
             return "UNKNOWN";
         }
 
-        // Loại bỏ tiêu đề AFTN để lấy nội dung thực tế
+        // Thu thập các dòng ứng viên (bỏ tiêu đề AFTN). Một bản tin thực tế có thể có
+        // các dòng "header nghiệp vụ" đứng trước thân thật (FLW REC, dòng origin,
+        // bulletin WMO 'SAVS31 VVPQ 240430', 'PART 1', '== ... =='), nên ta giữ lại
+        // TẤT CẢ dòng ứng viên và khớp mẫu trên từng dòng thay vì chỉ dòng đầu tiên.
         String[] lines = body.split("\\r?\\n");
-        String contentToMatch = "";
-
-        boolean foundStart = false;
+        List<String> candidates = new ArrayList<>();
         for (String line : lines) {
             String l = line.trim();
             if (l.isEmpty()) continue;
@@ -73,28 +76,21 @@ public class MessageDetectService {
             if (l.matches("^(SS|DD|FF|GG|KK)\\s+.*")) continue;
             if (l.matches("^\\d{6}\\s+[A-Z]{8}.*")) continue;
 
-            contentToMatch = l;
-            foundStart = true;
-            break;
+            candidates.add(l);
         }
-
-        if (!foundStart) {
-            contentToMatch = body.stripLeading();
+        if (candidates.isEmpty()) {
+            candidates.add(body.stripLeading());
         }
 
         String normalizedBody = body.replaceAll("\\s+", "");
-        log.debug("Detect: normalized length={}, preview={}",
-                  normalizedBody.length(),
-                  normalizedBody.substring(0, Math.min(50, normalizedBody.length())));
+        log.debug("Detect: normalized length={}, candidates={}", normalizedBody.length(), candidates.size());
 
-        // Khớp với từng mẫu trong cache
+        // Khớp với từng mẫu trong cache (đã sắp xếp theo độ dài giảm dần)
         for (MessageTypeRegistry reg : cache) {
             String pattern = reg.getDetectPattern();
             if (pattern == null || pattern.isEmpty()) continue;
 
-            log.debug("Checking type={} pattern=[{}]", reg.getMessageType(), pattern);
-
-            // Khớp mẫu định dạng JSON/XML
+            // Khớp mẫu định dạng JSON/XML (so trên toàn bộ body đã chuẩn hóa)
             if (pattern.contains("\"") || pattern.contains("{") || pattern.contains("<")) {
                 String normalizedPattern = pattern.replaceAll("[\\s+\"\']", "").toLowerCase();
                 String bodyToCompare = normalizedBody.replaceAll("[\"\']", "").toLowerCase();
@@ -104,18 +100,57 @@ public class MessageDetectService {
                     return reg.getMessageType();
                 }
             } else {
-                // Khớp mẫu định dạng TAC (so khớp tiền tố không phân biệt chữ hoa thường)
-                if (contentToMatch.regionMatches(true, 0, pattern, 0, pattern.length())) {
-                    log.info("Detected type={} from TAC pattern", reg.getMessageType());
-                    return reg.getMessageType();
+                // Khớp mẫu định dạng TAC (tiền tố, không phân biệt hoa thường) trên từng dòng ứng viên.
+                // Dòng header không khớp mẫu nào sẽ bị bỏ qua tự nhiên.
+                for (String candidate : candidates) {
+                    if (matchesTacPattern(candidate, pattern)) {
+                        log.info("Detected type={} from TAC pattern", reg.getMessageType());
+                        return reg.getMessageType();
+                    }
                 }
             }
         }
 
         // Ghi nhận cảnh báo nếu không nhận dạng được loại bản tin
+        String preview = candidates.get(0);
         log.warn("Cannot detect message type. Content preview: {}",
-                 contentToMatch.substring(0, Math.min(100, contentToMatch.length())));
+                 preview.substring(0, Math.min(100, preview.length())));
         return "UNKNOWN";
+    }
+
+    private boolean matchesTacPattern(String candidate, String pattern) {
+        if (candidate.regionMatches(true, 0, pattern, 0, pattern.length())) {
+            return true;
+        }
+
+        if (pattern.startsWith("(")) {
+            return false;
+        }
+
+        String upperCandidate = candidate.toUpperCase(Locale.ROOT);
+        String upperPattern = pattern.toUpperCase(Locale.ROOT);
+        int idx = upperCandidate.indexOf(upperPattern);
+        while (idx >= 0) {
+            if (idx == 0 || Character.isWhitespace(upperCandidate.charAt(idx - 1)) || hasInlineAftnAddressBefore(upperCandidate, idx)) {
+                return true;
+            }
+            idx = upperCandidate.indexOf(upperPattern, idx + 1);
+        }
+        return false;
+    }
+
+    private boolean hasInlineAftnAddressBefore(String value, int endIndex) {
+        if (endIndex < 8) {
+            return false;
+        }
+
+        for (int i = endIndex - 8; i < endIndex; i++) {
+            char ch = value.charAt(i);
+            if (ch < 'A' || ch > 'Z') {
+                return false;
+            }
+        }
+        return true;
     }
 
 }

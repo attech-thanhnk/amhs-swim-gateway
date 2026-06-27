@@ -16,17 +16,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class Gwin {
 
-    // Status constants
-    public static final int STATUS_PENDING = 0;
-    public static final int STATUS_PROCESSING = 1;
-    public static final int STATUS_TRANSFORMED = 2;
-    public static final int STATUS_SENT = 3;
-    public static final int STATUS_FAILED = 4;
-    public static final int STATUS_UNROUTED = 5;
-
-    public static final int UNDEFINED = 0;
-    public static final int CONVERT_FAILED = 1;
-    public static final int SEND_FAILED = 2;
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long msgid;
@@ -85,7 +74,7 @@ public class Gwin {
     private String origin;
 
     /** Resolved AMHS Recipient addresses. Example: VVTSZTZX VVHHZPZX */
-    @Column(name = "address", length = 250)
+    @Column(name = "address", length = 1000)
     private String address;
 
     /**
@@ -104,9 +93,9 @@ public class Gwin {
      * 0=PENDING, 1=PROCESSING, 2=TRANSFORMED, 3=SENT, 4=FAILED, 5=UNROUTED
      */
     @Column(name = "status")
-    private Integer status = STATUS_PENDING;
+    private Integer status = MessageStatus.IN_PENDING.getValue();
 
     // Dạng lỗi
     @Column(name = "error_type")
-    private Integer errorType = UNDEFINED;
+    private Integer errorType = ErrorType.UNDEFINED.getValue();
 }

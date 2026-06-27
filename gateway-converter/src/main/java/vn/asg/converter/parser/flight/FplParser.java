@@ -25,21 +25,21 @@ public class FplParser implements MessageParser<FplMessage> {
     private static final Pattern SPEED_LEVEL = Pattern
             .compile("^([NK]\\d{4}|M\\d{3})([FASMfasm]\\d{3,4})(?:\\s+(.*))?$");
 
-    // Pattern ARR: (ARR-callsign-dep_icao-dest_icao+arrtime-other)
+    // Pattern ARR: (ARR-callsign-dep_icao[+deptime]-dest_icao+arrtime-other)
     private static final Pattern ARR_PATTERN = Pattern
-            .compile("\\(ARR-([A-Z][A-Z0-9]{1,6})-([A-Z]{4})-([A-Z]{4})(\\d{4})-?(.*?)\\)");
+            .compile("\\(ARR-([A-Z0-9/]{2,15})-([A-Z]{4})(\\d{4})?-([A-Z]{4})(\\d{4})-?(.*?)\\)");
 
     // Pattern DEP: (DEP-callsign-depicao+time-desticao-other)
     private static final Pattern DEP_PATTERN = Pattern
-            .compile("\\(DEP-([A-Z][A-Z0-9]{1,6})-([A-Z]{4})(\\d{4})-([A-Z]{4})-?(.*?)\\)");
+            .compile("\\(DEP-([A-Z0-9/]{2,15})-([A-Z]{4})(\\d{4})-([A-Z]{4})-?(.*?)\\)");
 
     // Pattern CNL: (CNL-callsign-depicao+eobt-desticao-other)
     private static final Pattern CNL_PATTERN = Pattern
-            .compile("\\(CNL-([A-Z][A-Z0-9]{1,6})-([A-Z]{4})(\\d{4})-([A-Z]{4})-?(.*?)\\)");
+            .compile("\\(CNL-([A-Z0-9/]{2,15})-([A-Z]{4})(\\d{4})-([A-Z]{4})-?(.*?)\\)");
 
     // Pattern DLA: (DLA-callsign-depicao+eobt-desticao-other)
     private static final Pattern DLA_PATTERN = Pattern
-            .compile("\\(DLA-([A-Z][A-Z0-9]{1,6})-([A-Z]{4})(\\d{4})-([A-Z]{4})-?(.*?)\\)");
+            .compile("\\(DLA-([A-Z0-9/]{2,15})-([A-Z]{4})(\\d{4})-([A-Z]{4})-?(.*?)\\)");
 
     public FplMessage parse(String body) throws Exception {
         if (body == null || body.isBlank()) {
@@ -59,7 +59,8 @@ public class FplParser implements MessageParser<FplMessage> {
 
         // Delegate sang parser chuyên biệt theo loại
         FplMessage msg = switch (msgType) {
-            case "FPL", "ALR", "RQP", "RQS" -> parseFpl(raw, msgType);
+            case "FPL", "ALR" -> parseFpl(raw, msgType);
+            case "RQP", "RQS" -> parseRequest(raw, msgType);
             case "CHG" -> parseChg(raw);
             case "CNL" -> parseCnl(raw);
             case "DEP" -> parseDep(raw);
@@ -79,10 +80,15 @@ public class FplParser implements MessageParser<FplMessage> {
         // Trích nội dung trong dấu ngoặc
         int start = raw.indexOf('(');
         int end = raw.lastIndexOf(')');
-        if (start == -1 || end == -1 || end <= start) {
-            throw new Exception("FPL message must be enclosed in parentheses");
+        if (start == -1) {
+            throw new Exception("FPL message must start with a parenthesis");
         }
-        String content = raw.substring(start + 1, end).trim();
+        String content;
+        if (end == -1 || end <= start) {
+            content = raw.substring(start + 1).trim();
+        } else {
+            content = raw.substring(start + 1, end).trim();
+        }
 
         // Xử lý Field 18 có chứa ký tự '-' (như REG/VN-A123)
         String[] rawFields = content.split("-");
@@ -157,13 +163,18 @@ public class FplParser implements MessageParser<FplMessage> {
     private FplMessage parseChg(String raw) throws Exception {
         int start = raw.indexOf('(');
         int end = raw.lastIndexOf(')');
-        if (start == -1 || end == -1) throw new Exception("Invalid CHG format");
+        if (start == -1) throw new Exception("Invalid CHG format");
 
-        String content = raw.substring(start + 1, end).trim();
+        String content;
+        if (end == -1 || end <= start) {
+            content = raw.substring(start + 1).trim();
+        } else {
+            content = raw.substring(start + 1, end).trim();
+        }
         String[] fields = content.split("-");
 
-        if (fields.length < 5) {
-            throw new Exception("CHG message too short (minimum 5 fields required)");
+        if (fields.length < 4) {
+            throw new Exception("CHG message too short (minimum 4 fields required)");
         }
 
         FplMessage msg = new FplMessage();
@@ -180,6 +191,62 @@ public class FplParser implements MessageParser<FplMessage> {
         msg.setOtherInfo(amended.length() > 0 ? amended.substring(1) : "");
 
         return msg;
+    }
+
+    /**
+     * Parse bản tin RQP/RQS (Request flight plan / Request supplementary flight plan).
+     * Cấu trúc: (RQP-Callsign-DepICAO-DestICAO-OtherInfo)
+     */
+    private FplMessage parseRequest(String raw, String msgType) throws Exception {
+        int start = raw.indexOf('(');
+        int end = raw.lastIndexOf(')');
+        if (start == -1) throw new Exception("Invalid request format");
+
+        String content;
+        if (end == -1 || end <= start) {
+            content = raw.substring(start + 1).trim();
+        } else {
+            content = raw.substring(start + 1, end).trim();
+        }
+        String[] fields = content.split("-");
+
+        if (fields.length < 4) {
+            throw new Exception(msgType + " message too short (minimum 4 fields required)");
+        }
+
+        FplMessage msg = new FplMessage();
+        msg.setMessageType(msgType);
+        msg.setAircraftId(fields[1].trim());
+        parseDepartureField(fields[2].trim(), msg);
+        msg.setDestinationIcao(fields[3].trim());
+
+        if (fields.length > 4) {
+            String other = fields[4].trim();
+            parseOtherInfo(other, msg);
+        }
+
+        return msg;
+    }
+
+    private void parseOtherInfo(String other, FplMessage msg) {
+        if (other == null || other.isEmpty() || other.equals("0")) {
+            return;
+        }
+
+        msg.setOtherInfo(other);
+        Map<String, String> f18Items = field18Parser.parse(other);
+        msg.setDof(field18Parser.parseDof(f18Items));
+        msg.setRegistration(field18Parser.parseReg(f18Items));
+        msg.setPbn(field18Parser.parsePbn(f18Items));
+        msg.setEet(field18Parser.parseEet(f18Items));
+        msg.setSelcal(field18Parser.parseSel(f18Items));
+        msg.setOperator(field18Parser.parseOpr(f18Items));
+        msg.setSts(field18Parser.parseSts(f18Items));
+        String rmk = field18Parser.parseRmk(f18Items);
+        if (rmk != null && !rmk.equalsIgnoreCase("null")) {
+            msg.setRemarks((msg.getRemarks() != null ? msg.getRemarks() + " " : "") + rmk);
+        }
+        msg.setNavCapabilities(field18Parser.parseNav(f18Items));
     }
 
     protected void parseAircraftField(String f9, FplMessage msg) {
@@ -304,9 +371,12 @@ public class FplParser implements MessageParser<FplMessage> {
         msg.setMessageType("ARR");
         msg.setAircraftId(m.group(1));
         msg.setDepartureIcao(m.group(2));
-        msg.setDestinationIcao(m.group(3));
-        msg.setActualArrivalTime(m.group(4));
-        String other = m.group(5).trim();
+        if (m.group(3) != null) {
+            msg.setActualDepartureTime(m.group(3));
+        }
+        msg.setDestinationIcao(m.group(4));
+        msg.setActualArrivalTime(m.group(5));
+        String other = m.group(6) != null ? m.group(6).trim() : "";
         if (!other.isEmpty() && !other.equals("0")) {
             msg.setOtherInfo(other);
         }

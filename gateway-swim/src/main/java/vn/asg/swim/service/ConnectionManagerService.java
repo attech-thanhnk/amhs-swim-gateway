@@ -136,20 +136,15 @@ public class ConnectionManagerService {
                     }
                 }
                 currentTls = activeAcc.getTlsEnabled() != null ? activeAcc.getTlsEnabled() : currentTls;
-
-                log.info("**********************************************************");
-                log.info("DATABASE (Account: {})", activeAcc.getAccountName());
-                log.info("**********************************************************");
+                log.info("Using database AMQP account: {}", activeAcc.getAccountName());
             } else {
                 activeAccountId = null;
                 if (currentHost == null || currentHost.isBlank() ||
                     currentPort == null || 
                     currentUser == null || currentUser.isBlank()) {
-                    throw new java.lang.IllegalStateException("Cấu hình AMQP Broker không tìm thấy trong Database và properties!");
+                    throw new java.lang.IllegalStateException("AMQP Broker configuration not found in Database and properties!");
                 }
-                log.warn("**********************************************************");
-                log.warn("FALLBACK (application.properties)");
-                log.warn("**********************************************************");
+                log.warn("No active database configuration found. Falling back to configuration from application.properties.");
             }
 
             // Giải mã mật khẩu nếu được mã hóa bằng Jasypt

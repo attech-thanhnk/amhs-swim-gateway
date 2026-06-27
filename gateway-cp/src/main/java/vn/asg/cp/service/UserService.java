@@ -38,8 +38,33 @@ public class UserService {
     }
 
     public User updateUser(User user) {
-        user.setUpdatedAt(LocalDateTime.now());
-        return userRepository.save(user);
+        User existing = userRepository.findById(user.getId())
+                .orElseThrow(() -> new RuntimeException("User not found with id: " + user.getId()));
+
+        if (user.getUsername() != null && !user.getUsername().isBlank()) {
+            existing.setUsername(user.getUsername());
+        }
+        if (user.getEmail() != null && !user.getEmail().isBlank()) {
+            existing.setEmail(user.getEmail());
+        }
+        if (user.getFullName() != null && !user.getFullName().isBlank()) {
+            existing.setFullName(user.getFullName());
+        }
+        if (user.getRole() != null) {
+            existing.setRole(user.getRole());
+        }
+        if (user.getIsActive() != null) {
+            existing.setIsActive(user.getIsActive());
+        }
+        if (user.getAvatar() != null) {
+            existing.setAvatar(user.getAvatar());
+        }
+        if (user.getPassword() != null && !user.getPassword().isBlank()) {
+            existing.setPassword(passwordEncoder.encode(user.getPassword()));
+        }
+
+        existing.setUpdatedAt(LocalDateTime.now());
+        return userRepository.save(existing);
     }
 
     public void deleteUser(Long id) {

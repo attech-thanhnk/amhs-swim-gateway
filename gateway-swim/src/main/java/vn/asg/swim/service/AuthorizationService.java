@@ -96,7 +96,7 @@ public class AuthorizationService {
             return true;
         }
 
-        boolean authorized = whitelist.contains(originator);
+        boolean authorized = containsExact(whitelist, originator);
         log.debug("Authorization: AMHS BY_LIST → {} for {}", authorized ? "ALLOW" : "DENY", originator);
         return authorized;
     }
@@ -120,7 +120,7 @@ public class AuthorizationService {
         }
 
         String prmdPrefix = originator.substring(0, 4);
-        boolean authorized = authorizedPrmds.contains(prmdPrefix);
+        boolean authorized = containsExact(authorizedPrmds, prmdPrefix);
         log.debug("Authorization: AMHS BY_PRMD → {} for {} (PRMD={})",
                 authorized ? "ALLOW" : "DENY", originator, prmdPrefix);
         return authorized;
@@ -141,7 +141,7 @@ public class AuthorizationService {
             return true;
         }
 
-        boolean authorized = whitelist.contains(userId);
+        boolean authorized = containsExact(whitelist, userId);
         log.debug("Authorization: SWIM BY_LIST → {} for {}", authorized ? "ALLOW" : "DENY", userId);
         return authorized;
     }
@@ -161,8 +161,24 @@ public class AuthorizationService {
             return true;
         }
 
-        boolean authorized = authorizedEnterprises.contains(enterprise);
+        boolean authorized = containsExact(authorizedEnterprises, enterprise);
         log.debug("Authorization: SWIM BY_ENTERPRISE → {} for {}", authorized ? "ALLOW" : "DENY", enterprise);
         return authorized;
+    }
+
+    /**
+     * So khớp chính xác phần tử trong danh sách ngăn cách bởi dấu cách hoặc dấu phẩy.
+     */
+    private boolean containsExact(String configValue, String target) {
+        if (configValue == null || configValue.isBlank() || target == null || target.isBlank()) {
+            return false;
+        }
+        String[] items = configValue.split("[,;\\s]+");
+        for (String item : items) {
+            if (item.trim().equalsIgnoreCase(target.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

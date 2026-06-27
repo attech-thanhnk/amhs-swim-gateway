@@ -85,13 +85,11 @@ INSERT INTO `routing` (`direction`, `message_type`, `amhs_address`, `send_queue`
 ('OUT', 'NOTAM_TEXT', NULL,      'ats/atfm/vn', 100, 1, NOW(), NOW());
 
 -- ============================================================
--- cp_users — admin mặc định (password: Admin@123)
--- BCrypt hash của "Admin@123"
+-- users — Danh sách người dùng hệ thống CP mặc định (password: Admin@123)
 -- ============================================================
-INSERT INTO `cp_users` (`uuid`, `username`, `password`, `role`, `created_at`) VALUES
-('11111111-1111-1111-1111-111111111111', 'admin',
- '$2a$10$9rwGdXi0PX2nRAEVfQ3zKe0Y/8t2Dx6uxE4HOCjiuvA7.IofHGJzC',
- 'ADMIN', NOW());
+INSERT INTO `users` (`id`, `username`, `password`, `email`, `full_name`, `role`, `is_active`, `created_at`, `updated_at`) VALUES
+(1, 'admin', '$2a$10$9rwGdXi0PX2nRAEVfQ3zKe0Y/8t2Dx6uxE4HOCjiuvA7.IofHGJzC', 'admin@example.com', 'System Administrator', 'admin', 1, NOW(), NOW()),
+(2, 'viewer', '$2a$10$9rwGdXi0PX2nRAEVfQ3zKe0Y/8t2Dx6uxE4HOCjiuvA7.IofHGJzC', 'viewer@example.com', 'Viewer User', 'viewer', 1, NOW(), NOW());
 
 -- ============================================================
 -- accounts — mẫu 1 account Solace

@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import vn.asg.swim.entity.Gwin;
 import vn.asg.swim.entity.GwAlert;
+import vn.asg.swim.entity.MessageStatus;
 import vn.asg.swim.model.ResolvedAddressing;
 import vn.asg.swim.repository.GwinRepository;
 
@@ -326,16 +327,11 @@ public class AMQPSubscriberService {
             try {
                 String tac = conversionService.toAmhs(finalContent, effectiveType);
                 gwin.setText(tac);
-                gwin.setStatus(resolved.isResolved() ? Gwin.STATUS_PENDING : Gwin.STATUS_UNROUTED);
+                gwin.setStatus(resolved.isResolved() ? MessageStatus.IN_PENDING.getValue() : MessageStatus.IN_UNROUTED.getValue());
             } catch (Exception e) {
                 log.error("AMQP {} Conversion FAILED: {}", amqpMsgId, e.getMessage());
-                alertService.create(
-                        GwAlert.TYPE_CONVERT_ERROR,
-                        GwAlert.SEV_WARNING,
-                        "Conversion failed for " + amqpMsgId + ": " + e.getMessage(),
-                        "gwin", null);
                 gwin.setText("CONVERSION_FAILED: " + e.getMessage() + "\n" + finalContent);
-                gwin.setStatus(Gwin.STATUS_UNROUTED);
+                gwin.setStatus(MessageStatus.IN_UNROUTED.getValue());
             }
 
             try {
@@ -347,7 +343,7 @@ public class AMQPSubscriberService {
 
             String actionTag = "received-" + resolved.source().toLowerCase().replaceAll("[^a-z0-9]", "_");
             conversionService.logSwimToAmhs(amqpMsgId, resolved.originator(),
-                    gwin.getStatus().equals(Gwin.STATUS_PENDING) ? "OK" : "UNROUTED",
+                    gwin.getStatus().equals(MessageStatus.IN_PENDING.getValue()) ? "OK" : "UNROUTED",
                     actionTag,
                     resolved.isResolved() ? null : "MISSING_AMHS_RECIPIENTS",
                     amhsIpmId);

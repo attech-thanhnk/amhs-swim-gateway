@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import vn.asg.cp.entity.Gwin;
 import vn.asg.cp.entity.Gwout;
+import vn.asg.cp.entity.MessageStatus;
 import vn.asg.cp.exception.ResourceNotFoundException;
 import vn.asg.cp.repository.GwinDispatchRepository;
 import vn.asg.cp.repository.GwinRepository;
@@ -16,6 +17,7 @@ import vn.asg.cp.repository.GwoutDispatchRepository;
 import vn.asg.cp.repository.GwoutRepository;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -84,8 +86,45 @@ public class MessagesController {
             spec = spec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("time"), LocalDateTime.parse(toTime)));
 
         Page<Gwout> result = gwoutRepository.findAll(spec, PageRequest.of(page, size, Sort.by("time").descending()));
+        
+        List<Map<String, Object>> contentList = new java.util.ArrayList<>();
+        for (Gwout g : result.getContent()) {
+            try {
+                Map<String, Object> m = new java.util.HashMap<>();
+                m.put("msgid", g.getMsgid());
+                m.put("amhsid", g.getAmhsid());
+                m.put("priority", g.getPriority());
+                m.put("time", g.getTime() != null ? g.getTime().toString() : null);
+                m.put("filingTime", g.getFilingTime());
+                m.put("text", g.getText());
+                m.put("bodyType", g.getBodyType());
+                m.put("origin", g.getOrigin());
+                m.put("address", g.getAddress());
+                m.put("optionalHeading", g.getOptionalHeading());
+                m.put("amhsTtl", g.getAmhsTtl() != null ? g.getAmhsTtl().toString() : null);
+                m.put("amhsRegisteredId", g.getAmhsRegisteredId());
+                m.put("ipmId", g.getIpmId());
+                m.put("priority2", g.getPriority2());
+                m.put("amqpMessageId", g.getAmqpMessageId());
+                m.put("bodyPartType", g.getBodyPartType());
+                m.put("messageSigned", g.getMessageSigned());
+                m.put("rejectionReason", g.getRejectionReason());
+                m.put("rejectionDiagnostic", g.getRejectionDiagnostic());
+                m.put("amhsDeliveryReport", g.getAmhsDeliveryReport());
+                m.put("contentType", g.getContentType());
+                m.put("status", g.getStatus());
+                m.put("errorType", g.getErrorType());
+                m.put("payloadContent", g.getPayloadContent());
+                contentList.add(m);
+            } catch (Exception e) {
+                org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(MessagesController.class);
+                logger.error("CRITICAL: Error mapping Gwout msgid: {}, error: {}", g.getMsgid(), e.getMessage(), e);
+                throw e;
+            }
+        }
+
         return ResponseEntity.ok(Map.of(
-                "content", result.getContent(),
+                "content", contentList,
                 "totalElements", result.getTotalElements(),
                 "totalPages", result.getTotalPages(),
                 "page", page));
@@ -108,10 +147,42 @@ public class MessagesController {
         Gwin msg = gwinRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Inbound message", msgid));
 
-        msg.setStatus(Gwin.STATUS_PENDING);
+        msg.setStatus(MessageStatus.IN_PENDING.getValue());
         gwinRepository.save(msg);
 
         return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Queued for retry"));
+    }
+
+    @PostMapping("/inbound/{msgid}/resolve")
+    public ResponseEntity<Map<String, Object>> resolveInbound(@PathVariable("msgid") Long msgid) {
+        Gwin msg = gwinRepository.findById(msgid)
+                .orElseThrow(() -> new ResourceNotFoundException("Inbound message", msgid));
+
+        msg.setStatus(MessageStatus.IN_RESOLVED.getValue());
+        gwinRepository.save(msg);
+
+        gwinDispatchRepository.findByGwinId(msgid).forEach(d -> {
+            d.setStatus("DEAD");
+            gwinDispatchRepository.save(d);
+        });
+
+        return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Marked as resolved"));
+    }
+
+    @PostMapping("/inbound/{msgid}/cancel")
+    public ResponseEntity<Map<String, Object>> cancelInbound(@PathVariable("msgid") Long msgid) {
+        Gwin msg = gwinRepository.findById(msgid)
+                .orElseThrow(() -> new ResourceNotFoundException("Inbound message", msgid));
+
+        msg.setStatus(MessageStatus.IN_CANCELLED.getValue());
+        gwinRepository.save(msg);
+
+        gwinDispatchRepository.findByGwinId(msgid).forEach(d -> {
+            d.setStatus("DEAD");
+            gwinDispatchRepository.save(d);
+        });
+
+        return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Marked as cancelled"));
     }
 
     @PostMapping("/outbound/{msgid}/retry")
@@ -119,10 +190,42 @@ public class MessagesController {
         Gwout msg = gwoutRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Outbound message", msgid));
 
-        msg.setStatus(Gwout.STATUS_PENDING);
+        msg.setStatus(MessageStatus.OUT_PENDING.getValue());
         gwoutRepository.save(msg);
 
         return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Queued for retry"));
+    }
+
+    @PostMapping("/outbound/{msgid}/resolve")
+    public ResponseEntity<Map<String, Object>> resolveOutbound(@PathVariable("msgid") Long msgid) {
+        Gwout msg = gwoutRepository.findById(msgid)
+                .orElseThrow(() -> new ResourceNotFoundException("Outbound message", msgid));
+
+        msg.setStatus(MessageStatus.OUT_RESOLVED.getValue());
+        gwoutRepository.save(msg);
+
+        gwoutDispatchRepository.findByGwoutId(msgid).forEach(d -> {
+            d.setStatus("DEAD");
+            gwoutDispatchRepository.save(d);
+        });
+
+        return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Marked as resolved"));
+    }
+
+    @PostMapping("/outbound/{msgid}/cancel")
+    public ResponseEntity<Map<String, Object>> cancelOutbound(@PathVariable("msgid") Long msgid) {
+        Gwout msg = gwoutRepository.findById(msgid)
+                .orElseThrow(() -> new ResourceNotFoundException("Outbound message", msgid));
+
+        msg.setStatus(MessageStatus.OUT_CANCELLED.getValue());
+        gwoutRepository.save(msg);
+
+        gwoutDispatchRepository.findByGwoutId(msgid).forEach(d -> {
+            d.setStatus("DEAD");
+            gwoutDispatchRepository.save(d);
+        });
+
+        return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Marked as cancelled"));
     }
 
     @DeleteMapping("/inbound/{msgid}")

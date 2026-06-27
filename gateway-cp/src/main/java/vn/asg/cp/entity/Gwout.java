@@ -16,17 +16,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class Gwout {
 
-    // Status constants
-    public static final int STATUS_PENDING = 0;
-    public static final int STATUS_PROCESSING = 1;
-    public static final int STATUS_TRANSFORMED = 2;
-    public static final int STATUS_PUBLISHED = 3;
-    public static final int STATUS_FAILED = 4;
-
-    public static final int UNDEFINED = 0;
-    public static final int CONVERT_FAILED = 1;
-    public static final int SEND_FAILED = 2;
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long msgid;
@@ -56,24 +45,43 @@ public class Gwout {
     private String bodyType = "text";
 
     /** Địa chỉ AMHS originator (8 ký tự AFTN). Ví dụ: VVHHZQZX */
-    @Column(name = "origin", length = 8)
+    @Column(name = "origin", length = 200)
     private String origin;
 
-    /** Danh sách AMHS recipients (space-separated). Ví dụ: VVHHZTZX VVTSZDYX */
-    @Column(name = "address", length = 250)
+    /** Danh sách địa chỉ AMHS recipients, cách nhau dấu cách */
+    @Column(name = "address", length = 1000)
     private String address;
 
-    /** X.400 Optional Heading Information */
+    /** Optional heading/Priority prefix */
     @Column(name = "optional_heading", length = 60)
     private String optionalHeading;
 
-    /** Thời điểm hết hạn — sau đây không publish nữa. NULL = không giới hạn */
     @Column(name = "amhs_ttl")
     private LocalDateTime amhsTtl;
 
-    /** X.400 registered identifier */
     @Column(name = "amhs_registered_id", length = 200)
     private String amhsRegisteredId;
+
+    @Column(name = "ipm_id", length = 200)
+    private String ipmId;
+
+    @Column(name = "priority2")
+    private Integer priority2;
+
+    @Column(name = "amqp_message_id", length = 256)
+    private String amqpMessageId;
+
+    @Column(name = "body_part_type", length = 50)
+    private String bodyPartType;
+
+    @Column(name = "message_signed", length = 20)
+    private String messageSigned;
+
+    @Column(name = "rejection_reason", length = 64)
+    private String rejectionReason;
+
+    @Column(name = "rejection_diagnostic", length = 64)
+    private String rejectionDiagnostic;
 
     /** 0=không yêu cầu delivery report, 1=có */
     @Column(name = "amhs_delivery_report")
@@ -88,12 +96,12 @@ public class Gwout {
      * 0=PENDING, 1=PROCESSING, 2=TRANSFORMED, 3=PUBLISHED, 4=FAILED
      */
     @Column(name = "status")
-    private Integer status = STATUS_PENDING;
+    private Integer status = MessageStatus.OUT_PENDING.getValue();
 
     // Dạng lỗi
     @Column(name = "error_type")
-    private Integer errorType = UNDEFINED;
+    private Integer errorType = ErrorType.UNDEFINED.getValue();
 
     @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
-    private Integer payloadContent;
+    private String payloadContent;
 }

@@ -52,4 +52,36 @@ public class AlertsController {
 
         return ResponseEntity.ok(alertRepository.save(alert));
     }
+
+    @PutMapping("/bulk-ack")
+    public ResponseEntity<Void> bulkAcknowledge(Principal principal) {
+        List<GwAlert> activeAlerts = alertRepository.findByStatus(GwAlert.STATUS_NEW);
+        LocalDateTime now = LocalDateTime.now();
+        String username = principal != null ? principal.getName() : "operator";
+        for (GwAlert alert : activeAlerts) {
+            alert.setStatus(GwAlert.STATUS_ACKNOWLEDGED);
+            alert.setAcknowledgedAt(now);
+            alert.setAcknowledgedBy(username);
+        }
+        alertRepository.saveAll(activeAlerts);
+        return ResponseEntity.ok().build();
+    }
+
+    @PutMapping("/bulk-resolve")
+    public ResponseEntity<Void> bulkResolve() {
+        List<GwAlert> ackAlerts = alertRepository.findByStatus(GwAlert.STATUS_ACKNOWLEDGED);
+        List<GwAlert> newAlerts = alertRepository.findByStatus(GwAlert.STATUS_NEW);
+        LocalDateTime now = LocalDateTime.now();
+        for (GwAlert alert : ackAlerts) {
+            alert.setStatus(GwAlert.STATUS_RESOLVED);
+            alert.setResolvedAt(now);
+        }
+        for (GwAlert alert : newAlerts) {
+            alert.setStatus(GwAlert.STATUS_RESOLVED);
+            alert.setResolvedAt(now);
+        }
+        alertRepository.saveAll(ackAlerts);
+        alertRepository.saveAll(newAlerts);
+        return ResponseEntity.ok().build();
+    }
 }

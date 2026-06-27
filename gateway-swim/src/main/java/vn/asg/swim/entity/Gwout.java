@@ -15,12 +15,6 @@ public class Gwout {
     public Gwout() {
     }
 
-    // Status constants
-    public static final int STATUS_PENDING = 0;
-    public static final int STATUS_PROCESSING = 1;
-    public static final int STATUS_SENT = 2;
-    public static final int STATUS_DEAD = 3;
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long msgid;
@@ -50,11 +44,11 @@ public class Gwout {
     private String bodyType = "text";
 
     /** AMHS Originator address (8-character AFTN) */
-    @Column(name = "origin", length = 8)
+    @Column(name = "origin", length = 200)
     private String origin;
 
     /** AMHS Recipients list (space-separated) */
-    @Column(name = "address", length = 250)
+    @Column(name = "address", length = 1000)
     private String address;
 
     /** X.400 Optional Heading Information (OHI) */
@@ -85,11 +79,14 @@ public class Gwout {
      * 0=PENDING, 1=PROCESSING, 2=SENT, 3=DEAD
      */
     @Column(name = "status")
-    private Integer status = STATUS_PENDING;
+    private Integer status = MessageStatus.OUT_PENDING.getValue();
 
     /** Converted JSON/TEXT content */
     @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
     private String payloadContent;
+
+    @Column(name = "error_type")
+    private Integer errorType = ErrorType.UNDEFINED.getValue();
 
     public Long getMsgid() {
         return msgid;
@@ -217,5 +214,13 @@ public class Gwout {
 
     public void setPayloadContent(String payloadContent) {
         this.payloadContent = payloadContent;
+    }
+
+    public Integer getErrorType() {
+        return errorType;
+    }
+
+    public void setErrorType(Integer errorType) {
+        this.errorType = errorType;
     }
 }

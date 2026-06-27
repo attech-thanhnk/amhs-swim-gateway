@@ -8,11 +8,14 @@ import vn.asg.cp.entity.PerformanceMetrics;
 import vn.asg.cp.repository.AccountRepository;
 import vn.asg.cp.repository.GwinRepository;
 import vn.asg.cp.repository.GwoutRepository;
+import vn.asg.cp.repository.GwinHistoryRepository;
+import vn.asg.cp.repository.GwoutHistoryRepository;
 import vn.asg.cp.repository.PerformanceMetricsRepository;
 import vn.asg.cp.repository.ServerInfoRepository;
 import vn.asg.cp.provider.AppVersionProvider;
 
 import vn.asg.cp.entity.ServerInfo;
+import vn.asg.cp.entity.ErrorType;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.RuntimeMXBean;
@@ -34,6 +37,8 @@ public class MonitorController {
         private final PerformanceMetricsRepository metricsRepository;
         private final GwoutRepository gwoutRepository;
         private final GwinRepository gwinRepository;
+        private final GwoutHistoryRepository gwoutHistoryRepository;
+        private final GwinHistoryRepository gwinHistoryRepository;
         private final ServerInfoRepository serverInfoRepository;
         private final AppVersionProvider versionProvider;
 
@@ -71,27 +76,31 @@ public class MonitorController {
                                 .map(m -> m.getMsgOutCount() != null ? m.getMsgOutCount().longValue() : 0L).orElse(0L);
 
                 // 3. Database Message stats (số lượng bản ghi hiện có theo status)
+                long activeGwoutTotal = gwoutRepository.countAll();
+                long historyGwoutTotal = gwoutHistoryRepository.count();
                 Map<String, Object> gwoutStats = Map.of(
-                                "total", gwoutRepository.countAll(),
+                                "total", activeGwoutTotal + historyGwoutTotal,
                                 "pending", gwoutRepository.countByStatus(0),
-                                "processing", gwoutRepository.countByStatus(1),
-                                "transformed", gwoutRepository.countByStatus(2),
-                                "published", gwoutRepository.countByStatus(3),
-                                "failed", gwoutRepository.countByStatus(4),
-                                "convertFailed", gwoutRepository.countByErrorType(1),
-                                "undefinded", gwoutRepository.countByErrorType(0) // Không check đc định 
+                                "processing", gwoutRepository.countByStatus(3), // map status = 3 (OUT_PUBLISHING)
+                                "transformed", gwoutRepository.countByStatus(2) + gwoutHistoryRepository.countByStatus(2),
+                                "published", gwoutRepository.countByStatus(4) + gwoutHistoryRepository.countByStatus(4), // map status = 4 (OUT_PUBLISHED)
+                                "failed", gwoutRepository.countByStatus(5) + gwoutHistoryRepository.countByStatus(5), // map status = 5 (OUT_FAILED)
+                                "convertFailed", gwoutRepository.countByErrorType(ErrorType.CONVERT_FAILED.getValue()) + gwoutHistoryRepository.countByErrorType(ErrorType.CONVERT_FAILED.getValue()),
+                                "undefinded", gwoutRepository.countByErrorType(ErrorType.UNDEFINED.getValue()) + gwoutHistoryRepository.countByErrorType(ErrorType.UNDEFINED.getValue())
                         );
 
+                long activeGwinTotal = gwinRepository.countAll();
+                long historyGwinTotal = gwinHistoryRepository.count();
                 Map<String, Object> gwinStats = Map.of(
-                                "total", gwinRepository.countAll(),
+                                "total", activeGwinTotal + historyGwinTotal,
                                 "pending", gwinRepository.countByStatus(0),
                                 "processing", gwinRepository.countByStatus(1),
-                                "transformed", gwinRepository.countByStatus(2),
-                                "sent", gwinRepository.countByStatus(3),
-                                "failed", gwinRepository.countByStatus(4),
-                                "unrouted", gwinRepository.countByStatus(5),
-                                "convertFailed", gwinRepository.countByErrorType(1),
-                                "undefinded", gwinRepository.countByErrorType(0) // Không check đc định dạng
+                                "transformed", gwinRepository.countByStatus(2) + gwinHistoryRepository.countByStatus(2),
+                                "sent", gwinRepository.countByStatus(3) + gwinHistoryRepository.countByStatus(3),
+                                "failed", gwinRepository.countByStatus(4) + gwinHistoryRepository.countByStatus(4),
+                                "unrouted", gwinRepository.countByStatus(5) + gwinHistoryRepository.countByStatus(5),
+                                "convertFailed", gwinRepository.countByErrorType(ErrorType.CONVERT_FAILED.getValue()) + gwinHistoryRepository.countByErrorType(ErrorType.CONVERT_FAILED.getValue()),
+                                "undefinded", gwinRepository.countByErrorType(ErrorType.UNDEFINED.getValue()) + gwinHistoryRepository.countByErrorType(ErrorType.UNDEFINED.getValue())
                         );
 
                 // 4. Accounts Connection Status
