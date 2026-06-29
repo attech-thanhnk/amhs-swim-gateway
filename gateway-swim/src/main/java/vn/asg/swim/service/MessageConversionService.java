@@ -127,7 +127,12 @@ public class MessageConversionService {
             logEntry.setFilingTime(gwout.getFilingTime());
             logEntry.setContent(gwout.getText());
             logEntry.setConvertedTime(LocalDateTime.now());
-            logEntry.setActionTaken(actionTaken);
+            if (actionTaken != null && actionTaken.length() > 255) {
+                logEntry.setActionTaken(actionTaken.substring(0, 255));
+                logEntry.setRemark(actionTaken);
+            } else {
+                logEntry.setActionTaken(actionTaken);
+            }
             logEntry.setStatus(status);
             conversionLogRepo.saveAndFlush(logEntry);
         } catch (Exception e) {
@@ -157,7 +162,12 @@ public class MessageConversionService {
             logEntry.setIpmId(ipmId);
             logEntry.setOrigin(originator);
             logEntry.setConvertedTime(LocalDateTime.now());
-            logEntry.setActionTaken(actionTaken);
+            if (actionTaken != null && actionTaken.length() > 255) {
+                logEntry.setActionTaken(actionTaken.substring(0, 255));
+                logEntry.setRemark(actionTaken);
+            } else {
+                logEntry.setActionTaken(actionTaken);
+            }
             logEntry.setStatus(status);
             logEntry.setNonDeliveryReason(rejectionReason);
             conversionLogRepo.save(logEntry);

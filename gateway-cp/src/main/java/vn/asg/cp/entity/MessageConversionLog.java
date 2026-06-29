@@ -72,7 +72,7 @@ public class MessageConversionLog {
     private String status;
 
     /** convert-as-amqp / convert-as-ipm / reject */
-    @Column(name = "action_taken", length = 50)
+    @Column(name = "action_taken", length = 255)
     private String actionTaken;
 
     @Column(name = "non_delivery_reason", length = 64)

@@ -17,7 +17,7 @@ public interface GwoutRepository extends JpaRepository<Gwout, Long> {
          */
         @Query(value = """
                         SELECT * FROM gwout
-                        WHERE (status = 0 OR status IS NULL)
+                        WHERE status = 0
                         ORDER BY priority ASC, time ASC
                         LIMIT :batchSize
                         FOR UPDATE

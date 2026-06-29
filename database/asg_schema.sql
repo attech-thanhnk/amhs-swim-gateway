@@ -134,7 +134,8 @@ CREATE TABLE `gwin` (
   `error_type` int DEFAULT NULL,
   PRIMARY KEY (`msgid`),
   UNIQUE KEY `message_id` (`message_id`),
-  KEY `idx_status` (`status`)
+  KEY `idx_status` (`status`),
+  KEY `idx_gwin_status_priority_time` (`status`, `priority`, `time`)
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -160,6 +161,7 @@ CREATE TABLE `gwin_dispatch` (
   `sent_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `fk_gwin_dispatch_msg` (`gwin_id`),
+  KEY `idx_gwin_dispatch_status_retry` (`status`, `next_retry_at`),
   CONSTRAINT `fk_gwin_dispatch_msg` FOREIGN KEY (`gwin_id`) REFERENCES `gwin` (`msgid`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -185,7 +187,7 @@ CREATE TABLE `gwout` (
   `ipm_id` varchar(200) DEFAULT NULL,
   `filing_time` varchar(6) DEFAULT NULL,
   `priority2` int DEFAULT NULL,
-  `status` int DEFAULT NULL,
+  `status` int NOT NULL DEFAULT 0,
   `amqp_message_id` varchar(256) DEFAULT NULL,
   `body_type` varchar(10) DEFAULT 'text',
   `body_part_type` varchar(50) DEFAULT NULL,
@@ -200,7 +202,8 @@ CREATE TABLE `gwout` (
   `error_type` int DEFAULT NULL,
   PRIMARY KEY (`msgid`),
   KEY `priority2` (`priority2`),
-  KEY `idx_status` (`status`)
+  KEY `idx_status` (`status`),
+  KEY `idx_gwout_status_priority_time` (`status`, `priority`, `time`)
 ) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -229,6 +232,7 @@ CREATE TABLE `gwout_dispatch` (
   `sent_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `fk_gwout_dispatch_msg` (`gwout_id`),
+  KEY `idx_gwout_dispatch_status_retry` (`status`, `next_retry_at`),
   CONSTRAINT `fk_gwout_dispatch_msg` FOREIGN KEY (`gwout_id`) REFERENCES `gwout` (`msgid`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -281,7 +285,7 @@ CREATE TABLE `message_conversion_log` (
   `content` text,
   `converted_time` datetime DEFAULT NULL,
   `status` varchar(8) DEFAULT NULL,
-  `action_taken` varchar(50) DEFAULT NULL,
+  `action_taken` varchar(255) DEFAULT NULL,
   `non_delivery_reason` varchar(64) DEFAULT NULL,
   `non_delivery_diagnostic` varchar(64) DEFAULT NULL,
   `supplementary_info` varchar(512) DEFAULT NULL,

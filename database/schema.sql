@@ -90,7 +90,8 @@ CREATE TABLE IF NOT EXISTS `gwin` (
   `error_type` int(11) DEFAULT NULL,
   PRIMARY KEY (`msgid`),
   UNIQUE KEY `message_id` (`message_id`),
-  KEY `idx_status` (`status`)
+  KEY `idx_status` (`status`),
+  KEY `idx_gwin_status_priority_time` (`status`, `priority`, `time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================
@@ -111,6 +112,7 @@ CREATE TABLE IF NOT EXISTS `gwin_dispatch` (
   `sent_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `fk_gwin_dispatch_msg` (`gwin_id`),
+  KEY `idx_gwin_dispatch_status_retry` (`status`, `next_retry_at`),
   CONSTRAINT `fk_gwin_dispatch_msg` FOREIGN KEY (`gwin_id`) REFERENCES `gwin` (`msgid`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -131,7 +133,7 @@ CREATE TABLE IF NOT EXISTS `gwout` (
   `ipm_id` varchar(200) DEFAULT NULL,
   `filing_time` varchar(6) DEFAULT NULL,
   `priority2` int(11) DEFAULT NULL,
-  `status` int(11) DEFAULT NULL,
+  `status` int(11) NOT NULL DEFAULT 0,
   `amqp_message_id` varchar(256) DEFAULT NULL,
   `body_type` varchar(10) DEFAULT 'text',
   `body_part_type` varchar(50) DEFAULT NULL,
@@ -146,7 +148,8 @@ CREATE TABLE IF NOT EXISTS `gwout` (
   `error_type` int(11) DEFAULT NULL,
   PRIMARY KEY (`msgid`),
   KEY `priority2` (`priority2`),
-  KEY `idx_status` (`status`)
+  KEY `idx_status` (`status`),
+  KEY `idx_gwout_status_priority_time` (`status`, `priority`, `time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================
@@ -170,6 +173,7 @@ CREATE TABLE IF NOT EXISTS `gwout_dispatch` (
   `sent_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `fk_gwout_dispatch_msg` (`gwout_id`),
+  KEY `idx_gwout_dispatch_status_retry` (`status`, `next_retry_at`),
   CONSTRAINT `fk_gwout_dispatch_msg` FOREIGN KEY (`gwout_id`) REFERENCES `gwout` (`msgid`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -194,7 +198,7 @@ CREATE TABLE IF NOT EXISTS `message_conversion_log` (
   `content` text,
   `converted_time` datetime DEFAULT NULL,
   `status` varchar(8) DEFAULT NULL,
-  `action_taken` varchar(50) DEFAULT NULL,
+  `action_taken` varchar(255) DEFAULT NULL,
   `non_delivery_reason` varchar(64) DEFAULT NULL,
   `non_delivery_diagnostic` varchar(64) DEFAULT NULL,
   `supplementary_info` varchar(512) DEFAULT NULL,
@@ -337,11 +341,3 @@ CREATE TABLE IF NOT EXISTS `gwout_dispatch_history` LIKE `gwout_dispatch`;
 -- 3. Tạo bảng lịch sử cho gwin nếu chưa tồn tại
 CREATE TABLE IF NOT EXISTS `gwin_history` LIKE `gwin`;
 
--- 4. Tạo index tối ưu cho bảng chính gwout
-CREATE INDEX `idx_gwout_poll` ON `gwout` (`status`, `priority`, `time`);
-
--- 5. Tạo index tối ưu cho bảng chính gwout_dispatch
-CREATE INDEX `idx_gwout_dispatch_poll` ON `gwout_dispatch` (`status`, `next_retry_at`);
-
--- 6. Tạo index tối ưu cho bảng chính gwin
-CREATE INDEX `idx_gwin_poll` ON `gwin` (`status`, `priority`, `time`);
