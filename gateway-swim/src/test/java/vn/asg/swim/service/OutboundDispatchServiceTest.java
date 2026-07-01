@@ -91,17 +91,10 @@ class OutboundDispatchServiceTest {
             .thenReturn(invalidResult);
 
         // When
-        service.processDispatch(dispatch);
+        service.convertOutboundMessage(gwout);
 
-        // Then: Status should be DEAD, NOT SENT (Issue #1 fix verification)
-        verify(gwoutDispatchRepository, times(2)).save(argThat(d -> {
-            if (d.getStatus().equals(GwoutDispatch.STATUS_DEAD)) {
-                assertEquals(GwoutDispatch.STEP_VALIDATION, d.getFailedStep());
-                assertTrue(d.getLastError().contains("Invalid AFTN"));
-                return true;
-            }
-            return d.getStatus().equals(GwoutDispatch.STATUS_PROCESSING);
-        }));
+        // Then: Status should be FAILED
+        assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
 
         // Verify alert was created
         verify(alertService).create(
@@ -124,17 +117,10 @@ class OutboundDispatchServiceTest {
         when(authorizationService.isAmhsUserAuthorized("VVTSZYYX")).thenReturn(false);
 
         // When
-        service.processDispatch(dispatch);
+        service.convertOutboundMessage(gwout);
 
-        // Then: Should be DEAD with authorization failed step
-        verify(gwoutDispatchRepository, times(2)).save(argThat(d -> {
-            if (d.getStatus().equals(GwoutDispatch.STATUS_DEAD)) {
-                assertEquals(GwoutDispatch.STEP_AUTHORIZATION, d.getFailedStep());
-                assertTrue(d.getLastError().contains("not authorized"));
-                return true;
-            }
-            return true;
-        }));
+        // Then: Should fail gwout status
+        assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
 
         verify(alertService).create(
             eq(GwAlert.TYPE_VALIDATION_ERROR),
@@ -158,19 +144,11 @@ class OutboundDispatchServiceTest {
         when(authorizationService.isAmhsUserAuthorized(anyString())).thenReturn(true);
 
         // When
-        service.processDispatch(dispatch);
+        service.convertOutboundMessage(gwout);
 
-        // Then: Should mark as SENT (accepted skip) but not publish
-        verify(gwoutDispatchRepository, times(2)).save(argThat(d -> {
-            if (d.getStatus().equals(GwoutDispatch.STATUS_SENT)) {
-                assertNotNull(d.getSentAt());
-                return true;
-            }
-            return true;
-        }));
-
-        // Verify NO AMQP publish happened
-        verify(connectionManager, never()).createSession();
+        // Then: Should mark as OUT_PUBLISHED (accepted skip)
+        assertEquals(MessageStatus.OUT_PUBLISHED.getValue(), gwout.getStatus());
+        verify(gwoutRepository, atLeastOnce()).save(gwout);
     }
 
     @Test
@@ -197,7 +175,7 @@ class OutboundDispatchServiceTest {
         setupValidScenario();
 
         // When
-        service.processDispatch(dispatch);
+        service.convertOutboundMessage(gwout);
 
         // Then: Should NOT call conversionService.toSwim (use cache)
         verify(conversionService, never()).toSwim(anyString(), anyString());
@@ -206,14 +184,14 @@ class OutboundDispatchServiceTest {
     @Test
     void testConversionCache_NoCache_ShouldConvertAndCache() throws Exception {
         // Given: No cached payload
+        setupValidScenario();
         gwout.setPayloadContent(null);
         when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
-        setupValidScenario();
         when(conversionService.toSwim(anyString(), eq("METAR")))
             .thenReturn("{\"stationIcao\":\"VVTS\",\"observationTime\":\"121200Z\"}");
 
         // When
-        service.processDispatch(dispatch);
+        service.convertOutboundMessage(gwout);
 
         // Then: Should call conversion AND save cache
         verify(conversionService).toSwim(anyString(), eq("METAR"));
@@ -226,13 +204,13 @@ class OutboundDispatchServiceTest {
     @Test
     void testConversionCache_TacFormat_ShouldNotConvert() throws Exception {
         // Given: Routing rule says keep TAC format
+        setupValidScenario();
         routing.setConvertToJson(false);
         gwout.setPayloadContent(null);
         when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
-        setupValidScenario();
 
         // When
-        service.processDispatch(dispatch);
+        service.convertOutboundMessage(gwout);
 
         // Then: Should NOT convert, use original body
         verify(conversionService, never()).toSwim(anyString(), anyString());
@@ -253,31 +231,23 @@ class OutboundDispatchServiceTest {
         when(routingService.findBestMatchOut("UNKNOWN")).thenReturn(Optional.empty());
 
         // When
-        service.processDispatch(dispatch);
+        service.convertOutboundMessage(gwout);
 
         // Then: Should fail at routing step
-        verify(gwoutDispatchRepository, atLeastOnce()).save(argThat(d -> {
-            if (d.getStatus().equals(GwoutDispatch.STATUS_FAILED)) {
-                assertEquals(GwoutDispatch.STEP_ROUTING, d.getFailedStep());
-                return true;
-            }
-            return true;
-        }));
+        assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
+        verify(conversionService).logAmhsToSwim(eq(gwout), any(), eq("ERROR"), contains("routing_failed"));
     }
 
     // ==================== RETRY LOGIC ====================
 
     @Test
-    void testRetryLogic_FirstRetry_ShouldCalculateDelay() {
+    void testRetryLogic_FirstRetry_ShouldCalculateDelay() throws Exception {
         // Given: First retry
         dispatch.setRetryCount(0);
         when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
-        MessageValidationService.ValidationResult validResult =
-            new MessageValidationService.ValidationResult(true, List.of());
-        when(validationService.validateAmhsToSwim(anyString(), anyString()))
-            .thenReturn(validResult);
-        when(authorizationService.isAmhsUserAuthorized(anyString())).thenReturn(true);
-        when(detectService.detect(anyString())).thenThrow(new RuntimeException("Detect failed"));
+        setupValidScenario();
+        // Mock connectionManager to fail publishing
+        when(connectionManager.createSession()).thenThrow(new RuntimeException("JMS publish failed"));
 
         // When
         service.processDispatch(dispatch);
@@ -294,16 +264,12 @@ class OutboundDispatchServiceTest {
     }
 
     @Test
-    void testRetryLogic_MaxRetriesReached_ShouldSetDead() {
+    void testRetryLogic_MaxRetriesReached_ShouldSetDead() throws Exception {
         // Given: Max retries reached
         dispatch.setRetryCount(3);
         when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
-        MessageValidationService.ValidationResult validResult =
-            new MessageValidationService.ValidationResult(true, List.of());
-        when(validationService.validateAmhsToSwim(anyString(), anyString()))
-            .thenReturn(validResult);
-        when(authorizationService.isAmhsUserAuthorized(anyString())).thenReturn(true);
-        when(detectService.detect(anyString())).thenThrow(new RuntimeException("Still failing"));
+        setupValidScenario();
+        when(connectionManager.createSession()).thenThrow(new RuntimeException("JMS publish failed"));
 
         // When
         service.processDispatch(dispatch);
@@ -342,6 +308,103 @@ class OutboundDispatchServiceTest {
         }));
     }
 
+    // ==================== PROBE AND EIT TESTS ====================
+
+    @Test
+    void testProbeConveyance_ValidProbe_ShouldGenerateDR() {
+        // Given
+        Gwout probe = new Gwout();
+        probe.setMsgid(2L);
+        probe.setOrigin("VVTSZYYX");
+        probe.setAddress("VVHHZTZX");
+        probe.setBodyType("probe");
+        probe.setText("PROBE");
+
+        when(authorizationService.isAmhsUserAuthorized("VVTSZYYX")).thenReturn(true);
+        when(validationService.validateAftnAddress("VVHHZTZX", "Recipient")).thenReturn(
+            new MessageValidationService.ValidationResult(true, List.of())
+        );
+        when(configService.get("AUTHORIZED_AMHS_ADDRESSES")).thenReturn("VVHHZTZX");
+
+        // When
+        service.convertOutboundMessage(probe);
+
+        // Then: Should mark as OUT_PUBLISHED and log DR
+        assertEquals(MessageStatus.OUT_PUBLISHED.getValue(), probe.getStatus());
+        assertTrue(probe.getPayloadContent().contains("DR:"));
+        verify(gwoutRepository).save(probe);
+        verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("OK"), eq("dr_generated_probe"));
+    }
+
+    @Test
+    void testProbeConveyance_InvalidOriginator_ShouldGenerateNDR() {
+        // Given
+        Gwout probe = new Gwout();
+        probe.setMsgid(2L);
+        probe.setOrigin("UNKNOWN");
+        probe.setAddress("VVHHZTZX");
+        probe.setBodyType("probe");
+
+        when(authorizationService.isAmhsUserAuthorized("UNKNOWN")).thenReturn(false);
+
+        // When
+        service.convertOutboundMessage(probe);
+
+        // Then: Should mark as OUT_FAILED, log REJECTED and ndr_unknown_originator
+        assertEquals(MessageStatus.OUT_FAILED.getValue(), probe.getStatus());
+        assertTrue(probe.getPayloadContent().contains("NDR:"));
+        verify(gwoutRepository).save(probe);
+        verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("REJECTED"), eq("ndr_unknown_originator: UNKNOWN"));
+    }
+
+    @Test
+    void testProbeConveyance_UnknownRecipient_ShouldGenerateNDR() {
+        // Given
+        Gwout probe = new Gwout();
+        probe.setMsgid(2L);
+        probe.setOrigin("VVTSZYYX");
+        probe.setAddress("UNKNOWN");
+        probe.setBodyType("probe");
+
+        when(authorizationService.isAmhsUserAuthorized("VVTSZYYX")).thenReturn(true);
+        when(validationService.validateAftnAddress("UNKNOWN", "Recipient")).thenReturn(
+            new MessageValidationService.ValidationResult(true, List.of())
+        );
+        // Not configured in whitelist or IN routing rule
+        when(configService.get("AUTHORIZED_AMHS_ADDRESSES")).thenReturn("");
+        when(routingService.isRecipientConfigured("UNKNOWN")).thenReturn(false);
+
+        // When
+        service.convertOutboundMessage(probe);
+
+        // Then: Should mark as OUT_FAILED and generate NDR
+        assertEquals(MessageStatus.OUT_FAILED.getValue(), probe.getStatus());
+        assertTrue(probe.getPayloadContent().contains("NDR: Unknown recipient:"));
+        verify(gwoutRepository).save(probe);
+    }
+
+    @Test
+    void testEitValidation_UnsupportedType_ShouldReject() {
+        // Given
+        gwout.setBodyPartType("unsupported-format-eit");
+        when(validationService.validateAmhsToSwim(anyString(), anyString())).thenReturn(
+            new MessageValidationService.ValidationResult(true, List.of())
+        );
+        when(authorizationService.isAmhsUserAuthorized(anyString())).thenReturn(true);
+        when(validationService.validateBodyPartType("unsupported-format-eit")).thenReturn(
+            new MessageValidationService.ValidationResult(false, List.of("Unsupported EIT"))
+        );
+
+        // When
+        service.convertOutboundMessage(gwout);
+
+        // Then: Should mark as OUT_FAILED and log conversion log
+        assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
+        assertTrue(gwout.getPayloadContent().contains("EIT validation failed:"));
+        verify(gwoutRepository).save(gwout);
+        verify(conversionService).logAmhsToSwim(eq(gwout), any(), eq("REJECTED"), contains("unsupported_eit"));
+    }
+
     // ==================== HELPER METHODS ====================
 
     private void setupValidScenario() throws Exception {
@@ -352,6 +415,10 @@ class OutboundDispatchServiceTest {
         when(authorizationService.isAmhsUserAuthorized(anyString())).thenReturn(true);
         when(detectService.detect(anyString())).thenReturn("METAR");
         when(routingService.findBestMatchOut("METAR")).thenReturn(Optional.of(routing));
+
+        // Set payload content and topic on test entities to bypass empty check in processDispatch
+        gwout.setPayloadContent("{\"stationIcao\":\"VVTS\",\"observationTime\":\"121200Z\"}");
+        dispatch.setTopic("ats.met.metar");
 
         // Mock AMQP publishing
         Session session = mock(Session.class);

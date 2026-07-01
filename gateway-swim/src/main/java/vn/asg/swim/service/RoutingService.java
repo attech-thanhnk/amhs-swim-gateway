@@ -79,4 +79,33 @@ public class RoutingService {
                 .distinct()
                 .toList();
     }
+
+    /**
+     * Kiểm tra xem địa chỉ người nhận AMHS có cấu hình trong bất kỳ rule IN nào hay không.
+     */
+    public boolean isRecipientConfigured(String recipient) {
+        if (recipient == null || recipient.isBlank()) {
+            return false;
+        }
+        List<Routing> rules = routingRepository.findByDirectionAndActiveTrueOrderByPriorityAsc("IN");
+        for (Routing r : rules) {
+            if (r.getRecipients() != null && containsExact(r.getRecipients(), recipient)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean containsExact(String configValue, String target) {
+        if (configValue == null || configValue.isBlank() || target == null || target.isBlank()) {
+            return false;
+        }
+        String[] items = configValue.split("[,;\\s]+");
+        for (String item : items) {
+            if (item.trim().equalsIgnoreCase(target.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

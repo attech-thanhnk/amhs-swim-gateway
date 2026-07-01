@@ -59,6 +59,40 @@ class GwoutPollerSchedulerTest {
         when(connectionManager.getConnected()).thenReturn(connected);
         when(configService.getInt("OUTBOUND_BATCH_SIZE")).thenReturn(10);
         when(configService.getPollIntervalMs()).thenReturn(5000L);
+
+        // Mock outboundDispatchService.createDispatches logic
+        doAnswer(invocation -> {
+            Gwout g = invocation.getArgument(0);
+            String address = g.getAddress();
+            if (address == null || address.isBlank()) {
+                alertService.create(GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING, "gwout#" + g.getMsgid() + " has no recipients", "gwout", g.getMsgid());
+                g.setStatus(MessageStatus.OUT_FAILED.getValue());
+                gwoutRepository.save(g);
+                return null;
+            }
+            List<String> recipients = Arrays.stream(address.split("[,\\s]+"))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .filter(s -> s.matches("^[A-Z]{8}$"))
+                    .distinct()
+                    .toList();
+            if (recipients.isEmpty()) {
+                alertService.create(GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING, "gwout#" + g.getMsgid() + " has no valid AFTN recipients", "gwout", g.getMsgid());
+                g.setStatus(MessageStatus.OUT_FAILED.getValue());
+                gwoutRepository.save(g);
+                return null;
+            }
+            for (String recipient : recipients) {
+                GwoutDispatch d = new GwoutDispatch();
+                d.setGwoutId(g.getMsgid());
+                d.setRecipient(recipient);
+                d.setStatus(GwoutDispatch.STATUS_PENDING);
+                gwoutDispatchRepository.save(d);
+            }
+            g.setStatus(MessageStatus.OUT_PUBLISHING.getValue());
+            gwoutRepository.save(g);
+            return null;
+        }).when(outboundDispatchService).createDispatches(any(Gwout.class));
     }
 
     // ==================== POLL GWOUT TASK ====================
@@ -69,7 +103,7 @@ class GwoutPollerSchedulerTest {
         connected.set(false);
 
         // When
-        scheduler.pollGwoutAndCreateDispatches();
+        scheduler.executeOutboundPipeline();
 
         // Then: Should not query database
         verify(gwoutRepository, never()).findPendingPublishBatch(anyInt());
@@ -320,7 +354,7 @@ class GwoutPollerSchedulerTest {
         connected.set(false);
 
         // When
-        scheduler.pollDispatchesAndProcess();
+        scheduler.executeOutboundPipeline();
 
         // Then: Should not process
         verify(gwoutDispatchRepository, never()).findPendingBatch(anyInt());

@@ -241,6 +241,13 @@ public class AMQPSubscriberService {
         String amhsContentEncoding = amqpMsg.getStringProperty("amhs_content_encoding");
         String amhsMessageSigned = amqpMsg.getStringProperty("amhs_message_signed");
 
+        // Trích xuất các thuộc tính FTBP của bản tin nhị phân
+        String amhsFtbpFileName = amqpMsg.getStringProperty("amhs_ftbp_file_name");
+        String amhsFtbpObjectSize = amqpMsg.getStringProperty("amhs_ftbp_object_size");
+        String amhsFtbpLastMod = amqpMsg.getStringProperty("amhs_ftbp_last_mod");
+        String amhsRegisteredIdentifier = amqpMsg.getStringProperty("amhs_registered_identifier");
+        String amhsUserVisibleString = amqpMsg.getStringProperty("amhs_user_visible_string");
+
         // ats_priority ghi đè JMSPriority theo đặc tả.
         if (atsPriority != null && !atsPriority.isBlank()) {
             priority = vn.asg.swim.model.AmqpProperties.mapAtsPriorityToAmqp(atsPriority);
@@ -263,6 +270,16 @@ public class AMQPSubscriberService {
             props.put("amhs_content_encoding", amhsContentEncoding);
         if (amhsMessageSigned != null)
             props.put("amhs_message_signed", amhsMessageSigned);
+        if (amhsFtbpFileName != null)
+            props.put("amhs_ftbp_file_name", amhsFtbpFileName);
+        if (amhsFtbpObjectSize != null)
+            props.put("amhs_ftbp_object_size", amhsFtbpObjectSize);
+        if (amhsFtbpLastMod != null)
+            props.put("amhs_ftbp_last_mod", amhsFtbpLastMod);
+        if (amhsRegisteredIdentifier != null)
+            props.put("amhs_registered_identifier", amhsRegisteredIdentifier);
+        if (amhsUserVisibleString != null)
+            props.put("amhs_user_visible_string", amhsUserVisibleString);
         if (contentType != null)
             props.put("content_type", contentType);
         if (subject != null)
@@ -309,7 +326,8 @@ public class AMQPSubscriberService {
         gwin.setPriority((byte) Math.min(Math.max(priority, 0), 9));
         gwin.setTime(LocalDateTime.now());
         gwin.setPayloadContent(finalContent);
-        gwin.setBodyType("text");
+        String bodyType = "file-transfer-body-part".equalsIgnoreCase(amhsBodypartType) ? "ftbp" : "text";
+        gwin.setBodyType(bodyType);
         gwin.setContentType(contentType);
         gwin.setOrigin(resolved.originator());
         gwin.setAddress(resolved.recipients());
@@ -332,6 +350,11 @@ public class AMQPSubscriberService {
                 log.error("AMQP {} Conversion FAILED: {}", amqpMsgId, e.getMessage());
                 gwin.setText("CONVERSION_FAILED: " + e.getMessage() + "\n" + finalContent);
                 gwin.setStatus(MessageStatus.IN_UNROUTED.getValue());
+                alertService.create(
+                        GwAlert.TYPE_CONVERT_ERROR,
+                        GwAlert.SEV_WARNING,
+                        "Conversion failed: " + e.getMessage(),
+                        "gwin", null);
             }
 
             try {

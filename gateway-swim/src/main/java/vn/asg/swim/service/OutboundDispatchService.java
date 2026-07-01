@@ -42,6 +42,14 @@ public class OutboundDispatchService {
      */
     @Transactional
     public void convertOutboundMessage(Gwout gwout) {
+        // CTSW011 - CTSW013: Phát hiện bản tin Probe từ AMHS
+        boolean isProbe = "probe".equalsIgnoreCase(gwout.getBodyType()) || "PROBE".equalsIgnoreCase(gwout.getText());
+        if (isProbe) {
+            log.info("Processing AMHS Probe for gwout#{}", gwout.getMsgid());
+            processAmhsProbe(gwout);
+            return;
+        }
+
         // 1. Kiểm tra tính hợp lệ bản tin
         MessageValidationService.ValidationResult dirResult = validationService.validateAmhsToSwim(gwout.getText(),
                 gwout.getAddress());
@@ -72,6 +80,23 @@ public class OutboundDispatchService {
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "REJECTED", "unauthorized_originator: " + gwout.getOrigin());
             return;
+        }
+
+        // CTSW016: Kiểm thử EIT/Body Part Type của bản tin đi
+        if (gwout.getBodyPartType() != null) {
+            MessageValidationService.ValidationResult eitResult = validationService.validateBodyPartType(gwout.getBodyPartType());
+            if (!eitResult.isValid()) {
+                log.warn("gwout#{} rejected by EIT validation: {}", gwout.getMsgid(), eitResult.getErrorMessage());
+                alertService.create(
+                        GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                        "gwout#" + gwout.getMsgid() + " rejected: " + eitResult.getErrorMessage(),
+                        "gwout", gwout.getMsgid());
+                gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+                gwout.setPayloadContent("EIT validation failed: " + eitResult.getErrorMessage());
+                gwoutRepository.save(gwout);
+                conversionService.logAmhsToSwim(gwout, null, "REJECTED", "unsupported_eit: " + eitResult.getErrorMessage());
+                return;
+            }
         }
 
         // 3. Kiểm tra thời hạn hiệu lực bản tin (TTL)
@@ -202,8 +227,22 @@ public class OutboundDispatchService {
             producer = connectionManager.createProducer(session, topic);
             producer.setDeliveryMode(DeliveryMode.PERSISTENT);
 
-            TextMessage message = session.createTextMessage(body);
-            String ct = contentType != null ? contentType : "application/json";
+            Message message;
+            if ("ftbp".equalsIgnoreCase(gwout.getBodyType())) {
+                BytesMessage bytesMsg = session.createBytesMessage();
+                byte[] binaryData;
+                try {
+                    binaryData = java.util.Base64.getDecoder().decode(body);
+                } catch (Exception e) {
+                    binaryData = body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                }
+                bytesMsg.writeBytes(binaryData);
+                message = bytesMsg;
+            } else {
+                message = session.createTextMessage(body);
+            }
+
+            String ct = contentType != null ? contentType : ("ftbp".equalsIgnoreCase(gwout.getBodyType()) ? "application/octet-stream" : "application/json");
             message.setStringProperty("JMS_AMQP_CONTENT_TYPE", ct);
 
             if (gwout.getOrigin() != null) {
@@ -227,10 +266,18 @@ public class OutboundDispatchService {
                 message.setStringProperty("amhs_ats_ohi", gwout.getOptionalHeading());
             }
             if (gwout.getBodyType() != null) {
-                String bodyPartType = "text".equals(gwout.getBodyType())
-                        ? "ia5-text-body-part"
-                        : "file-transfer-body-part";
-                message.setStringProperty("amhs_bodypart_type", bodyPartType);
+                if ("ftbp".equalsIgnoreCase(gwout.getBodyType())) {
+                    message.setStringProperty("amhs_bodypart_type", "file-transfer-body-part");
+                    message.setStringProperty("amhs_ftbp_file_name", "attachment.bin");
+                    if (gwout.getAmhsRegisteredId() != null) {
+                        message.setStringProperty("amhs_registered_identifier", gwout.getAmhsRegisteredId());
+                    }
+                } else {
+                    String bodyPartType = "text".equals(gwout.getBodyType())
+                            ? "ia5-text-body-part"
+                            : "file-transfer-body-part";
+                    message.setStringProperty("amhs_bodypart_type", bodyPartType);
+                }
             }
             message.setStringProperty("amhs_content_encoding", "IA5");
             message.setStringProperty("amhs_message_signed", "unsigned");
@@ -397,5 +444,98 @@ public class OutboundDispatchService {
         gwout.setStatus(MessageStatus.OUT_PUBLISHING.getValue());
         gwoutRepository.save(gwout);
         log.debug("gwout#{} -> {} dispatch(es) created with topic={}", gwout.getMsgid(), recipients.size(), topic);
+    }
+
+    /**
+     * CTSW011 - CTSW013: Xử lý bản tin Probe nhận từ AMHS.
+     */
+    private void processAmhsProbe(Gwout gwout) {
+        // 1. CTSW013: Kiểm tra tính hợp lệ của Originator (Xác thực)
+        String originator = gwout.getOrigin();
+        if (!authorizationService.isAmhsUserAuthorized(originator)) {
+            log.warn("Probe gwout#{} REJECTED: AMHS originator '{}' not authorized", gwout.getMsgid(), originator);
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                    "Unauthorized AMHS originator for Probe: " + originator,
+                    "gwout", gwout.getMsgid());
+            
+            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setPayloadContent("NDR: Unknown originator '" + originator + "'");
+            gwout.setRejectionReason("unknown-originator");
+            gwoutRepository.save(gwout);
+            
+            conversionService.logAmhsToSwim(gwout, null, "REJECTED", "ndr_unknown_originator: " + originator);
+            return;
+        }
+
+        // 2. CTSW012: Kiểm tra tính hợp lệ của Recipients
+        String recipients = gwout.getAddress();
+        if (recipients == null || recipients.isBlank()) {
+            rejectProbe(gwout, "Recipients list is empty", "empty-recipients");
+            return;
+        }
+
+        String[] recipientArray = recipients.trim().split("\\s+");
+        for (String recipient : recipientArray) {
+            // Kiểm tra định dạng địa chỉ AFTN
+            var formatResult = validationService.validateAftnAddress(recipient, "Recipient");
+            if (!formatResult.isValid()) {
+                rejectProbe(gwout, "Invalid recipient format: " + recipient, "invalid-recipient-format");
+                return;
+            }
+
+            // Kiểm tra địa chỉ người nhận có tồn tại trong cấu hình định tuyến không
+            if (!isRecipientKnown(recipient)) {
+                rejectProbe(gwout, "Unknown recipient: " + recipient, "unknown-recipient");
+                return;
+            }
+        }
+
+        // 3. CTSW011: Hợp lệ -> Phát sinh Delivery Report (DR)
+        log.info("Probe gwout#{} validated successfully. Generating Delivery Report (DR).", gwout.getMsgid());
+        gwout.setStatus(MessageStatus.OUT_PUBLISHED.getValue()); // Coi như đã xử lý thành công
+        gwout.setPayloadContent("DR: Probe verified successfully. Delivery Report generated.");
+        gwoutRepository.save(gwout);
+        
+        conversionService.logAmhsToSwim(gwout, null, "OK", "dr_generated_probe");
+    }
+
+    private void rejectProbe(Gwout gwout, String reason, String rejectionCode) {
+        log.warn("Probe gwout#{} REJECTED: {}", gwout.getMsgid(), reason);
+        gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+        gwout.setPayloadContent("NDR: " + reason);
+        gwout.setRejectionReason(rejectionCode);
+        gwoutRepository.save(gwout);
+        conversionService.logAmhsToSwim(gwout, null, "REJECTED", "ndr_" + rejectionCode + ": " + reason);
+    }
+
+    private boolean isRecipientKnown(String recipient) {
+        // 1. Kiểm tra trong whitelist cấu hình địa chỉ AMHS
+        String whitelist = configService.get("AUTHORIZED_AMHS_ADDRESSES");
+        if (whitelist != null && containsExact(whitelist, recipient)) {
+            return true;
+        }
+        
+        // 2. Kiểm tra địa chỉ mặc định
+        String defaultOrig = configService.getDefaultOriginator();
+        if (defaultOrig != null && defaultOrig.equalsIgnoreCase(recipient)) {
+            return true;
+        }
+
+        // 3. Kiểm tra xem có cấu hình trong bất kỳ rule IN nào không
+        return routingService.isRecipientConfigured(recipient);
+    }
+
+    private boolean containsExact(String configValue, String target) {
+        if (configValue == null || configValue.isBlank() || target == null || target.isBlank()) {
+            return false;
+        }
+        String[] items = configValue.split("[,;\\s]+");
+        for (String item : items) {
+            if (item.trim().equalsIgnoreCase(target.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

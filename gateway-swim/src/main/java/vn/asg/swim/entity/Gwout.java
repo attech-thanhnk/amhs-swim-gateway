@@ -85,6 +85,12 @@ public class Gwout {
     @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
     private String payloadContent;
 
+    @Column(name = "body_part_type", length = 50)
+    private String bodyPartType;
+
+    @Column(name = "rejection_reason", length = 64)
+    private String rejectionReason;
+
     @Column(name = "error_type")
     private Integer errorType = ErrorType.UNDEFINED.getValue();
 
@@ -222,5 +228,21 @@ public class Gwout {
 
     public void setErrorType(Integer errorType) {
         this.errorType = errorType;
+    }
+
+    public String getBodyPartType() {
+        return bodyPartType;
+    }
+
+    public void setBodyPartType(String bodyPartType) {
+        this.bodyPartType = bodyPartType;
+    }
+
+    public String getRejectionReason() {
+        return rejectionReason;
+    }
+
+    public void setRejectionReason(String rejectionReason) {
+        this.rejectionReason = rejectionReason;
     }
 }

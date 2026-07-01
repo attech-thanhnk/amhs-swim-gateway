@@ -107,6 +107,15 @@ public class MessageValidationService {
                 errors.add("Mandatory field 'data/amqp-value' (message body) is missing");
             }
 
+            // CTSW116: Validate FTBP properties if body part is file-transfer-body-part
+            String bodyPartType = msg.getStringProperty("amhs_bodypart_type");
+            if ("file-transfer-body-part".equalsIgnoreCase(bodyPartType)) {
+                String ftbpFileName = msg.getStringProperty("amhs_ftbp_file_name");
+                if (ftbpFileName == null || ftbpFileName.isBlank()) {
+                    errors.add("Mandatory FTBP attribute 'amhs_ftbp_file_name' is missing");
+                }
+            }
+
         } catch (JMSException e) {
             errors.add("Failed to read AMQP message properties: " + e.getMessage());
         }
@@ -231,6 +240,23 @@ public class MessageValidationService {
         }
 
         return ValidationResult.success();
+    }
+
+    /**
+     * S-06, CTSW016: Kiểm thử định dạng EIT/Body Part Type
+     */
+    public ValidationResult validateBodyPartType(String bodyPartType) {
+        if (bodyPartType == null || bodyPartType.isBlank()) {
+            return ValidationResult.success();
+        }
+        String cleanType = bodyPartType.trim().toLowerCase();
+        if (cleanType.equals("ia5-text") ||
+                cleanType.equals("ia5-text-body-part") ||
+                cleanType.equals("general-text-body-part") ||
+                cleanType.equals("file-transfer-body-part")) {
+            return ValidationResult.success();
+        }
+        return ValidationResult.failure("Unsupported Encoded Information Type (EIT) / Body Part Type: " + bodyPartType);
     }
 
     /**
