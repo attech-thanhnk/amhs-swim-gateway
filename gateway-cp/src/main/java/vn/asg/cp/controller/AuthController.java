@@ -31,6 +31,11 @@ public class AuthController {
         public String password;
     }
 
+    public static class VerifyPasswordRequest {
+        public Long userId;
+        public String password;
+    }
+
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest body) {
         String username = body.username;
@@ -108,5 +113,23 @@ public class AuthController {
             userRepository.save(user);
             return ResponseEntity.ok(Map.of("message", "Password changed successfully"));
         }).orElse(ResponseEntity.status(404).build());
+    }
+
+    @PostMapping("/verify-password")
+    public ResponseEntity<?> verifyPassword(@RequestBody VerifyPasswordRequest body) {
+        Long userId = body.userId;
+        String password = body.password;
+
+        User user = userRepository.findById(userId).orElse(null);
+        if (user != null && passwordEncoder.matches(password, user.getPassword())) {
+            
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Password is correct"));
+        } else {
+            return ResponseEntity.status(401).body(Map.of(
+                "success", false,
+                "message", "Invalid username or password"));
+        }
     }
 }
