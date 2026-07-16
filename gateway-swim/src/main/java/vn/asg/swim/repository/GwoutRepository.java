@@ -18,7 +18,7 @@ public interface GwoutRepository extends JpaRepository<Gwout, Long> {
         @Query(value = """
                         SELECT * FROM gwout
                         WHERE status = 0
-                        ORDER BY priority ASC, time ASC
+                        ORDER BY FIELD(coalesce(amhs_priority, 'KK'), 'SS', 'DD', 'FF', 'GG', 'KK') ASC, time ASC
                         LIMIT :batchSize
                         FOR UPDATE
                         """, nativeQuery = true)
@@ -30,7 +30,7 @@ public interface GwoutRepository extends JpaRepository<Gwout, Long> {
         @Query(value = """
                         SELECT * FROM gwout
                         WHERE status = 2
-                        ORDER BY priority ASC, time ASC
+                        ORDER BY swim_priority ASC, time ASC
                         LIMIT :batchSize
                         FOR UPDATE
                         """, nativeQuery = true)

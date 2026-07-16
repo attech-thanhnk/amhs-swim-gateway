@@ -22,8 +22,11 @@ public class GwoutHistory {
     @Column(name = "amhsid", length = 200)
     private String amhsid;
 
-    @Column(name = "priority")
-    private Integer priority;
+    @Column(name = "amhs_priority", length = 10)
+    private String amhsPriority;
+
+    @Column(name = "swim_priority")
+    private Integer swimPriority;
 
     @Column(name = "time")
     private LocalDateTime time;
@@ -45,6 +48,9 @@ public class GwoutHistory {
 
     @Column(name = "optional_heading", length = 60)
     private String optionalHeading;
+
+    @Column(name = "subject", length = 200)
+    private String subject;
 
     @Column(name = "amhs_ttl")
     private LocalDateTime amhsTtl;

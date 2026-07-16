@@ -53,6 +53,14 @@ public class ConverterFacade {
      * Chuyển đổi điện văn sang định dạng yêu cầu.
      */
     public ConversionResult convert(String rawTac, String messageType, OutputFormat format) {
+        return convert(rawTac, messageType, format, null);
+    }
+
+    public ConversionResult convert(String rawTac, String messageType, OutputFormat format, String optionalHeading) {
+        return convert(rawTac, messageType, format, optionalHeading, null);
+    }
+
+    public ConversionResult convert(String rawTac, String messageType, OutputFormat format, String optionalHeading, String subject) {
         if (rawTac == null || rawTac.isBlank()) {
             return ConversionResult.parseError("Input is empty", rawTac);
         }
@@ -81,7 +89,7 @@ public class ConverterFacade {
                 model = parser.parse(env.body);
             }
 
-            enrichMetadata(model, env, messageType);
+            enrichMetadata(model, env, messageType, optionalHeading, subject);
 
             String payload = switch (format) {
                 case JSON -> jsonBuilder.build(model);
@@ -142,11 +150,16 @@ public class ConverterFacade {
     /**
      * Bổ sung thông tin từ phong bì AFTN vào Model.
      */
-    private void enrichMetadata(BaseMessage model, TacPreprocessor.AftnEnvelope env, String messageType) {
+    private void enrichMetadata(BaseMessage model, TacPreprocessor.AftnEnvelope env, String messageType, String optionalHeading, String subject) {
         model.setOriginator(env.originator);
         model.setRecipients(env.recipients);
         model.setPriority(env.priority);
-        model.setFilingTime(env.filingTime);
+        model.setAts_message_filing_time(env.filingTime);
+        
+        String ohi = (optionalHeading != null && !optionalHeading.isBlank()) ? optionalHeading : env.optionalHeading;
+        model.setAts_message_optional_heading(ohi);
+        model.setSubject(subject);
+        
         if (model.getMessageType() == null || model.getMessageType().isEmpty()) {
             model.setMessageType(messageType);
         }

@@ -19,8 +19,11 @@ public class GwoutHistory {
     @Column(name = "amhsid", length = 200)
     private String amhsid;
 
-    @Column(name = "priority")
-    private Integer priority;
+    @Column(name = "amhs_priority", length = 10)
+    private String amhsPriority;
+
+    @Column(name = "swim_priority")
+    private Integer swimPriority;
 
     @Column(name = "time")
     private LocalDateTime time;
@@ -42,6 +45,9 @@ public class GwoutHistory {
 
     @Column(name = "optional_heading", length = 60)
     private String optionalHeading;
+
+    @Column(name = "subject", length = 200)
+    private String subject;
 
     @Column(name = "amhs_ttl")
     private LocalDateTime amhsTtl;
@@ -68,8 +74,10 @@ public class GwoutHistory {
     public void setMsgid(Long msgid) { this.msgid = msgid; }
     public String getAmhsid() { return amhsid; }
     public void setAmhsid(String amhsid) { this.amhsid = amhsid; }
-    public Integer getPriority() { return priority; }
-    public void setPriority(Integer priority) { this.priority = priority; }
+    public String getAmhsPriority() { return amhsPriority; }
+    public void setAmhsPriority(String amhsPriority) { this.amhsPriority = amhsPriority; }
+    public Integer getSwimPriority() { return swimPriority; }
+    public void setSwimPriority(Integer swimPriority) { this.swimPriority = swimPriority; }
     public LocalDateTime getTime() { return time; }
     public void setTime(LocalDateTime time) { this.time = time; }
     public String getFilingTime() { return filingTime; }
@@ -84,6 +92,8 @@ public class GwoutHistory {
     public void setAddress(String address) { this.address = address; }
     public String getOptionalHeading() { return optionalHeading; }
     public void setOptionalHeading(String optionalHeading) { this.optionalHeading = optionalHeading; }
+    public String getSubject() { return subject; }
+    public void setSubject(String subject) { this.subject = subject; }
     public LocalDateTime getAmhsTtl() { return amhsTtl; }
     public void setAmhsTtl(LocalDateTime amhsTtl) { this.amhsTtl = amhsTtl; }
     public String getAmhsRegisteredId() { return amhsRegisteredId; }

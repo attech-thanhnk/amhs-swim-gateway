@@ -12,9 +12,11 @@ public abstract class BaseMessage {
     private String priority; // SS, DD, FF, GG, KK
     private String originator; // Địa chỉ người gửi (8 ký tự)
     private List<String> recipients; // Danh sách địa chỉ người nhận
-    private String filingTime; // YYGGgg
+    private String ats_message_filing_time;
     private String originalTac; // Nội dung điện văn thô gốc
     private long timestamp; // Thời điểm xử lý (epoch ms)
+    private String ats_message_optional_heading;
+    private String subject;
 
     public BaseMessage() {
         this.timestamp = System.currentTimeMillis();
@@ -60,12 +62,12 @@ public abstract class BaseMessage {
         this.recipients = recipients;
     }
 
-    public String getFilingTime() {
-        return filingTime;
+    public String getAts_message_filing_time() {
+        return ats_message_filing_time;
     }
 
-    public void setFilingTime(String filingTime) {
-        this.filingTime = filingTime;
+    public void setAts_message_filing_time(String ats_message_filing_time) {
+        this.ats_message_filing_time = ats_message_filing_time;
     }
 
     public String getOriginalTac() {
@@ -82,6 +84,22 @@ public abstract class BaseMessage {
 
     public void setTimestamp(long timestamp) {
         this.timestamp = timestamp;
+    }
+
+    public String getAts_message_optional_heading() {
+        return ats_message_optional_heading;
+    }
+
+    public void setAts_message_optional_heading(String ats_message_optional_heading) {
+        this.ats_message_optional_heading = ats_message_optional_heading;
+    }
+
+    public String getSubject() {
+        return subject;
+    }
+
+    public void setSubject(String subject) {
+        this.subject = subject;
     }
 
     /**

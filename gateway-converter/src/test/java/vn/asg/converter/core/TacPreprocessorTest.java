@@ -22,6 +22,21 @@ public class TacPreprocessorTest {
     }
 
     @Test
+    public void testUnwrapAftnEnvelopeWithOptionalHeading() {
+        String raw = "ZCZC 123\n" +
+                     "GG VVNBYOYX\n" +
+                     "291200 VVTSYNYX OHI-TEST-DATA-123\n" +
+                     "METAR VVNB 291200Z 09008KT 9999 FEW020 28/24 Q1010=\n" +
+                     "NNNN";
+                     
+        TacPreprocessor.AftnEnvelope envelope = preprocessor.unwrap(raw);
+        
+        assertTrue(envelope.hasAftnWrapper);
+        assertEquals("OHI-TEST-DATA-123", envelope.optionalHeading);
+        assertEquals("METAR VVNB 291200Z 09008KT 9999 FEW020 28/24 Q1010=", envelope.body);
+    }
+
+    @Test
     public void testUnwrapRawBodyWithoutAftn() {
         String raw = "METAR VVNB 291200Z 09008KT 9999 FEW020 28/24 Q1010=";
         TacPreprocessor.AftnEnvelope envelope = preprocessor.unwrap(raw);

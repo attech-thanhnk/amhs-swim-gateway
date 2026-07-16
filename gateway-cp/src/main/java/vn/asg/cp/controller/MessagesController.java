@@ -93,7 +93,7 @@ public class MessagesController {
                 Map<String, Object> m = new java.util.HashMap<>();
                 m.put("msgid", g.getMsgid());
                 m.put("amhsid", g.getAmhsid());
-                m.put("priority", g.getPriority());
+                m.put("amhsPriority", g.getAmhsPriority());
                 m.put("time", g.getTime() != null ? g.getTime().toString() : null);
                 m.put("filingTime", g.getFilingTime());
                 m.put("text", g.getText());
@@ -101,10 +101,11 @@ public class MessagesController {
                 m.put("origin", g.getOrigin());
                 m.put("address", g.getAddress());
                 m.put("optionalHeading", g.getOptionalHeading());
+                m.put("subject", g.getSubject());
                 m.put("amhsTtl", g.getAmhsTtl() != null ? g.getAmhsTtl().toString() : null);
                 m.put("amhsRegisteredId", g.getAmhsRegisteredId());
                 m.put("ipmId", g.getIpmId());
-                m.put("priority2", g.getPriority2());
+                m.put("swimPriority", g.getSwimPriority());
                 m.put("amqpMessageId", g.getAmqpMessageId());
                 m.put("bodyPartType", g.getBodyPartType());
                 m.put("messageSigned", g.getMessageSigned());

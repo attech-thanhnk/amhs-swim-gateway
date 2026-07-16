@@ -26,7 +26,7 @@ public class TacPreprocessor {
             .compile("(?<priority>SS|DD|FF|GG|KK)\\s+(?<address>(?:[A-Z]{8}\\s*)+)");
 
     // Filing time + Originator: "221000 VVNBYOYX"
-    private static final Pattern ORIGIN_RX = Pattern.compile("(?m)^(?<filingTime>\\d{6})\\s+(?<origin>[A-Z]{8}).*");
+    private static final Pattern ORIGIN_RX = Pattern.compile("(?m)^(?<filingTime>\\d{6})[ \\t]+(?<origin>[A-Z]{8})(?:[ \\t]+(?<optionalHeading>[^\\r\\n]*))?");
 
     // NNNN: kết thúc bản tin AFTN
     private static final Pattern ENDING_RX = Pattern.compile("NNNN.*", Pattern.DOTALL);
@@ -38,6 +38,7 @@ public class TacPreprocessor {
         public List<String> recipients; // Danh sách địa chỉ tách rời
         public String filingTime; // "221000"
         public String originator; // "VVNBYOYX"
+        public String optionalHeading; // "OHI-TEST-DATA-123"
         public String body; // "METAR VVNB 221000Z..."
     }
 
@@ -69,6 +70,8 @@ public class TacPreprocessor {
         if (m.find()) {
             env.filingTime = m.group("filingTime");
             env.originator = m.group("origin");
+            String ohi = m.group("optionalHeading");
+            env.optionalHeading = (ohi != null && !ohi.isBlank()) ? ohi.trim() : null;
             buf.delete(m.start(), m.end());
             refresh(buf);
         }

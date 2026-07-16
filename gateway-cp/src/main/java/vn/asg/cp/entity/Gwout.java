@@ -24,9 +24,9 @@ public class Gwout {
     @Column(name = "amhsid", length = 200)
     private String amhsid;
 
-    /** Priority AMHS: 0=Flash, 1=Urgent, 2=Normal, 3=Low */
-    @Column(name = "priority")
-    private Integer priority;
+    /** Priority AMHS: 'SS', 'DD', 'FF', 'GG', 'KK' */
+    @Column(name = "amhs_priority", length = 10)
+    private String amhsPriority;
 
     /** Thời điểm nhận từ AMHS Component */
     @Column(name = "time")
@@ -56,6 +56,9 @@ public class Gwout {
     @Column(name = "optional_heading", length = 60)
     private String optionalHeading;
 
+    @Column(name = "subject", length = 200)
+    private String subject;
+
     @Column(name = "amhs_ttl")
     private LocalDateTime amhsTtl;
 
@@ -65,8 +68,8 @@ public class Gwout {
     @Column(name = "ipm_id", length = 200)
     private String ipmId;
 
-    @Column(name = "priority2")
-    private Integer priority2;
+    @Column(name = "swim_priority")
+    private Integer swimPriority;
 
     @Column(name = "amqp_message_id", length = 256)
     private String amqpMessageId;

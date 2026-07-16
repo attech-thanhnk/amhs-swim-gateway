@@ -55,7 +55,7 @@ public class ManualOutboundSimulationTest {
         gwout.setMsgid(null); // Auto-increment
         gwout.setOrigin("VVTSZPZX");
         gwout.setAddress("VVNBZTZX VVHHZPZX"); 
-        gwout.setPriority(3); // GG
+        gwout.setAmhsPriority("GG");
         gwout.setText(fullAftnFpl);
         gwout.setStatus(MessageStatus.OUT_PENDING.getValue());
         gwout.setTime(LocalDateTime.now());
@@ -77,7 +77,7 @@ public class ManualOutboundSimulationTest {
         Gwout metarOut = new Gwout();
         metarOut.setOrigin("VVNBZPZX");
         metarOut.setAddress("VVTSZTZX");
-        metarOut.setPriority(3);
+        metarOut.setAmhsPriority("GG");
         metarOut.setText(fullAftnMetar);
         metarOut.setStatus(MessageStatus.OUT_PENDING.getValue());
         metarOut.setTime(LocalDateTime.now());

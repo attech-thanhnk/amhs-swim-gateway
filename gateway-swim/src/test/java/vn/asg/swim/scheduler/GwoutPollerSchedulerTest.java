@@ -89,7 +89,7 @@ class GwoutPollerSchedulerTest {
                 d.setStatus(GwoutDispatch.STATUS_PENDING);
                 gwoutDispatchRepository.save(d);
             }
-            g.setStatus(MessageStatus.OUT_PUBLISHING.getValue());
+            g.setStatus(MessageStatus.OUT_PUBLISHED.getValue());
             gwoutRepository.save(g);
             return null;
         }).when(outboundDispatchService).createDispatches(any(Gwout.class));
@@ -183,7 +183,7 @@ class GwoutPollerSchedulerTest {
         // Then: Should create 3 dispatches
         verify(gwoutDispatchRepository, times(3)).save(any(GwoutDispatch.class));
         verify(gwoutRepository).save(argThat(g ->
-            g.getStatus().equals(MessageStatus.OUT_PUBLISHING.getValue())
+            g.getStatus().equals(MessageStatus.OUT_PUBLISHED.getValue())
         ));
     }
 
@@ -289,7 +289,7 @@ class GwoutPollerSchedulerTest {
 
         // Gwout status should be updated to PUBLISHING
         verify(gwoutRepository).save(argThat(g ->
-            g.getStatus().equals(MessageStatus.OUT_PUBLISHING.getValue())
+            g.getStatus().equals(MessageStatus.OUT_PUBLISHED.getValue())
         ));
     }
 

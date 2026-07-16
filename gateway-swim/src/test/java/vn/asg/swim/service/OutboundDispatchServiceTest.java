@@ -56,7 +56,7 @@ class OutboundDispatchServiceTest {
         gwout.setText("METAR VVTS 121200Z 09008KT 9999 FEW020 32/25 Q1010=");
         gwout.setOrigin("VVTSZYYX");
         gwout.setAddress("VVHHZTZX");
-        gwout.setPriority(2);
+        gwout.setAmhsPriority("FF");
         gwout.setContentType("text/plain");
 
         dispatch = new GwoutDispatch();

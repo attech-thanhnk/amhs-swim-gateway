@@ -33,11 +33,19 @@ public class MessageConversionService {
      * Chuyển đổi TAC sang JSON (chiều AMHS sang SWIM).
      */
     public String toSwim(String amhsBody, String messageType) throws ConversionException {
+        return toSwim(amhsBody, messageType, null, null);
+    }
+
+    public String toSwim(String amhsBody, String messageType, String optionalHeading) throws ConversionException {
+        return toSwim(amhsBody, messageType, optionalHeading, null);
+    }
+
+    public String toSwim(String amhsBody, String messageType, String optionalHeading, String subject) throws ConversionException {
         if (amhsBody == null || amhsBody.isBlank()) {
             return "";
         }
 
-        ConversionResult result = converterFacade.convert(amhsBody, messageType, OutputFormat.JSON);
+        ConversionResult result = converterFacade.convert(amhsBody, messageType, OutputFormat.JSON, optionalHeading, subject);
         if (!result.isSuccess()) {
             throw new ConversionException(result.getErrorMessage(), messageType, "TAC", "JSON");
         }
@@ -121,7 +129,7 @@ public class MessageConversionService {
             logEntry.setMtsId(mtsId);
             logEntry.setIpmId(ipmId);
             logEntry.setAmqpMessageId(amqpMessageId);
-            logEntry.setPriority(vn.asg.swim.model.AmqpProperties.mapPriorityToAts(gwout.getPriority() != null ? gwout.getPriority() : 2));
+            logEntry.setPriority(gwout.getAmhsPriority() != null ? gwout.getAmhsPriority() : "KK");
             logEntry.setOhi(gwout.getOptionalHeading());
             logEntry.setOrigin(gwout.getOrigin());
             logEntry.setFilingTime(gwout.getFilingTime());

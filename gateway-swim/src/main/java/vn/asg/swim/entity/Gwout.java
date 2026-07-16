@@ -23,9 +23,13 @@ public class Gwout {
     @Column(name = "amhsid", length = 200)
     private String amhsid;
 
-    /** AMHS Priority: 0=Flash, 1=Urgent, 2=Normal, 3=Low */
-    @Column(name = "priority")
-    private Integer priority;
+    /** AMHS Priority: 'SS', 'DD', 'FF', 'GG', 'KK' */
+    @Column(name = "amhs_priority", length = 10)
+    private String amhsPriority;
+
+    /** SWIM Priority: 2, 3, 4, 6, 7 or 6, 7, 8 */
+    @Column(name = "swim_priority")
+    private Integer swimPriority;
 
     /** Received time from AMHS Component */
     @Column(name = "time")
@@ -54,6 +58,9 @@ public class Gwout {
     /** X.400 Optional Heading Information (OHI) */
     @Column(name = "optional_heading", length = 60)
     private String optionalHeading;
+
+    @Column(name = "subject", length = 200)
+    private String subject;
 
     /**
      * Expiry time — message will not be published after this time. NULL = infinite
@@ -110,12 +117,21 @@ public class Gwout {
         this.amhsid = amhsid;
     }
 
-    public Integer getPriority() {
-        return priority;
+
+    public String getAmhsPriority() {
+        return amhsPriority;
     }
 
-    public void setPriority(Integer priority) {
-        this.priority = priority;
+    public void setAmhsPriority(String amhsPriority) {
+        this.amhsPriority = amhsPriority;
+    }
+
+    public Integer getSwimPriority() {
+        return swimPriority;
+    }
+
+    public void setSwimPriority(Integer swimPriority) {
+        this.swimPriority = swimPriority;
     }
 
     public LocalDateTime getTime() {
@@ -244,5 +260,13 @@ public class Gwout {
 
     public void setRejectionReason(String rejectionReason) {
         this.rejectionReason = rejectionReason;
+    }
+
+    public String getSubject() {
+        return subject;
+    }
+
+    public void setSubject(String subject) {
+        this.subject = subject;
     }
 }
