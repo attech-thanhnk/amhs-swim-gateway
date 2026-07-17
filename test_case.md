@@ -118,7 +118,7 @@ SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW006';
 * **Câu lệnh nạp dữ liệu (Input)**:
 ```sql
 INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_type, content_type, status, text) 
-VALUES ('TC-CTSW008', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'text', 'application/unknown-mime-type', 0,
+VALUES ('TC-CTSW008', 'GG', NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'text', 'application/unknown-mime-type', 0,
 'METAR VVNB 070430Z 15004KT 9999 FEW020 28/24 Q1010 NOSIG=');
 ```
 * **Lệnh kiểm tra (Verify)**:

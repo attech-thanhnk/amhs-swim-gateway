@@ -45,6 +45,44 @@ public class OutboundDispatchService {
      */
     @Transactional
     public void convertOutboundMessage(Gwout gwout) {
+        // Kiểm tra kích thước bản tin (MAX_PAYLOAD_SIZE)
+        int maxPayloadSize = configService.getInt("MAX_PAYLOAD_SIZE", 2097152);
+        if (gwout.getText() != null && gwout.getText().length() > maxPayloadSize) {
+            log.warn("gwout#{} rejected: payload size {} exceeds MAX_PAYLOAD_SIZE {}",
+                    gwout.getMsgid(), gwout.getText().length(), maxPayloadSize);
+            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setPayloadContent("Từ chối: Kích thước bản tin vượt quá giới hạn cho phép");
+            gwoutRepository.save(gwout);
+            conversionService.logAmhsToSwim(gwout, null, "REJECTED", "payload_size_exceeded");
+            return;
+        }
+
+        // Kiểm tra Content-Type (ALLOWED_CONTENT_TYPES)
+        if (gwout.getContentType() != null && !gwout.getContentType().isEmpty()) {
+            List<String> allowedContentTypes;
+            try {
+                allowedContentTypes = configService.getCommaSeparatedConfig("ALLOWED_CONTENT_TYPES");
+            } catch (Exception e) {
+                allowedContentTypes = java.util.Arrays.asList("application/json", "application/xml");
+            }
+            String cleanContentType = gwout.getContentType().split(";")[0].trim().toLowerCase();
+            boolean isAllowed = false;
+            for (String allowed : allowedContentTypes) {
+                if (allowed.trim().toLowerCase().equalsIgnoreCase(cleanContentType)) {
+                    isAllowed = true;
+                    break;
+                }
+            }
+            if (!isAllowed) {
+                log.warn("gwout#{} rejected: Content-Type '{}' is not supported",
+                        gwout.getMsgid(), gwout.getContentType());
+                gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+                gwout.setPayloadContent("Content-Type không hỗ trợ");
+                gwoutRepository.save(gwout);
+                conversionService.logAmhsToSwim(gwout, null, "REJECTED", "unsupported_content_type");
+                return;
+            }
+        }
         // CTSW011 - CTSW013: Phát hiện bản tin Probe từ AMHS
         boolean isProbe = "probe".equalsIgnoreCase(gwout.getBodyType()) || "PROBE".equalsIgnoreCase(gwout.getText());
         if (isProbe) {
