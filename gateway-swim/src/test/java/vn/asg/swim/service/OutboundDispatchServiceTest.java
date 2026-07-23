@@ -77,6 +77,10 @@ class OutboundDispatchServiceTest {
         when(configService.getInt("RETRY_DELAY_2ND_SECONDS")).thenReturn(120);
         when(configService.getInt("RETRY_DELAY_3RD_SECONDS")).thenReturn(300);
         when(configService.getGatewayId()).thenReturn("ASG-GW-01");
+        when(configService.getInt(eq("MAX_PAYLOAD_SIZE"), anyInt())).thenReturn(2097152);
+        when(configService.getCommaSeparatedConfig("ALLOWED_CONTENT_TYPES"))
+            .thenReturn(List.of("text/plain", "application/json", "application/xml"));
+        when(routingService.existsOriginatorOut(anyString())).thenReturn(true);
     }
 
     // ==================== ISSUE #1: VALIDATION FAILURE LOGIC ====================
@@ -178,7 +182,7 @@ class OutboundDispatchServiceTest {
         service.convertOutboundMessage(gwout);
 
         // Then: Should NOT call conversionService.toSwim (use cache)
-        verify(conversionService, never()).toSwim(anyString(), anyString());
+        verify(conversionService, never()).toSwim(anyString(), anyString(), any(), any());
     }
 
     @Test
@@ -187,14 +191,14 @@ class OutboundDispatchServiceTest {
         setupValidScenario();
         gwout.setPayloadContent(null);
         when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
-        when(conversionService.toSwim(anyString(), eq("METAR")))
+        when(conversionService.toSwim(anyString(), eq("METAR"), any(), any()))
             .thenReturn("{\"stationIcao\":\"VVTS\",\"observationTime\":\"121200Z\"}");
 
         // When
         service.convertOutboundMessage(gwout);
 
         // Then: Should call conversion AND save cache
-        verify(conversionService).toSwim(anyString(), eq("METAR"));
+        verify(conversionService).toSwim(anyString(), eq("METAR"), any(), any());
         verify(gwoutRepository, atLeastOnce()).save(argThat(g ->
             g.getPayloadContent() != null &&
             g.getPayloadContent().contains("stationIcao")
@@ -341,11 +345,11 @@ class OutboundDispatchServiceTest {
         // Given
         Gwout probe = new Gwout();
         probe.setMsgid(2L);
-        probe.setOrigin("UNKNOWN");
+        probe.setOrigin("UNKNOWNX");
         probe.setAddress("VVHHZTZX");
         probe.setBodyType("probe");
 
-        when(authorizationService.isAmhsUserAuthorized("UNKNOWN")).thenReturn(false);
+        when(authorizationService.isAmhsUserAuthorized("UNKNOWNX")).thenReturn(false);
 
         // When
         service.convertOutboundMessage(probe);
@@ -354,7 +358,7 @@ class OutboundDispatchServiceTest {
         assertEquals(MessageStatus.OUT_FAILED.getValue(), probe.getStatus());
         assertTrue(probe.getPayloadContent().contains("NDR:"));
         verify(gwoutRepository).save(probe);
-        verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("REJECTED"), eq("ndr_unknown_originator: UNKNOWN"));
+        verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("REJECTED"), eq("ndr_unknown_originator: UNKNOWNX"));
     }
 
     @Test
@@ -403,6 +407,40 @@ class OutboundDispatchServiceTest {
         assertTrue(gwout.getPayloadContent().contains("EIT validation failed:"));
         verify(gwoutRepository).save(gwout);
         verify(conversionService).logAmhsToSwim(eq(gwout), any(), eq("REJECTED"), contains("unsupported_eit"));
+    }
+
+    @Test
+    void testConvertOutboundMessage_InvalidOriginFormat_ShouldReject() {
+        // Given: Origin is invalid (lowercase, digits, incorrect length, etc.)
+        Gwout badGwout = new Gwout();
+        badGwout.setMsgid(999L);
+        badGwout.setOrigin("vvtszpy1"); // has numbers and lowercase
+
+        // When
+        service.convertOutboundMessage(badGwout);
+
+        // Then: Should fail immediately
+        assertEquals(MessageStatus.OUT_FAILED.getValue(), badGwout.getStatus());
+        assertTrue(badGwout.getPayloadContent().contains("Rejected: Originator must be"));
+        verify(gwoutRepository).save(badGwout);
+        verify(conversionService).logAmhsToSwim(eq(badGwout), any(), eq("REJECTED"), eq("invalid_origin_format"));
+    }
+
+    @Test
+    void testConvertOutboundMessage_BodyPart401_ShouldPassAndConvert() throws Exception {
+        // Given: Body part type is 401
+        setupValidScenario();
+        gwout.setBodyPartType("401");
+        when(validationService.validateBodyPartType("ia5-text-body-part"))
+            .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+
+        // When
+        service.convertOutboundMessage(gwout);
+
+        // Then: Should convert bodyPartType to ia5-text-body-part and pass validation
+        assertEquals("ia5-text-body-part", gwout.getBodyPartType());
+        assertEquals(MessageStatus.OUT_TRANSFORMED.getValue(), gwout.getStatus());
+        verify(gwoutRepository, atLeastOnce()).save(gwout);
     }
 
     // ==================== HELPER METHODS ====================

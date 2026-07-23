@@ -183,27 +183,34 @@ public class AmqpProperties {
     /**
      * Build from priority code
      */
-    public static String mapPriorityToAts(int priority) {
+    public static String mapPriorityToAmhs(int priority) {
+        if (priority < 0 || priority > 9) {
+            throw new IllegalArgumentException("Invalid AMQP priority: " + priority);
+        }
         return switch (priority) {
-            case 0, 1 -> "SS"; // Flash/Urgent
-            case 2 -> "FF"; // Normal-high
-            case 3 -> "GG"; // Normal
-            default -> "KK"; // Low
+            case 9 -> "SS";
+            case 8 -> "DD";
+            case 5, 6, 7 -> "FF";
+            case 2, 3, 4 -> "GG";
+            case 0, 1 -> "KK";
+            default -> "GG"; // fallback nếu giá trị ngoài 0-9
         };
     }
 
-    /**
-     * Map ATS priority to AMQP priority (0-9)
-     */
+    public static String mapPriorityToAts(int priority) {
+        return mapPriorityToAmhs(priority);
+    }
+
     public static int mapAtsPriorityToAmqp(String atsPri) {
         if (atsPri == null)
             return 2;
-        return switch (atsPri.toUpperCase()) {
-            case "SS" -> 0; // Flash
-            case "FF" -> 2; // Normal-high
-            case "GG" -> 3; // Normal
-            case "KK" -> 4; // Low
-            default -> 2; // Default normal
+        return switch (atsPri.toUpperCase().trim()) {
+            case "SS" -> 9;
+            case "DD" -> 8;
+            case "FF" -> 6;
+            case "GG" -> 3;
+            case "KK" -> 1;
+            default -> 2;
         };
     }
 }

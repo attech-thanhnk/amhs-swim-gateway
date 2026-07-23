@@ -45,13 +45,36 @@ public class OutboundDispatchService {
      */
     @Transactional
     public void convertOutboundMessage(Gwout gwout) {
+        // Kiểm tra định dạng origin (8 ký tự, in hoa, không có số, không có khoảng trắng)
+        String origin = gwout.getOrigin();
+        if (origin == null || !origin.matches("^[A-Z]{8}$")) {
+            log.warn("gwout#{} rejected: origin '{}' is invalid (must be 8 uppercase alphabetic characters, no digits, no spaces)",
+                    gwout.getMsgid(), origin);
+            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setPayloadContent("Rejected: Originator must be exactly 8 uppercase alphabetic characters (no digits, no spaces)");
+            gwoutRepository.save(gwout);
+            conversionService.logAmhsToSwim(gwout, null, "REJECTED", "invalid_origin_format");
+            return;
+        }
+
+        // Kiểm tra xem origin có khớp với originator nào trong bảng routing (direction = OUT)
+        // if (!routingService.existsOriginatorOut(origin)) {
+        //     log.warn("gwout#{} rejected: origin '{}' not found in routing rules (direction = OUT)",
+        //             gwout.getMsgid(), origin);
+        //     gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+        //     gwout.setPayloadContent("Rejected: Origin not configured in routing rules (direction = OUT)");
+        //     gwoutRepository.save(gwout);
+        //     conversionService.logAmhsToSwim(gwout, null, "REJECTED", "origin_not_in_routing");
+        //     return;
+        // }
+
         // Kiểm tra kích thước bản tin (MAX_PAYLOAD_SIZE)
         int maxPayloadSize = configService.getInt("MAX_PAYLOAD_SIZE", 2097152);
         if (gwout.getText() != null && gwout.getText().length() > maxPayloadSize) {
             log.warn("gwout#{} rejected: payload size {} exceeds MAX_PAYLOAD_SIZE {}",
                     gwout.getMsgid(), gwout.getText().length(), maxPayloadSize);
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-            gwout.setPayloadContent("Từ chối: Kích thước bản tin vượt quá giới hạn cho phép");
+            gwout.setPayloadContent("Rejected: Message size exceeds maximum allowed payload size");
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "REJECTED", "payload_size_exceeded");
             return;
@@ -77,7 +100,7 @@ public class OutboundDispatchService {
                 log.warn("gwout#{} rejected: Content-Type '{}' is not supported",
                         gwout.getMsgid(), gwout.getContentType());
                 gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-                gwout.setPayloadContent("Content-Type không hỗ trợ");
+                gwout.setPayloadContent("Unsupported Content-Type");
                 gwoutRepository.save(gwout);
                 conversionService.logAmhsToSwim(gwout, null, "REJECTED", "unsupported_content_type");
                 return;
@@ -126,6 +149,9 @@ public class OutboundDispatchService {
 
         // CTSW016: Kiểm thử EIT/Body Part Type của bản tin đi
         if (gwout.getBodyPartType() != null) {
+            if ("401".equals(gwout.getBodyPartType().trim())) {
+                gwout.setBodyPartType("ia5-text-body-part");
+            }
             MessageValidationService.ValidationResult eitResult = validationService
                     .validateBodyPartType(gwout.getBodyPartType());
             if (!eitResult.isValid()) {

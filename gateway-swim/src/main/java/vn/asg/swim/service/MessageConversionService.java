@@ -87,12 +87,12 @@ public class MessageConversionService {
     }
 
     /**
-     * Cắt ngắn thông tin OHI theo đặc tả: độ ưu tiên >= 6 tối đa 48 ký tự, ngược lại tối đa 53 ký tự.
+     * Cắt ngắn thông tin OHI theo đặc tả: độ ưu tiên >= 5 tối đa 48 ký tự, ngược lại tối đa 53 ký tự.
      */
     public String processOhi(String ohi, int amqpPriority) {
         if (ohi == null || ohi.isBlank())
             return null;
-        int maxLen = (amqpPriority >= 6) ? 48 : 53;
+        int maxLen = (amqpPriority >= 5) ? 48 : 53;
         return ohi.length() > maxLen ? ohi.substring(0, maxLen) : ohi;
     }
 
@@ -103,7 +103,7 @@ public class MessageConversionService {
         if (bodyPartType == null)
             return null;
         return switch (bodyPartType.toLowerCase()) {
-            case "ia5-text", "ia5-text-body-part" -> "IA5";
+            case "ia5-text", "ia5-text-body-part", "ia5_text_body_part" -> "IA5";
             case "general-text-body-part", "general-text-body-part-iso-646",
                     "general-text-body-part (iso-646)" ->
                 "ISO-646";

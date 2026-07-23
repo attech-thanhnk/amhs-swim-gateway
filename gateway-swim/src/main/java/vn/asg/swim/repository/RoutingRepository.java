@@ -24,6 +24,8 @@ public interface RoutingRepository extends JpaRepository<Routing, Integer> {
         /** Tìm các luật định tuyến đang active theo hướng và ưu tiên */
     List<Routing> findByDirectionAndActiveTrueOrderByPriorityAsc(String direction);
 
+    boolean existsByOriginatorIgnoreCaseAndDirectionAndActiveTrue(String originator, String direction);
+
     @Query("""
                         SELECT r FROM Routing r
                         WHERE r.direction = 'IN'

@@ -36,7 +36,16 @@ public class AtsmhsServiceLevelResolver {
      * @return EXTENDED hoặc BASIC
      */
     public String resolve(String contentType, String recipients) {
-        String mode = configService.get(ConfigService.KEY_ATSMHS_SERVICE_LEVEL);
+        return resolve(null, contentType, recipients);
+    }
+
+    public String resolve(String mode, String contentType, String recipients) {
+        if (mode == null || mode.isBlank()) {
+            mode = configService.get(ConfigService.KEY_ATSMHS_SERVICE_LEVEL);
+        }
+        if (mode == null) {
+            mode = "CONTENT_BASED";
+        }
 
         return switch (mode.toUpperCase()) {
             case "EXTENDED" -> {
@@ -47,8 +56,8 @@ public class AtsmhsServiceLevelResolver {
                 log.debug("ATSMHS: mode=BASIC → BASIC");
                 yield BASIC;
             }
-            case "CONTENT_BASED" -> resolveByContent(contentType);
-            case "RECIPIENTS_BASED" -> resolveByRecipients(recipients);
+            case "CONTENT_BASED", "CONTENT-BASED" -> resolveByContent(contentType);
+            case "RECIPIENTS_BASED", "RECIPIENT-BASED" -> resolveByRecipients(recipients);
             default -> {
                 log.warn("ATSMHS: unknown mode '{}', defaulting to CONTENT_BASED", mode);
                 yield resolveByContent(contentType);

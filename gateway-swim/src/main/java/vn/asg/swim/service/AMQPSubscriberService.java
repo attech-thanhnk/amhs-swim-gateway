@@ -24,6 +24,9 @@ import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 /**
  * Nhận bản tin SWIM, kiểm tra hợp lệ và lưu vào bảng gwin.
  */
@@ -131,35 +134,188 @@ public class AMQPSubscriberService {
      */
     @Transactional
     public void handleMessage(Message amqpMsg, String queue) throws JMSException {
-        String amqpMsgId = amqpMsg.getJMSMessageID();
-        if (amqpMsgId == null || amqpMsgId.isBlank()) {
-            if (configService.isStrictComplianceMode()) {
-                log.error("SWIM message rejected: Mandatory field 'message-id' is missing");
-                alertService.create("VALIDATION_ERROR", "ERROR",
-                        "Message rejected: Mandatory field 'message-id' (JMSMessageID) is missing",
-                        "gwin", null);
-                return;
+        // Trích xuất body bản tin ban đầu
+        String textPayload = null;
+        byte[] binaryPayload = null;
+        if (amqpMsg instanceof TextMessage tm) {
+            textPayload = tm.getText();
+        } else if (amqpMsg instanceof BytesMessage bm) {
+            byte[] buf = new byte[(int) bm.getBodyLength()];
+            bm.readBytes(buf);
+            String text = new String(buf, StandardCharsets.UTF_8);
+            if (text.stripLeading().startsWith("<") || isProbablyText(text.stripLeading())) {
+                textPayload = text;
             } else {
-                amqpMsgId = "GW-GEN-" + UUID.randomUUID().toString();
-                log.info("AMQP message has no JMSMessageID, generated synthetic ID: {}", amqpMsgId);
+                textPayload = text;
+                binaryPayload = buf;
             }
         }
+
+        String finalContent = textPayload != null ? textPayload
+                : (binaryPayload != null ? Base64.getEncoder().encodeToString(binaryPayload) : null);
+
+        // Phân tích cú pháp JSON root Node sơ bộ để phát hiện Envelope JSON
+        JsonNode root = null;
+        if (finalContent != null && finalContent.trim().startsWith("{")) {
+            try {
+                root = objectMapper.readTree(finalContent);
+            } catch (Exception ignored) {}
+        }
+
+        boolean isEnvelopeJson = false;
+        if (root != null) {
+            isEnvelopeJson = root.has("properties") || root.has("application-properties")
+                    || root.has("applicationProperties") || root.has("application_properties")
+                    || root.has("header");
+        }
+
+        String swimCompression = getAppProperty(amqpMsg, root, isEnvelopeJson, "swim_compression");
+        if (swimCompression == null || swimCompression.isBlank()) {
+            swimCompression = getAppProperty(amqpMsg, root, isEnvelopeJson, "swim-compression");
+        }
+
+        boolean payloadConflict = false;
+        boolean payloadMissing = false;
+        boolean payloadMismatch = false;
+
+        if (isEnvelopeJson && root != null) {
+            JsonNode amqpValNode = root.get("amqp-value");
+            if (amqpValNode == null || amqpValNode.isNull()) amqpValNode = root.get("amqp_value");
+            JsonNode dataNode = root.get("data");
+
+            boolean hasAmqpValue = amqpValNode != null && !amqpValNode.isNull();
+            boolean hasData = dataNode != null && !dataNode.isNull();
+
+            if (hasAmqpValue && hasData) {
+                payloadConflict = true;
+                log.warn("AMQP Envelope Payload conflict: both amqp-value and data are present");
+            } else if (!hasAmqpValue && !hasData) {
+                payloadMissing = true;
+                log.warn("AMQP Envelope Payload missing: both amqp-value and data are empty");
+            } else if (hasAmqpValue) {
+                if (amqpValNode.isContainerNode()) {
+                    try {
+                        textPayload = objectMapper.writeValueAsString(amqpValNode);
+                    } catch (Exception e) {
+                        textPayload = amqpValNode.toString();
+                    }
+                } else {
+                    textPayload = amqpValNode.asText();
+                }
+                binaryPayload = null;
+                finalContent = textPayload;
+            } else { // hasData
+                String dataStr = dataNode.asText();
+                if (dataStr.matches("^[0-9a-fA-F]+$") && dataStr.length() % 2 == 0) {
+                    binaryPayload = hexStringToByteArray(dataStr);
+                } else {
+                    binaryPayload = dataStr.getBytes(StandardCharsets.UTF_8);
+                }
+                
+                if ("gzip".equalsIgnoreCase(swimCompression) && binaryPayload != null && binaryPayload.length > 0) {
+                    binaryPayload = decompressGzip(binaryPayload);
+                }
+                
+                textPayload = new String(binaryPayload, StandardCharsets.UTF_8);
+                finalContent = textPayload;
+            }
+        } else {
+            // Không phải Envelope JSON, kiểm tra nén GZIP trực tiếp
+            if ("gzip".equalsIgnoreCase(swimCompression) && binaryPayload != null && binaryPayload.length > 0) {
+                binaryPayload = decompressGzip(binaryPayload);
+                textPayload = new String(binaryPayload, StandardCharsets.UTF_8);
+                finalContent = textPayload;
+            }
+        }
+
+        // Tái phân tích cú pháp JSON root Node từ nội dung giải nén/chuyển đổi cuối cùng
+        root = null;
+        if (finalContent != null && finalContent.trim().startsWith("{")) {
+            try {
+                root = objectMapper.readTree(finalContent);
+            } catch (Exception ignored) {}
+        }
+
+        // Trích xuất các trường dữ liệu tiêu chuẩn
+        String contentType = getMsgProperty(amqpMsg, root, isEnvelopeJson, "content-type");
+        if (contentType == null || contentType.isBlank()) {
+            contentType = getMsgProperty(amqpMsg, root, isEnvelopeJson, "contentType");
+        }
+        if (contentType == null || contentType.isBlank()) {
+            contentType = getMsgProperty(amqpMsg, root, isEnvelopeJson, "content_type");
+        }
+
+        boolean contentTypeSupported = true;
+        if (contentType != null && !contentType.isBlank()) {
+            String ct = contentType.toLowerCase();
+            if (!ct.contains("text/plain") && !ct.contains("application/json") && !ct.contains("application/octet-stream")) {
+                contentTypeSupported = false;
+                log.warn("AMQP: Unsupported content-type '{}'", contentType);
+            }
+        }
+
+        if (isEnvelopeJson && contentType != null && !contentType.isBlank()) {
+            boolean hasAmqpValue = root != null && (root.has("amqp-value") || root.has("amqp_value"));
+            boolean hasData = root != null && root.has("data");
+            if ((contentType.toLowerCase().contains("text/") || contentType.toLowerCase().contains("json")) && hasData && !hasAmqpValue) {
+                payloadMismatch = true;
+                log.warn("AMQP Payload mismatch: content-type is text/json but only binary data is present");
+            }
+        }
+
+        boolean dataValid = (finalContent != null && !finalContent.isBlank()) && !payloadConflict && !payloadMissing && !payloadMismatch;
+
+        // 1. Trích xuất messageId
+        String rawMsgId = null;
+        if (isEnvelopeJson && root != null) {
+            // If envelope, it must be in properties
+            rawMsgId = getMsgProperty(amqpMsg, root, isEnvelopeJson, "message-id");
+            if (rawMsgId == null || rawMsgId.isBlank()) rawMsgId = getMsgProperty(amqpMsg, root, isEnvelopeJson, "messageId");
+            if (rawMsgId == null || rawMsgId.isBlank()) rawMsgId = getMsgProperty(amqpMsg, root, isEnvelopeJson, "message_id");
+        } else {
+            // Direct flight plan json has messageId inside root
+            if (root != null) {
+                String[] jsonFields = { "messageId", "message_id", "amhs_message_id", "message-id" };
+                for (String field : jsonFields) {
+                    JsonNode n = root.get(field);
+                    if (n != null && !n.isNull() && !n.asText().isBlank()) {
+                        rawMsgId = n.asText().trim();
+                        break;
+                    }
+                }
+            }
+            if (rawMsgId == null || rawMsgId.isBlank()) {
+                rawMsgId = amqpMsg.getJMSMessageID();
+            }
+            if (rawMsgId == null || rawMsgId.isBlank()) {
+                String[] properties = { "message_id", "messageId", "amhs_message_id", "message-id" };
+                for (String property : properties) {
+                    rawMsgId = amqpMsg.getStringProperty(property);
+                    if (rawMsgId != null && !rawMsgId.isBlank()) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        boolean hasMessageId = (rawMsgId != null && !rawMsgId.isBlank());
+        String amqpMsgId = hasMessageId ? rawMsgId : null;
         log.info("Received AMQP message: {} from topic: {}", amqpMsgId, queue);
 
-        // Chống lặp bản tin (Loopback prevention).
+        // Chống lặp bản tin (Loopback prevention)
         String originGw = amqpMsg.getStringProperty("amhs_gateway_id");
         if (configService.getGatewayId().equals(originGw)) {
             log.info("Loopback detected for message {}. Dropping message to prevent infinite loop.", amqpMsgId);
             return;
         }
 
-        // Loại bỏ bản tin trùng lặp (Deduplication).
-        if (gwinRepository.existsByMessageId(amqpMsgId)) {
+        // Loại bỏ bản tin trùng lặp (Deduplication)
+        if (amqpMsgId != null && !amqpMsgId.isBlank() && gwinRepository.existsByMessageId(amqpMsgId)) {
             log.warn("AMQP message {} already exists in gwin. Ignoring duplicate.", amqpMsgId);
             return;
         }
 
-        // Kiểm tra quyền hạn người dùng (Authorization).
+        // Kiểm tra quyền hạn người dùng (Authorization)
         if (!authorizationService.isSwimUserAuthorized(amqpMsg)) {
             log.warn("AMQP message {} UNAUTHORIZED - rejected by authorization policy", amqpMsgId);
             alertService.create(
@@ -172,89 +328,296 @@ public class AMQPSubscriberService {
             return;
         }
 
-        // 0. Trích xuất body bản tin.
-        String textPayload = null;
-        byte[] binaryPayload = null;
-        if (amqpMsg instanceof TextMessage tm) {
-            textPayload = tm.getText();
-        } else if (amqpMsg instanceof BytesMessage bm) {
-            byte[] buf = new byte[(int) bm.getBodyLength()];
-            bm.readBytes(buf);
-            // Chuyển đổi sang text nếu có định dạng XML/JSON/Plain text.
-            String asUtf8 = new String(buf, StandardCharsets.UTF_8).stripLeading();
-            if (asUtf8.startsWith("<") || isProbablyText(asUtf8)) {
-                textPayload = asUtf8;
+        // 2. Phân giải độ ưu tiên
+        Integer rawPriority = null;
+        boolean priorityValid = true;
+        boolean priorityFound = false;
+
+        // 2.1 Kiểm tra amhs_ats_pri / ats_priority trước
+        String atsPriProp = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_ats_pri");
+        if (atsPriProp == null || atsPriProp.isBlank()) atsPriProp = getAppProperty(amqpMsg, root, isEnvelopeJson, "ats_priority");
+        if (atsPriProp != null && !atsPriProp.isBlank()) {
+            String trimmed = atsPriProp.trim().toUpperCase();
+            if (trimmed.equals("SS") || trimmed.equals("DD") || trimmed.equals("FF") || trimmed.equals("GG") || trimmed.equals("KK")) {
+                rawPriority = vn.asg.swim.model.AmqpProperties.mapAtsPriorityToAmqp(trimmed);
+                priorityFound = true;
             } else {
-                binaryPayload = buf;
+                priorityValid = false;
+                log.warn("AMQP {}: Invalid ATS priority string '{}'", amqpMsgId, atsPriProp);
+            }
+        }
+
+        // 2.2 JSON root priority
+        if (!priorityFound && root != null && !isEnvelopeJson) {
+            JsonNode priNode = root.get("priority");
+            if (priNode == null || priNode.isNull()) priNode = root.get("amqpPriority");
+            if (priNode == null || priNode.isNull()) priNode = root.get("priority ");
+            if (priNode != null && !priNode.isNull()) {
+                priorityFound = true;
+                String txt = priNode.asText().trim();
+                if (txt.matches("-?\\d+")) {
+                    rawPriority = Integer.parseInt(txt);
+                } else {
+                    priorityValid = false;
+                    log.warn("AMQP {}: JSON priority is text/non-numeric '{}'", amqpMsgId, txt);
+                }
+            }
+        }
+
+        // 2.3 AMQP Properties priority
+        if (!priorityFound) {
+            try {
+                String amqpPriStr = getMsgProperty(amqpMsg, root, isEnvelopeJson, "amqpPriority");
+                if (amqpPriStr == null || amqpPriStr.isBlank()) amqpPriStr = getMsgProperty(amqpMsg, root, isEnvelopeJson, "amqp_priority");
+                if (amqpPriStr == null || amqpPriStr.isBlank()) amqpPriStr = getMsgProperty(amqpMsg, root, isEnvelopeJson, "priority");
+                
+                if (amqpPriStr != null && !amqpPriStr.isBlank()) {
+                    priorityFound = true;
+                    String trimmed = amqpPriStr.trim();
+                    if (trimmed.matches("-?\\d+")) {
+                        rawPriority = Integer.parseInt(trimmed);
+                    } else {
+                        priorityValid = false;
+                        log.warn("AMQP {}: Priority property is text/non-numeric '{}'", amqpMsgId, amqpPriStr);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Error reading priority property for {}: {}", amqpMsgId, e.getMessage());
+            }
+        }
+
+        // 2.4 JMSPriority header fallback
+        if (!priorityFound) {
+            try {
+                int jmsPri = amqpMsg.getJMSPriority();
+                if (jmsPri >= 0) {
+                    rawPriority = jmsPri;
+                    priorityFound = true;
+                }
+            } catch (Exception ignored) {}
+        }
+
+        // 2.5 Range check 0-9
+        if (priorityValid && priorityFound && rawPriority != null) {
+            if (rawPriority < 0 || rawPriority > 9) {
+                priorityValid = false;
+                log.warn("AMQP {}: Priority value {} is out of range 0-9", amqpMsgId, rawPriority);
+            }
+        } else if (!priorityFound) {
+            priorityValid = false;
+            log.warn("AMQP {}: Mandatory priority field is missing", amqpMsgId);
+        }
+
+        int priority = (priorityValid && rawPriority != null) ? rawPriority : 2;
+        String atsPriority = priorityValid ? vn.asg.swim.model.AmqpProperties.mapPriorityToAmhs(priority) : null;
+
+        // 3. Trích xuất & kiểm tra creation-time
+        boolean creationTimeValid = true;
+        String amhsAtsFt = null;
+        boolean creationTimeFieldFound = false;
+        boolean creationTimeFieldIsNull = false;
+        boolean creationTimeFieldIsZero = false;
+
+        JsonNode tsNode = null;
+        if (isEnvelopeJson && root != null) {
+            JsonNode propsNode = root.get("properties");
+            if (propsNode != null && !propsNode.isNull()) {
+                tsNode = propsNode.get("creation-time");
+                if (tsNode == null) tsNode = propsNode.get("creationTime");
+                if (tsNode == null) tsNode = propsNode.get("creation_time");
+                if (tsNode == null) tsNode = propsNode.get("timestamp");
+            }
+        } else if (root != null) {
+            tsNode = root.get("creationTime");
+            if (tsNode == null || tsNode.isNull()) tsNode = root.get("dof");
+            if (tsNode == null || tsNode.isNull()) tsNode = root.get("timestamp");
+        }
+
+        if (tsNode != null) {
+            creationTimeFieldFound = true;
+            if (tsNode.isNull()) {
+                creationTimeFieldIsNull = true;
+            } else if (tsNode.isNumber()) {
+                long val = tsNode.asLong();
+                if (val == 0) {
+                    creationTimeFieldIsZero = true;
+                } else if (val > 1000000000L) { // Epoch MS
+                    LocalDateTime dt = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(val), java.time.ZoneOffset.UTC);
+                    amhsAtsFt = dt.format(java.time.format.DateTimeFormatter.ofPattern("ddHHmm"));
+                } else { // dof like 260706
+                    String txt = String.valueOf(val);
+                    if (txt.length() == 6) {
+                        String yy = txt.substring(0, 2);
+                        String mm = txt.substring(2, 4);
+                        String dd = txt.substring(4, 6);
+                        amhsAtsFt = dd + mm + yy;
+                    } else {
+                        amhsAtsFt = txt;
+                    }
+                }
+            } else {
+                String txt = tsNode.asText().trim();
+                if (txt.isBlank() || "null".equalsIgnoreCase(txt)) {
+                    creationTimeFieldIsNull = true;
+                } else if ("0".equals(txt) || "000000".equals(txt)) {
+                    creationTimeFieldIsZero = true;
+                } else {
+                    boolean isDof = (root != null && root.has("dof") && tsNode == root.get("dof"));
+                    if (isDof && txt.length() == 6) {
+                        try {
+                            String yy = txt.substring(0, 2);
+                            String mm = txt.substring(2, 4);
+                            String dd = txt.substring(4, 6);
+                            amhsAtsFt = dd + mm + yy;
+                        } catch (Exception e) {
+                            amhsAtsFt = txt;
+                        }
+                    } else {
+                        amhsAtsFt = txt;
+                    }
+                }
+            }
+        }
+
+        if (!creationTimeFieldFound) {
+            String atsFt = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_ats_ft");
+            if (atsFt == null || atsFt.isBlank()) atsFt = getAppProperty(amqpMsg, root, isEnvelopeJson, "creation_time");
+            if (atsFt == null || atsFt.isBlank()) atsFt = getAppProperty(amqpMsg, root, isEnvelopeJson, "creation-time");
+
+            if (atsFt != null && !atsFt.isBlank()) {
+                creationTimeFieldFound = true;
+                String trimmed = atsFt.trim();
+                if ("0".equals(trimmed) || "000000".equals(trimmed) || "null".equalsIgnoreCase(trimmed)) {
+                    creationTimeFieldIsZero = true;
+                } else {
+                    amhsAtsFt = trimmed;
+                }
+            }
+        }
+
+        if (!creationTimeFieldFound) {
+            try {
+                long jmsTimestamp = amqpMsg.getJMSTimestamp();
+                if (jmsTimestamp > 0) {
+                    creationTimeFieldFound = true;
+                    LocalDateTime dt = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(jmsTimestamp), java.time.ZoneOffset.UTC);
+                    amhsAtsFt = dt.format(java.time.format.DateTimeFormatter.ofPattern("ddHHmm"));
+                }
+            } catch (Exception ignored) {}
+        }
+
+        if (creationTimeFieldFound) {
+            if (creationTimeFieldIsNull || creationTimeFieldIsZero) {
+                creationTimeValid = false;
+                log.warn("AMQP {}: creationTime field found but invalid (null or zero)", amqpMsgId);
             }
         } else {
-            log.warn("Unsupported message type {} for {}, storing empty body",
-                    amqpMsg.getClass().getSimpleName(), amqpMsgId);
+            amhsAtsFt = LocalDateTime.now(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ofPattern("ddHHmm"));
         }
 
-        String finalContent = textPayload != null ? textPayload
-                : (binaryPayload != null ? Base64.getEncoder().encodeToString(binaryPayload) : null);
-
-        // Kiểm tra tính hợp lệ bản tin theo EUR Doc 047.
-        MessageValidationService.ValidationResult validationResult = validationService.validateSwimToAmhs(amqpMsgId,
-                amqpMsg,
-                finalContent);
-
-        if (!validationResult.isValid()) {
-            log.error("AMQP message {} validation FAILED: {}", amqpMsgId, validationResult.getErrorMessage());
-
-            // Từ chối bản tin, tạo log và cảnh báo nếu validation thất bại.
-            alertService.create(
-                    GwAlert.TYPE_VALIDATION_ERROR,
-                    GwAlert.SEV_ERROR,
-                    "Message validation failed: " + amqpMsgId + " - " + validationResult.getErrorMessage(),
-                    "gwin", null);
-
-            conversionService.logSwimToAmhs(amqpMsgId, null, "REJECTED", "validation-failed",
-                    validationResult.getErrorMessage());
-
-            // Bỏ qua không lưu gwin nếu validation thất bại.
-            return;
+        // 4. Trích xuất các thuộc tính tiêu chuẩn khác
+        String subject = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_subject");
+        if (subject == null || subject.isBlank()) {
+            subject = getMsgProperty(amqpMsg, root, isEnvelopeJson, "subject");
         }
-
-        // 1. Phân giải độ ưu tiên (JMS Priority).
-        int priority;
-        try {
-            priority = amqpMsg.getJMSPriority();
-        } catch (Exception e) {
-            log.warn("Cannot read JMS priority for {}, defaulting to 2", amqpMsgId);
-            priority = 2;
-        }
-
-        // 2. Trích xuất Content-Type và Subject.
-        String contentType = amqpMsg.getStringProperty("JMS_AMQP_CONTENT_TYPE");
-        String subject = amqpMsg.getStringProperty("amhs_subject");
-        if (subject == null)
+        if (subject == null || subject.isBlank()) {
             subject = "SWIM_INTERWORKING";
-
-        // Trích xuất các thuộc tính ứng dụng AMQP theo đặc tả.
-        String atsPriority = amqpMsg.getStringProperty("ats_priority");
-        String amhsAtsFt = amqpMsg.getStringProperty("amhs_ats_ft");
-        String amhsAtsOhi = amqpMsg.getStringProperty("amhs_ats_ohi");
-        String amhsIpmId = amqpMsg.getStringProperty("amhs_ipm_id");
-        String amhsBodypartType = amqpMsg.getStringProperty("amhs_bodypart_type");
-        String amhsContentEncoding = amqpMsg.getStringProperty("amhs_content_encoding");
-        String amhsMessageSigned = amqpMsg.getStringProperty("amhs_message_signed");
-
-        // Trích xuất các thuộc tính FTBP của bản tin nhị phân
-        String amhsFtbpFileName = amqpMsg.getStringProperty("amhs_ftbp_file_name");
-        String amhsFtbpObjectSize = amqpMsg.getStringProperty("amhs_ftbp_object_size");
-        String amhsFtbpLastMod = amqpMsg.getStringProperty("amhs_ftbp_last_mod");
-        String amhsRegisteredIdentifier = amqpMsg.getStringProperty("amhs_registered_identifier");
-        String amhsUserVisibleString = amqpMsg.getStringProperty("amhs_user_visible_string");
-
-        // ats_priority ghi đè JMSPriority theo đặc tả.
-        if (atsPriority != null && !atsPriority.isBlank()) {
-            priority = vn.asg.swim.model.AmqpProperties.mapAtsPriorityToAmqp(atsPriority);
-            log.debug("AMQP {}: ats_priority={} → priority={}", amqpMsgId, atsPriority, priority);
+        }
+        if (subject.length() > 128) {
+            subject = subject.substring(0, 128);
         }
 
-        // Chuyển đổi các thuộc tính ứng dụng sang định dạng JSON.
+        String amhsAtsOhi = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_ats_ohi");
+        if (amhsAtsOhi != null && !amhsAtsOhi.isBlank()) {
+            int maxOhiLen = (priority >= 5) ? 48 : 53;
+            if (amhsAtsOhi.length() > maxOhiLen) {
+                amhsAtsOhi = amhsAtsOhi.substring(0, maxOhiLen);
+            }
+        }
+
+        String amhsIpmId = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_ipm_id");
+        String amhsBodypartType = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_bodypart_type");
+        String amhsContentEncoding = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_content_encoding");
+        String amhsMessageSigned = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_message_signed");
+
+        String amhsFtbpFileName = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_ftbp_file_name");
+        String amhsFtbpObjectSize = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_ftbp_object_size");
+        String amhsFtbpLastMod = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_ftbp_last_mod");
+        String amhsRegisteredIdentifier = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_registered_identifier");
+        String amhsUserVisibleString = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_user_visible_string");
+        
+        String notificationRequests = null;
+        List<String> notifList = getAppPropertyAsList(amqpMsg, root, isEnvelopeJson, "notification_requests");
+        if (notifList == null || notifList.isEmpty()) {
+            notifList = getAppPropertyAsList(amqpMsg, root, isEnvelopeJson, "notification-requests");
+        }
+        if (notifList != null && !notifList.isEmpty()) {
+            notificationRequests = String.join(",", notifList);
+        }
+
+        // Phân giải địa chỉ
+        ResolvedAddressing resolved = addressingResolver.resolve(amqpMsg, queue, finalContent);
+
+        // 5. Trích xuất và kiểm tra người nhận amhs_recipients
+        List<String> recipientsList = getAppPropertyAsList(amqpMsg, root, isEnvelopeJson, "amhs_recipients");
+        if (recipientsList.isEmpty()) {
+            recipientsList = getAppPropertyAsList(amqpMsg, root, isEnvelopeJson, "recipients");
+        }
+        if (recipientsList.isEmpty()) {
+            recipientsList = getAppPropertyAsList(amqpMsg, root, isEnvelopeJson, "addressees");
+        }
+        if (recipientsList.isEmpty() && resolved != null && resolved.recipients() != null) {
+            String[] parts = resolved.recipients().trim().split("\\s+");
+            for (String part : parts) {
+                if (!part.isBlank()) recipientsList.add(part);
+            }
+        }
+
+        // thêm vào bằng recipients được gửi theo điện văn
+        JsonNode recipientNode = root.get("recipients");
+        String amhsRecipientsValue = recipientNode.asText().trim();
+        if (amhsRecipientsValue != null && !amhsRecipientsValue.isEmpty()) {
+            String[] parts = amhsRecipientsValue.split(",");
+            for (String part : parts) {
+                if (!part.isBlank()) recipientsList.add(part);
+            }
+        }
+
+        boolean recipientsValid = true;
+        if (recipientsList.isEmpty()) {
+            recipientsValid = false;
+            log.warn("AMQP {}: Mandatory recipients field is missing or empty", amqpMsgId);
+        } else {
+            int maxRecipients = configService.getMaxMsgRecipients();
+            if (recipientsList.size() > maxRecipients) {
+                recipientsValid = false;
+                log.warn("AMQP {}: Recipients count {} exceeds maximum {}", amqpMsgId, recipientsList.size(), maxRecipients);
+            }
+        }
+
+        String amhsRecipients = String.join(" ", recipientsList);
+
+        // Phân giải originator nâng cao
+        String amhsOriginator = getAppProperty(amqpMsg, root, isEnvelopeJson, "amhs_originator");
+        if (amhsOriginator == null || amhsOriginator.isBlank()) {
+            amhsOriginator = getAppProperty(amqpMsg, root, isEnvelopeJson, "originator");
+        }
+        if (amhsOriginator == null || amhsOriginator.isBlank()) {
+            amhsOriginator = resolved != null ? resolved.originator() : null;
+        }
+        if (amhsOriginator == null || amhsOriginator.isBlank() || "UNKNOWNX".equalsIgnoreCase(amhsOriginator)) {
+            amhsOriginator = configService.getDefaultOriginator();
+            log.warn("AMQP {}: Originator is unknown or invalid. Using default originator: {}", amqpMsgId, amhsOriginator);
+        }
+
+        // Cập nhật lại resolved với originator và recipients hoàn chỉnh
+        if (resolved == null || !resolved.isResolved()) {
+            resolved = new ResolvedAddressing(amhsOriginator, amhsRecipients, ResolvedAddressing.SOURCE_AMQP_PROPERTY);
+        } else {
+            resolved = new ResolvedAddressing(amhsOriginator, amhsRecipients, resolved.source());
+        }
+
+        // Chuyển đổi các thuộc tính ứng dụng sang định dạng JSON
         java.util.Map<String, String> props = new java.util.LinkedHashMap<>();
         if (atsPriority != null)
             props.put("ats_priority", atsPriority);
@@ -280,6 +643,8 @@ public class AMQPSubscriberService {
             props.put("amhs_registered_identifier", amhsRegisteredIdentifier);
         if (amhsUserVisibleString != null)
             props.put("amhs_user_visible_string", amhsUserVisibleString);
+        if (notificationRequests != null)
+            props.put("notification_requests", notificationRequests);
         if (contentType != null)
             props.put("content_type", contentType);
         if (subject != null)
@@ -293,15 +658,80 @@ public class AMQPSubscriberService {
         }
         final String amqpPropertiesJson = tempJson;
 
-        // 3. Phân giải địa chỉ AMHS gửi và nhận (Addressing resolution).
-        ResolvedAddressing resolved = addressingResolver.resolve(amqpMsg, queue, finalContent);
+        // Kiểm tra tính hợp lệ bản tin theo EUR Doc 047
+        MessageValidationService.ValidationResult validationResult = validationService.validateSwimToAmhs(
+                amqpMsgId != null ? amqpMsgId : "",
+                amqpMsg,
+                finalContent);
 
-        // Kiểm tra cấp độ dịch vụ ATSMHS theo đặc tả.
+        boolean isCompliant = hasMessageId && priorityValid && creationTimeValid && dataValid && recipientsValid && contentTypeSupported && validationResult.isValid();
+
+        // NẾU KHÔNG THỎA MÃN 1 TRONG CÁC ĐIỀU KIỆN, VẪN LƯU VÀO GWIN VỚI STATUS = 4 (IN_FAILED)
+        if (!isCompliant) {
+            List<String> errors = new ArrayList<>();
+            if (!hasMessageId) errors.add("Missing messageId");
+            if (!priorityValid) errors.add("Invalid priority: " + rawPriority + " (must be 0-9)");
+            if (!creationTimeValid) errors.add("Invalid creation-time (must be != 0)");
+            if (!dataValid) {
+                if (payloadConflict) errors.add("Payload conflict - both amqp-value and data are present");
+                else if (payloadMissing) errors.add("Payload missing - both amqp-value and data are empty");
+                else if (payloadMismatch) errors.add("Payload mismatch - content-type is text/json but only binary data is present");
+                else errors.add("Mandatory field 'data/amqp-value' is missing or empty");
+            }
+            if (!recipientsValid) errors.add("Mandatory field 'amhs_recipients' is missing or empty (or count exceeds max)");
+            if (!contentTypeSupported) errors.add("Unsupported content-type: " + contentType);
+            if (!validationResult.isValid()) errors.addAll(validationResult.getErrors());
+
+            String errorMessage = String.join("; ", errors);
+            log.error("AMQP message {} validation FAILED: {}", amqpMsgId, errorMessage);
+
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR,
+                    GwAlert.SEV_ERROR,
+                    "Message validation failed: " + amqpMsgId + " - " + errorMessage,
+                    "gwin", null);
+
+            conversionService.logSwimToAmhs(amqpMsgId, resolved.originator(), "REJECTED", "validation-failed",
+                    errorMessage);
+
+            Gwin failedGwin = new Gwin();
+            failedGwin.setMessageId(amqpMsgId);
+            failedGwin.setSource(queue);
+            failedGwin.setSubject(subject);
+            failedGwin.setAmhsRecipients(amhsRecipients);
+            failedGwin.setAmqpProperties(amqpPropertiesJson);
+            failedGwin.setPriority((byte) Math.min(Math.max(priority, 0), 9));
+            failedGwin.setTime(LocalDateTime.now());
+            failedGwin.setPayloadContent(finalContent);
+            String bodyType = "file-transfer-body-part".equalsIgnoreCase(amhsBodypartType) ? "ftbp" : "text";
+            failedGwin.setBodyType(bodyType);
+            failedGwin.setContentType(contentType);
+            failedGwin.setOrigin(resolved.originator());
+            failedGwin.setAddress(resolved.recipients());
+            failedGwin.setAddressingSource(resolved.source());
+            failedGwin.setText("VALIDATION_FAILED: " + errorMessage);
+            failedGwin.setStatus(MessageStatus.IN_FAILED.getValue()); // status = 4
+
+            try {
+                gwinRepository.save(failedGwin);
+            } catch (DataIntegrityViolationException e) {
+                log.warn("AMQP message {} already exists (race condition). Ignoring.", amqpMsgId);
+            }
+            return;
+        }
+
+        // Kiểm tra cấp độ dịch vụ ATSMHS theo đặc tả
         if (resolved.isResolved()) {
-            String serviceLevel = atsmhsResolver.resolve(contentType, resolved.recipients());
+            // Use resolved service level override if available
+            String overrideMode = getAppProperty(amqpMsg, root, isEnvelopeJson, "atsmhs_service_level");
+            if (overrideMode == null || overrideMode.isBlank()) {
+                overrideMode = getAppProperty(amqpMsg, root, isEnvelopeJson, "atsmhs-service-level");
+            }
+            
+            String serviceLevel = atsmhsResolver.resolve(overrideMode, contentType, resolved.recipients());
             boolean hasBinaryContent = binaryPayload != null;
 
-            // Chế độ BASIC không hỗ trợ nội dung nhị phân (binary).
+            // Chế độ BASIC không hỗ trợ nội dung nhị phân (binary)
             if (!atsmhsResolver.validateContent(serviceLevel, contentType, hasBinaryContent)) {
                 log.error("AMQP message {} REJECTED: BASIC ATSMHS mode cannot handle binary content", amqpMsgId);
                 alertService.create(
@@ -311,27 +741,54 @@ public class AMQPSubscriberService {
                         "gwin", null);
                 conversionService.logSwimToAmhs(amqpMsgId, resolved.originator(), "REJECTED",
                         "atsmhs-validation-failed", "Binary content not supported in BASIC mode");
+
+                Gwin failedGwin = new Gwin();
+                failedGwin.setMessageId(amqpMsgId);
+                failedGwin.setSource(queue);
+                failedGwin.setSubject(subject);
+                failedGwin.setAmhsRecipients(amhsRecipients);
+                failedGwin.setAmqpProperties(amqpPropertiesJson);
+                failedGwin.setPriority((byte) Math.min(Math.max(priority, 0), 9));
+                failedGwin.setTime(LocalDateTime.now());
+                failedGwin.setPayloadContent(finalContent);
+                String bodyType = "file-transfer-body-part".equalsIgnoreCase(amhsBodypartType) ? "ftbp" : "text";
+                failedGwin.setBodyType(bodyType);
+                failedGwin.setContentType(contentType);
+                failedGwin.setOrigin(resolved.originator());
+                failedGwin.setAddress(resolved.recipients());
+                failedGwin.setAddressingSource(resolved.source());
+                failedGwin.setText("ATSMHS_VALIDATION_FAILED: Binary content not supported in BASIC mode");
+                failedGwin.setStatus(MessageStatus.IN_FAILED.getValue()); // status = 4
+
+                try {
+                    gwinRepository.save(failedGwin);
+                } catch (DataIntegrityViolationException e) {
+                    log.warn("AMQP message {} already exists (race condition). Ignoring.", amqpMsgId);
+                }
                 return;
             }
 
             log.debug("AMQP {}: ATSMHS service level = {}", amqpMsgId, serviceLevel);
         }
 
-        // 4. Khởi tạo thực thể Gwin.
+        // Khởi tạo thực thể Gwin cho bản tin hợp lệ
         Gwin gwin = new Gwin();
         gwin.setMessageId(amqpMsgId);
         gwin.setSource(queue);
         gwin.setSubject(subject);
-        gwin.setAmqpProperties(amqpPropertiesJson); // Lưu thuộc tính AMQP.
+        gwin.setAmhsRecipients(amhsRecipients);
+        gwin.setAmqpProperties(amqpPropertiesJson);
         gwin.setPriority((byte) Math.min(Math.max(priority, 0), 9));
         gwin.setTime(LocalDateTime.now());
         gwin.setPayloadContent(finalContent);
         String bodyType = "file-transfer-body-part".equalsIgnoreCase(amhsBodypartType) ? "ftbp" : "text";
         gwin.setBodyType(bodyType);
         gwin.setContentType(contentType);
-        gwin.setOrigin(resolved.originator());
-        gwin.setAddress(resolved.recipients());
-        gwin.setAddressingSource(resolved.source());
+        if (resolved != null) {
+            gwin.setOrigin(resolved.originator());
+            gwin.setAddress(resolved.recipients());
+            gwin.setAddressingSource(resolved.source());
+        }
 
         try {
             String effectiveType = subject;
@@ -345,11 +802,11 @@ public class AMQPSubscriberService {
             try {
                 String tac = conversionService.toAmhs(finalContent, effectiveType);
                 gwin.setText(tac);
-                gwin.setStatus(resolved.isResolved() ? MessageStatus.IN_PENDING.getValue() : MessageStatus.IN_UNROUTED.getValue());
+                gwin.setStatus(resolved != null && resolved.isResolved() ? MessageStatus.IN_PENDING.getValue() : MessageStatus.IN_UNROUTED.getValue());
             } catch (Exception e) {
                 log.error("AMQP {} Conversion FAILED: {}", amqpMsgId, e.getMessage());
                 gwin.setText("CONVERSION_FAILED: " + e.getMessage() + "\n" + finalContent);
-                gwin.setStatus(MessageStatus.IN_UNROUTED.getValue());
+                gwin.setStatus(MessageStatus.IN_FAILED.getValue());
                 alertService.create(
                         GwAlert.TYPE_CONVERT_ERROR,
                         GwAlert.SEV_WARNING,
@@ -364,11 +821,11 @@ public class AMQPSubscriberService {
                 return;
             }
 
-            String actionTag = "received-" + resolved.source().toLowerCase().replaceAll("[^a-z0-9]", "_");
-            conversionService.logSwimToAmhs(amqpMsgId, resolved.originator(),
+            String actionTag = "received-" + (resolved != null ? resolved.source().toLowerCase().replaceAll("[^a-z0-9]", "_") : "unresolved");
+            conversionService.logSwimToAmhs(amqpMsgId, resolved != null ? resolved.originator() : null,
                     gwin.getStatus().equals(MessageStatus.IN_PENDING.getValue()) ? "OK" : "UNROUTED",
                     actionTag,
-                    resolved.isResolved() ? null : "MISSING_AMHS_RECIPIENTS",
+                    (resolved != null && resolved.isResolved()) ? null : "MISSING_AMHS_RECIPIENTS",
                     amhsIpmId);
 
         } catch (Exception e) {
@@ -396,6 +853,119 @@ public class AMQPSubscriberService {
     @PreDestroy
     public void destroy() {
         stopAll();
+    }
+
+    private String getMsgProperty(Message msg, JsonNode root, boolean isEnvelopeJson, String key) {
+        if (isEnvelopeJson && root != null) {
+            JsonNode props = root.get("properties");
+            if (props != null && !props.isNull()) {
+                JsonNode n = props.get(key);
+                if (n == null) n = props.get(key.replace("-", "_"));
+                if (n == null) n = props.get(key.replace("_", "-"));
+                if (n != null && !n.isNull()) {
+                    return n.asText();
+                }
+            }
+        }
+        try {
+            if ("content-type".equals(key)) {
+                String ct = msg.getStringProperty("JMS_AMQP_CONTENT_TYPE");
+                if (ct != null) return ct;
+            }
+            String val = msg.getStringProperty(key);
+            if (val == null) val = msg.getStringProperty(key.replace("-", "_"));
+            if (val == null) val = msg.getStringProperty(key.replace("_", "-"));
+            return val;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String getAppProperty(Message msg, JsonNode root, boolean isEnvelopeJson, String key) {
+        if (isEnvelopeJson && root != null) {
+            JsonNode appProps = root.get("application-properties");
+            if (appProps == null || appProps.isNull()) appProps = root.get("applicationProperties");
+            if (appProps == null || appProps.isNull()) appProps = root.get("application_properties");
+            if (appProps != null && !appProps.isNull()) {
+                JsonNode n = appProps.get(key);
+                if (n == null) n = appProps.get(key.replace("-", "_"));
+                if (n == null) n = appProps.get(key.replace("_", "-"));
+                if (n != null && !n.isNull()) {
+                    return n.asText();
+                }
+            }
+        }
+        try {
+            String val = msg.getStringProperty(key);
+            if (val == null) val = msg.getStringProperty(key.replace("-", "_"));
+            if (val == null) val = msg.getStringProperty(key.replace("_", "-"));
+            return val;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private List<String> getAppPropertyAsList(Message msg, JsonNode root, boolean isEnvelopeJson, String key) {
+        List<String> list = new ArrayList<>();
+        if (isEnvelopeJson && root != null) {
+            JsonNode appProps = root.get("application-properties");
+            if (appProps == null || appProps.isNull()) appProps = root.get("applicationProperties");
+            if (appProps == null || appProps.isNull()) appProps = root.get("application_properties");
+            if (appProps != null && !appProps.isNull()) {
+                JsonNode n = appProps.get(key);
+                if (n == null) n = appProps.get(key.replace("-", "_"));
+                if (n == null) n = appProps.get(key.replace("_", "-"));
+                if (n != null && !n.isNull()) {
+                    if (n.isArray()) {
+                        n.forEach(item -> {
+                            if (item != null && !item.isNull()) list.add(item.asText());
+                        });
+                        return list;
+                    } else {
+                        list.add(n.asText());
+                        return list;
+                    }
+                }
+            }
+        }
+        try {
+            String val = msg.getStringProperty(key);
+            if (val == null) val = msg.getStringProperty(key.replace("-", "_"));
+            if (val == null) val = msg.getStringProperty(key.replace("_", "-"));
+            if (val != null && !val.isBlank()) {
+                String[] parts = val.trim().split("[,\\s]+");
+                for (String part : parts) {
+                    if (!part.isBlank()) list.add(part);
+                }
+            }
+        } catch (Exception ignored) {}
+        return list;
+    }
+
+    private byte[] decompressGzip(byte[] compressed) {
+        try (java.io.ByteArrayInputStream bais = new java.io.ByteArrayInputStream(compressed);
+             java.util.zip.GZIPInputStream gzis = new java.util.zip.GZIPInputStream(bais);
+             java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream()) {
+            byte[] buffer = new byte[1024];
+            int len;
+            while ((len = gzis.read(buffer)) > 0) {
+                baos.write(buffer, 0, len);
+            }
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.error("Failed to decompress GZIP data: {}", e.getMessage());
+            return compressed;
+        }
+    }
+
+    private byte[] hexStringToByteArray(String s) {
+        int len = s.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4)
+                                 + Character.digit(s.charAt(i+1), 16));
+        }
+        return data;
     }
 
     /**

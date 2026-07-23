@@ -49,6 +49,10 @@ public class Gwin {
     @Column(name = "priority")
     private Byte priority = 2;
 
+    /** Recipients: comma separated AMHS ICAO */
+    @Column(name = "amhsRecipients", length = 200)
+    private String amhsRecipients;
+
     /** Arrival timestamp from AMQP broker */
     @Column(name = "time")
     private LocalDateTime time;

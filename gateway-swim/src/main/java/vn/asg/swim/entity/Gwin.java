@@ -47,6 +47,10 @@ public class Gwin {
     @Column(name = "priority")
     private Byte priority = 2;
 
+    /** Recipients: comma separated AMHS ICAO */
+    @Column(name = "amhsRecipients", length = 200)
+    private String amhsRecipients;
+
     /** Arrival timestamp from AMQP broker */
     @Column(name = "time")
     private LocalDateTime time;
@@ -110,6 +114,8 @@ public class Gwin {
     public void setAmqpProperties(String amqpProperties) { this.amqpProperties = amqpProperties; }
     public Byte getPriority() { return priority; }
     public void setPriority(Byte priority) { this.priority = priority; }
+    public String getAmhsRecipients() { return amhsRecipients; }
+    public void setAmhsRecipients(String amhsRecipients) { this.amhsRecipients = amhsRecipients; }
     public LocalDateTime getTime() { return time; }
     public void setTime(LocalDateTime time) { this.time = time; }
     public String getPayloadContent() { return payloadContent; }
