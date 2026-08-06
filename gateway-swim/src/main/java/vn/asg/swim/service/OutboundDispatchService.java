@@ -41,7 +41,7 @@ public class OutboundDispatchService {
      * Thực hiện kiểm tra, phân tích và chuyển đổi bản tin AMHS sang định dạng SWIM
      * (JSON).
      * Trạng thái sau khi hoàn tất sẽ được đặt thành TRANSFORMED (2) hoặc FAILED
-     * (4).
+     * (5).
      */
     @Transactional
     public void convertOutboundMessage(Gwout gwout) {
@@ -56,17 +56,6 @@ public class OutboundDispatchService {
             conversionService.logAmhsToSwim(gwout, null, "REJECTED", "invalid_origin_format");
             return;
         }
-
-        // Kiểm tra xem origin có khớp với originator nào trong bảng routing (direction = OUT)
-        // if (!routingService.existsOriginatorOut(origin)) {
-        //     log.warn("gwout#{} rejected: origin '{}' not found in routing rules (direction = OUT)",
-        //             gwout.getMsgid(), origin);
-        //     gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-        //     gwout.setPayloadContent("Rejected: Origin not configured in routing rules (direction = OUT)");
-        //     gwoutRepository.save(gwout);
-        //     conversionService.logAmhsToSwim(gwout, null, "REJECTED", "origin_not_in_routing");
-        //     return;
-        // }
 
         // Kiểm tra kích thước bản tin (MAX_PAYLOAD_SIZE)
         int maxPayloadSize = configService.getInt("MAX_PAYLOAD_SIZE", 2097152);
@@ -86,7 +75,7 @@ public class OutboundDispatchService {
             try {
                 allowedContentTypes = configService.getCommaSeparatedConfig("ALLOWED_CONTENT_TYPES");
             } catch (Exception e) {
-                allowedContentTypes = java.util.Arrays.asList("application/json", "application/xml");
+                allowedContentTypes = java.util.Arrays.asList("application/json", "application/xml", "text/plain", "text/xml");
             }
             String cleanContentType = gwout.getContentType().split(";")[0].trim().toLowerCase();
             boolean isAllowed = false;
@@ -95,6 +84,10 @@ public class OutboundDispatchService {
                     isAllowed = true;
                     break;
                 }
+            }
+            // Mặc định hỗ trợ text/plain và text/xml cho các điện văn AMHS dạng văn bản thô (General-Text / IA5)
+            if (!isAllowed && ("text/plain".equalsIgnoreCase(cleanContentType) || "text/xml".equalsIgnoreCase(cleanContentType))) {
+                isAllowed = true;
             }
             if (!isAllowed) {
                 log.warn("gwout#{} rejected: Content-Type '{}' is not supported",
@@ -106,6 +99,7 @@ public class OutboundDispatchService {
                 return;
             }
         }
+
         // CTSW011 - CTSW013: Phát hiện bản tin Probe từ AMHS
         boolean isProbe = "probe".equalsIgnoreCase(gwout.getBodyType()) || "PROBE".equalsIgnoreCase(gwout.getText());
         if (isProbe) {
@@ -133,8 +127,7 @@ public class OutboundDispatchService {
 
         // 2. Kiểm tra quyền của người gửi
         if (!authorizationService.isAmhsUserAuthorized(gwout.getOrigin())) {
-            log.warn("gwout#{} REJECTED: AMHS originator '{}' not authorized",
-                    gwout.getMsgid(), gwout.getOrigin());
+            log.warn("gwout#{} REJECTED: AMHS originator '{}' not authorized", gwout.getMsgid(), gwout.getOrigin());
             alertService.create(
                     GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
                     "Unauthorized AMHS originator: " + gwout.getOrigin()
@@ -149,11 +142,17 @@ public class OutboundDispatchService {
 
         // CTSW016: Kiểm thử EIT/Body Part Type của bản tin đi
         if (gwout.getBodyPartType() != null) {
-            if ("401".equals(gwout.getBodyPartType().trim())) {
+            String rawType = gwout.getBodyPartType().trim();
+            if ("401".equals(rawType)) {
                 gwout.setBodyPartType("ia5-text-body-part");
+            } else if ("402".equals(rawType)) {
+                gwout.setBodyPartType("general-text-body-part");
+            } else if ("403".equals(rawType)) {
+                gwout.setBodyPartType("file-transfer-body-part");
             }
-            MessageValidationService.ValidationResult eitResult = validationService
-                    .validateBodyPartType(gwout.getBodyPartType());
+
+            // Tự động chuẩn hóa mã số thô thành chuỗi chuẩn ICAO trước khi xác thực
+            MessageValidationService.ValidationResult eitResult = validationService.validateBodyPartType(gwout.getBodyPartType());
             if (!eitResult.isValid()) {
                 log.warn("gwout#{} rejected by EIT validation: {}", gwout.getMsgid(), eitResult.getErrorMessage());
                 alertService.create(

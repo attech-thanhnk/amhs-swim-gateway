@@ -81,9 +81,8 @@ public class Gwout {
     private String contentType;
 
     /**
-     * Overall Status. Reflects the aggregate status of all child gwout_dispatch
-     * records.
-     * 0=PENDING, 1=PROCESSING, 2=SENT, 3=DEAD
+     * Overall Status:
+     * 0=PENDING, 1=PROCESSING, 2=TRANSFORMED, 3=PUBLISHING, 4=PUBLISHED, 5=FAILED, 6=RESOLVED, 7=CANCELLED
      */
     @Column(name = "status")
     private Integer status = MessageStatus.OUT_PENDING.getValue();

@@ -233,12 +233,12 @@ public class SystemMetricsService {
             double ram = 0;
 
             try {
-                String pid = getMysqlPid();
-                double[] mysqlUsage = getMysqlCpuRam(pid);
+                String mysqlPid = getMysqlPid();
+                double[] mysqlUsage = getMysqlCpuRam(mysqlPid);
                 cpu = mysqlUsage[0];
                 ram = mysqlUsage[1];
             } catch (Exception e) {
-                log.warn("Cannot get MySQL CPU/RAM: {}", e.getMessage());
+                log.debug("Cannot get MySQL CPU/RAM: {}", e.getMessage());
             }
             
             return new MySqlLoadResponse(

@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Keys>
-    <KeyValue name="http://codes.wmo.int/common/nil/noSignificantChange" value="NOSIG"/>
-    <KeyValue name="http://codes.wmo.int/common/nil/nothingOfOperationalSignificance" value="NSC"/>
-</Keys>

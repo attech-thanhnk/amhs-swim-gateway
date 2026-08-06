@@ -27,19 +27,19 @@ public class FplParser implements MessageParser<FplMessage> {
 
     // Pattern ARR: (ARR-callsign-dep_icao[+deptime]-dest_icao+arrtime-other)
     private static final Pattern ARR_PATTERN = Pattern
-            .compile("\\(ARR-([A-Z0-9/]{2,15})-([A-Z]{4})(\\d{4})?-([A-Z]{4})(\\d{4})-?(.*?)\\)");
+            .compile("\\(ARR\\s*-\\s*([A-Z0-9/]{2,15})\\s*-\\s*([A-Z]{4})(\\d{4})?\\s*-\\s*([A-Z]{4})(\\d{4})\\s*-?\\s*(.*?)\\s*\\)?");
 
     // Pattern DEP: (DEP-callsign-depicao+time-desticao-other)
     private static final Pattern DEP_PATTERN = Pattern
-            .compile("\\(DEP-([A-Z0-9/]{2,15})-([A-Z]{4})(\\d{4})-([A-Z]{4})-?(.*?)\\)");
+            .compile("\\(DEP\\s*-\\s*([A-Z0-9/]{2,15})\\s*-\\s*([A-Z]{4})(\\d{4})?\\s*-\\s*([A-Z]{4})\\s*-?\\s*(.*?)\\s*\\)?");
 
     // Pattern CNL: (CNL-callsign-depicao+eobt-desticao-other)
     private static final Pattern CNL_PATTERN = Pattern
-            .compile("\\(CNL-([A-Z0-9/]{2,15})-([A-Z]{4})(\\d{4})-([A-Z]{4})-?(.*?)\\)");
+            .compile("\\(CNL\\s*-\\s*([A-Z0-9/]{2,15})\\s*-\\s*([A-Z]{4})(\\d{4})?\\s*-\\s*([A-Z]{4})\\s*-?\\s*(.*?)\\s*\\)?");
 
     // Pattern DLA: (DLA-callsign-depicao+eobt-desticao-other)
     private static final Pattern DLA_PATTERN = Pattern
-            .compile("\\(DLA-([A-Z0-9/]{2,15})-([A-Z]{4})(\\d{4})-([A-Z]{4})-?(.*?)\\)");
+            .compile("\\(DLA\\s*-\\s*([A-Z0-9/]{2,15})\\s*-\\s*([A-Z]{4})(\\d{4})?\\s*-\\s*([A-Z]{4})\\s*-?\\s*(.*?)\\s*\\)?");
 
     public FplMessage parse(String body) throws Exception {
         if (body == null || body.isBlank()) {
@@ -110,24 +110,36 @@ public class FplParser implements MessageParser<FplMessage> {
         }
 
         // Field 7: Aircraft identification (callsign)
-        msg.setAircraftId(fields[1 + offset].trim());
+        if (fields.length > 1 + offset) {
+            msg.setAircraftId(fields[1 + offset].trim());
+        }
 
         // Field 8: Flight rules + type
-        String f8 = fields[2 + offset].trim();
-        if (f8.length() >= 1) msg.setFlightRules(f8.substring(0, 1));
-        if (f8.length() >= 2) msg.setFlightType(f8.substring(1, 2));
+        if (fields.length > 2 + offset) {
+            String f8 = fields[2 + offset].trim();
+            if (f8.length() >= 1) msg.setFlightRules(f8.substring(0, 1));
+            if (f8.length() >= 2) msg.setFlightType(f8.substring(1, 2));
+        }
 
         // Field 9: Aircraft type + wake turbulence
-        parseAircraftField(fields[3 + offset].trim(), msg);
+        if (fields.length > 3 + offset) {
+            parseAircraftField(fields[3 + offset].trim(), msg);
+        }
 
         // Field 10: Equipment / SSR
-        msg.setEquipment(fields[4 + offset].trim());
+        if (fields.length > 4 + offset) {
+            msg.setEquipment(fields[4 + offset].trim());
+        }
 
         // Field 13: Departure ICAO + EOBT
-        parseDepartureField(fields[5 + offset].trim(), msg);
+        if (fields.length > 5 + offset) {
+            parseDepartureField(fields[5 + offset].trim(), msg);
+        }
 
         // Field 15: Cruising speed + level + route
-        parseRouteField(fields[6 + offset].trim(), msg);
+        if (fields.length > 6 + offset) {
+            parseRouteField(fields[6 + offset].trim(), msg);
+        }
 
         // Field 16: Destination + EET + Alternates
         if (fields.length > 7 + offset) {

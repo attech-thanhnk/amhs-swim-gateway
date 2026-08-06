@@ -111,4 +111,16 @@ class FplParserTest {
         assertEquals("VVGL", message.getDestinationIcao());
         assertEquals("260624", message.getDof());
     }
+
+    @Test
+    void parseDepWithSpacesAroundSeparators() throws Exception {
+        FplMessage message = parser.parse("(DEP-UPS72 -PANC0334 -VVNB-DOF/260707)");
+
+        assertEquals("DEP", message.getMessageType());
+        assertEquals("UPS72", message.getAircraftId());
+        assertEquals("PANC", message.getDepartureIcao());
+        assertEquals("0334", message.getActualDepartureTime());
+        assertEquals("VVNB", message.getDestinationIcao());
+        assertEquals("260707", message.getDof());
+    }
 }

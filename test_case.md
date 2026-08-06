@@ -9,6 +9,8 @@
 ## II. CHI TIẾT KỊCH BẢN KIỂM THỬ CHIỀU ĐI (AMHS -> SWIM)
 
 ### CTSW001: Convert Incoming IPM with Filing Time
+* **Mục đích kiểm thử**: Kiểm tra Gateway trích xuất chính xác thời gian nộp điện (`filing_time = '070430'`, tức ngày 07 lúc 04:30 UTC) từ phong bì điện văn AMHS và ánh xạ vào trường `"ats_message_filing_time"` trong chuỗi SWIM JSON.
+* **Điều kiện tiên quyết**: Bảng `routing` có quy tắc `OUT` hỗ trợ loại điện `METAR` (hoặc `METAR_TEXT`).
 * **Câu lệnh nạp dữ liệu (Input)**:
 ```sql
 INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_type, content_type, status, `TEXT`) 
@@ -22,48 +24,63 @@ VALUES (
     'text', 
     'application/json', 
     0,
-    'ZCZC ABC001\r\nFF VVHHZTZX\r\n070430 VVNBZTZX\r\nMETAR VVNB 070430Z 15004KT 9999 FEW020 28/24 Q1010 NOSIG='
+    'ZCZC ABC001
+
+FF VVHHZTZX
+
+070430 VVNBZTZX
+
+METAR VVNB 070430Z 15004KT 9999 FEW020 28/24 Q1010 NOSIG='
 );
 ```
 * **Lệnh kiểm tra (Verify)**:
 ```sql
 SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW001';
 ```
-* **Kết quả mong muốn**: `status = 3`. Trong chuỗi JSON tại `payload_content` có thuộc tính `"ats_message_filing_time": "070430"`.
+* **Kết quả mong muốn**:
+  - `status = 4` (`OUT_PUBLISHED` - Chuyển đổi và phát tin thành công).
+  - Chuỗi JSON trong `payload_content` chứa thuộc tính `"ats_message_filing_time": "070430"`.
 
 ---
 
 ### CTSW002: Convert Incoming IPM with OHI
+* **Mục đích kiểm thử**: Kiểm tra trích xuất trường Tiêu đề phụ tùy chọn (`optional_heading = 'OHI-TEST-DATA-123'`) từ điện AMHS và nhúng vào thuộc tính `"ats_message_optional_heading"` của SWIM JSON theo chuẩn ICAO EUR Doc 047.
 * **Câu lệnh nạp dữ liệu (Input)**:
 ```sql
 INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_type, content_type, status, text, optional_heading) 
 VALUES ('TC-CTSW002', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'text', 'application/json', 0,
 'ZCZC ABC002
+
 FF VVHHZTZX
+
 070430 VVNBZTZX
+
 METAR VVNB 070430Z 15004KT 9999 FEW020 28/24 Q1010 NOSIG=', 'OHI-TEST-DATA-123');
 ```
 * **Lệnh kiểm tra (Verify)**:
 ```sql
 SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW002';
 ```
-* **Kết quả mong muốn**: `status = 3`. Trong JSON tại `payload_content` có thuộc tính `"ats_message_optional_heading": "OHI-TEST-DATA-123"`.
+* **Kết quả mong muốn**:
+  - `status = 4` (`OUT_PUBLISHED`).
+  - Trong JSON tại `payload_content` xuất hiện `"ats_message_optional_heading": "OHI-TEST-DATA-123"`.
 
 ---
 
 ### CTSW003: Generate Delivery Report (DR)
-* **Câu lệnh nạp dữ liệu (Input)**: Chạy lại câu lệnh của `CTSW001`.
-* **Quy trình**: Hệ thống tự động xử lý.
+* **Mục đích kiểm thử**: Kiểm tra tính năng tự động sinh Báo cáo phát trả (Delivery Report - DR) quay ngược trở lại phía người gửi AMHS sau khi Gateway chuyển đổi và đẩy điện văn lên mạng SWIM thành công.
+* **Câu lệnh nạp dữ liệu (Input)**: Chạy câu lệnh nạp dữ liệu của `CTSW001`.
 * **Lệnh kiểm tra (Verify)**:
 ```sql
-SELECT * FROM gwin WHERE payload_content LIKE '%DeliveryReport%' OR text LIKE '%DR%' ORDER BY id DESC LIMIT 1;
+SELECT * FROM gwin WHERE payload_content LIKE '%DeliveryReport%' OR text LIKE '%DR%' ORDER BY msgid DESC LIMIT 1;
 ```
-* **Kết quả mong muốn**: Có bản ghi DR được sinh tự động gửi trả lại AMHS.
+* **Kết quả mong muốn**: Có bản ghi DR mới được sinh tự động trong bảng `gwin` với địa chỉ nhận đúng bằng người gửi gốc của điện văn.
 
 ---
 
 ### CTSW004: Generate Non-Delivery Report (NDR)
-* **Câu lệnh nạp dữ liệu (Input)**: Chèn một bản tin FPL lỗi cú pháp nghiêm trọng:
+* **Mục đích kiểm thử**: Kiểm tra cơ chế xử lý ngoại lệ và sinh Báo cáo không phát trả (Non-Delivery Report - NDR) khi tiếp nhận bản tin AMHS bị lỗi cú pháp nghiêm trọng.
+* **Câu lệnh nạp dữ liệu (Input)**:
 ```sql
 INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_type, content_type, status, text) 
 VALUES ('TC-CTSW004', 1, NOW(), '070430', 'VVTSZTZX', 'VVHHZTZX', 'text', 'application/json', 0,
@@ -73,11 +90,14 @@ VALUES ('TC-CTSW004', 1, NOW(), '070430', 'VVTSZTZX', 'VVHHZTZX', 'text', 'appli
 ```sql
 SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW004';
 ```
-* **Kết quả mong muốn**: `status = 5` (FAILED). Payload ghi nhận log lỗi phân tích cú pháp.
+* **Kết quả mong muốn**:
+  - `status = 5` (`OUT_FAILED`).
+  - Trường `payload_content` chứa chuỗi log chi tiết: `Validation failed: Syntax error...`.
 
 ---
 
 ### CTSW005: Convert Incoming IPM with Subject
+* **Mục đích kiểm thử**: Kiểm tra Gateway bảo toàn trường Tiêu đề (`subject = 'FLIGHT ADVISORY'`) từ thông điệp AMHS và ánh xạ vào trường `"subject"` trong JSON.
 * **Câu lệnh nạp dữ liệu (Input)**:
 ```sql
 INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_type, content_type, status, text, subject) 
@@ -88,13 +108,16 @@ VALUES ('TC-CTSW005', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'text', 'appli
 ```sql
 SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW005';
 ```
-* **Kết quả mong muốn**: `status = 3`. Trong JSON tại `payload_content` có thuộc tính `"subject": "FLIGHT ADVISORY"`.
+* **Kết quả mong muốn**:
+  - `status = 4` (`OUT_PUBLISHED`).
+  - Chuỗi JSON trong `payload_content` chứa thuộc tính `"subject": "FLIGHT ADVISORY"`.
 
 ---
 
 ### CTSW006: Reject IPM Exceeding Max Size
-* **Quy trình**: Cấu hình cấu phần `gateway.max-payload-size = 100` (100 Bytes).
-* **Câu lệnh nạp dữ liệu (Input)**: Chèn bản tin dài hơn 100 ký tự:
+* **Mục đích kiểm thử**: Kiểm tra tính năng bảo vệ Gateway khỏi tấn công từ chối dịch vụ (DoS) bằng cách từ chối các điện văn có dung lượng vượt quá cấu hình `MAX_PAYLOAD_SIZE`.
+* **Điều kiện tiên quyết**: Đặt cấu hình `UPDATE gateway_config SET config_value = '100' WHERE config_key = 'MAX_PAYLOAD_SIZE';` (Giới hạn tối đa 100 Bytes).
+* **Câu lệnh nạp dữ liệu (Input)**: Chèn bản tin dài 150 Bytes:
 ```sql
 INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_type, content_type, status, text) 
 VALUES ('TC-CTSW006', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'text', 'application/json', 0,
@@ -104,7 +127,9 @@ VALUES ('TC-CTSW006', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'text', 'appli
 ```sql
 SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW006';
 ```
-* **Kết quả mong muốn**: `status = 5` (FAILED). Payload chứa thông báo từ chối do vượt quá kích thước cho phép.
+* **Kết quả mong muốn**:
+  - `status = 5` (`OUT_FAILED`).
+  - `payload_content` chứa thông báo: `Rejected: Message size exceeds maximum allowed payload size`.
 
 ---
 
@@ -115,17 +140,20 @@ SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW006';
 ---
 
 ### CTSW008: Reject IPM with Unsupported Content-Type
+* **Mục đích kiểm thử**: Kiểm tra bộ lọc loại nội dung Content-Type. Gateway từ chối các điện văn có định dạng không nằm trong danh sách được phép `ALLOWED_CONTENT_TYPES`.
 * **Câu lệnh nạp dữ liệu (Input)**:
 ```sql
 INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_type, content_type, status, text) 
-VALUES ('TC-CTSW008', 'GG', NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'text', 'application/unknown-mime-type', 0,
+VALUES ('TC-CTSW008', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'text', 'application/unknown-mime-type', 0,
 'METAR VVNB 070430Z 15004KT 9999 FEW020 28/24 Q1010 NOSIG=');
 ```
 * **Lệnh kiểm tra (Verify)**:
 ```sql
 SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW008';
 ```
-* **Kết quả mong muốn**: `status = 5` (FAILED). Log báo Content-Type không hỗ trợ.
+* **Kết quả mong muốn**:
+  - `status = 5` (`OUT_FAILED`).
+  - `payload_content = 'Unsupported Content-Type'`.
 
 ---
 
@@ -136,109 +164,74 @@ SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW008';
 ---
 
 ### CTSW010: Reject IPM addressing More AMQP Consumers Than Max
-* **Quy trình**: Đặt cấu hình số địa chỉ nhận tối đa `gateway.max-recipients = 2`.
-* **Câu lệnh nạp dữ liệu (Input)**: Chèn bản tin gửi tới 3 địa chỉ nhận:
+* **Mục đích kiểm thử**: Kiểm tra giới hạn số lượng địa chỉ người nhận (`address`) trên một điện văn.
+* **Điều kiện tiên quyết**: Đặt cấu hình `UPDATE gateway_config SET config_value = '2' WHERE config_key = 'MAX_RECIPIENTS';` (Cho phép tối đa 2 địa chỉ nhận).
+* **Câu lệnh nạp dữ liệu (Input)**: Chèn bản tin gửi cho 3 địa chỉ (`VVHHZTZX, VVTSZTZX, VVDNZTZX`):
 ```sql
 INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_type, content_type, status, text) 
-VALUES ('TC-CTSW010', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX VVTSZPZX VVDNZPZX', 'text', 'application/json', 0,
+VALUES ('TC-CTSW010', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX, VVTSZTZX, VVDNZTZX', 'text', 'application/json', 0,
 'METAR VVNB 070430Z 15004KT 9999 FEW020 28/24 Q1010 NOSIG=');
 ```
 * **Lệnh kiểm tra (Verify)**:
 ```sql
 SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW010';
 ```
-* **Kết quả mong muốn**: `status = 5` (FAILED). Log báo số người nhận vượt quá giới hạn cấu hình.
+* **Kết quả mong muốn**:
+  - `status = 5` (`OUT_FAILED`).
+  - `payload_content` ghi nhận lỗi từ chối do vượt quá số người nhận cho phép.
 
 ---
 
 ### CTSW011: Probe Conveyance Test
-
-* **Mô tả**:
-Kiểm tra Gateway xử lý bản tin Probe hợp lệ. Gateway phải tiếp nhận bản tin Probe, xử lý thành công và tạo Probe Report phản hồi theo đúng chuẩn AMHS.
-
+* **Mục đích kiểm thử**: Kiểm tra tính năng tiếp nhận và xử lý điện Probe (điện kiểm thử đường truyền từ mạng AMHS).
 * **Câu lệnh nạp dữ liệu (Input)**:
-
 ```sql
-INSERT INTO gwout
-(amhsid, amhs_priority, time, filing_time, origin, address, body_part_type, content_type, status, text)
-VALUES
-('TC-CTSW011', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'ia5-text-body-part', 'application/json', 0, 'PROBE REQUEST');
+INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_type, content_type, status, text) 
+VALUES ('TC-CTSW011', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'probe', 'application/json', 0, 'PROBE REQUEST');
 ```
-
-* **Thao tác kiểm tra**:
-
+* **Lệnh kiểm tra (Verify)**:
 ```sql
 SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW011';
 ```
-
 * **Kết quả mong muốn**:
+  - `status = 4` (`OUT_PUBLISHED`).
+  - `payload_content` chứa thông báo: `DR: Probe verified successfully. Delivery Report generated.`.
 
-- `status = 3`.
-- Gateway xử lý thành công bản tin Probe.
-- Sinh Probe Report phản hồi.
-- Không phát sinh Exception hoặc lỗi xử lý.
+---
 
 ### CTSW012: Reject Probe for Unknown Recipients
-
-* **Mô tả**:
-Kiểm tra Gateway từ chối bản tin Probe khi địa chỉ nhận không tồn tại trong cấu hình định tuyến.
-
-* **Điều kiện tiên quyết**:
-- Gateway đang hoạt động bình thường.
-- Địa chỉ `ZZZZZTZX` không tồn tại trong cấu hình Gateway.
-
+* **Mục đích kiểm thử**: Kiểm tra từ chối bản tin Probe khi địa chỉ người nhận (`ZZZZZTZX`) không tồn tại trong cấu hình định tuyến của hệ thống.
 * **Câu lệnh nạp dữ liệu (Input)**:
-
 ```sql
-INSERT INTO gwout
-(amhsid, amhs_priority, time, filing_time, origin, address, body_part_type, content_type, status, text)
-VALUES
-('TC-CTSW012', 2, NOW(), '070430', 'VVNBZTZX', 'ZZZZZTZX', 'ia5-text-body-part', 'application/json', 0, 'PROBE REQUEST');
+INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_type, content_type, status, text) 
+VALUES ('TC-CTSW012', 2, NOW(), '070430', 'VVNBZTZX', 'ZZZZZTZX', 'probe', 'application/json', 0, 'PROBE REQUEST TO UNKNOWN');
 ```
-
-* **Thao tác kiểm tra**:
-
+* **Lệnh kiểm tra (Verify)**:
 ```sql
 SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW012';
 ```
+* **Kết quả mong用途**:
+  - `status = 5` (`OUT_FAILED`).
+  - `payload_content` ghi nhận NDR: `NDR: Unknown recipient: ZZZZZTZX`.
 
-* **Kết quả mong muốn**:
-
-- Gateway từ chối xử lý bản tin.
-- `status` chuyển sang trạng thái lỗi (theo quy ước của hệ thống).
-- Có log ghi nhận địa chỉ nhận không hợp lệ.
-- Không sinh Probe Report.
+---
 
 ### CTSW013: Reject Probe with Unknown Originator Address
-
-* **Mô tả**:
-Kiểm tra Gateway từ chối bản tin Probe khi địa chỉ Originator không hợp lệ hoặc không được phép gửi.
-
-* **Điều kiện tiên quyết**:
-- Gateway đang hoạt động bình thường.
-- Địa chỉ `UNKNOWNZTZX` không được cấu hình là Originator hợp lệ.
-
+* **Mục đích kiểm thử**: Kiểm tra từ chối điện Probe xuất phát từ một người gửi không xác định (`UNKNOWNZTZX`).
 * **Câu lệnh nạp dữ liệu (Input)**:
-
 ```sql
-INSERT INTO gwout
-(amhsid, amhs_priority, time, filing_time, origin, address, body_part_type, content_type, status, text)
-VALUES
-('TC-CTSW013', 2, NOW(), '070430', 'UNKNOWNZTZX', 'VVHHZTZX', 'ia5-text-body-part', 'application/json', 0, 'PROBE REQUEST');
+INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_type, content_type, status, text) 
+VALUES ('TC-CTSW013', 2, NOW(), '070430', 'UNKNOWNZTZX', 'VVHHZTZX', 'probe', 'application/json', 0, 'PROBE REQUEST FROM UNKNOWN');
 ```
-
-* **Thao tác kiểm tra**:
-
+* **Lệnh kiểm tra (Verify)**:
 ```sql
-SELECT status FROM gwout WHERE amhsid = 'TC-CTSW013';
+SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW013';
 ```
-
 * **Kết quả mong muốn**:
+  - `status = 5` (`OUT_FAILED`).
+  - `payload_content` ghi nhận NDR: `NDR: Unknown originator 'UNKNOWNZTZX'`.
 
-- Gateway từ chối bản tin Probe.
-- `status` chuyển sang trạng thái lỗi.
-- Không sinh Probe Report.
-- Có log ghi nhận Originator không hợp lệ hoặc không được phép gửi Probe.
+---
 
 ### CTSW014: Process RN for Priority != 'SS'
 
@@ -276,7 +269,7 @@ SELECT status FROM gwout WHERE amhsid = 'MSG-001';
 
 * **Kết quả mong muốn**:
 
-- Bản tin RN được xử lý thành công (`status = 3`).
+- Bản tin RN được xử lý thành công (`status = 4`).
 - Gateway xác định đúng bản tin gốc.
 - Trạng thái bản tin gốc được cập nhật sang trạng thái "Delivered/Received" theo quy ước của hệ thống.
 - Không phát sinh lỗi trong quá trình cập nhật.
@@ -315,8 +308,9 @@ SELECT status FROM gwout WHERE amhsid = 'TC-CTSW015';
 
 ---
 
-### CTSW016: Process EIT
-* **Câu lệnh nạp dữ liệu (Input)**: Chèn bản tin có `body_part_type = '401'` (mã thô của ISODE).
+### CTSW016: Process EIT (Body Part Code 401)
+* **Mục đích kiểm thử**: Kiểm tra tính năng tự động chuyển đổi chuẩn hóa mã số thô ISODE (`body_part_type = '401'`) thành chuỗi định dạng chuẩn ICAO `ia5-text-body-part`.
+* **Câu lệnh nạp dữ liệu (Input)**:
 ```sql
 INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_part_type, content_type, status, text) 
 VALUES ('TC-CTSW016', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', '401', 'application/json', 0,
@@ -324,9 +318,11 @@ VALUES ('TC-CTSW016', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', '401', 'applic
 ```
 * **Lệnh kiểm tra (Verify)**:
 ```sql
-SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW016';
+SELECT status, body_part_type, payload_content FROM gwout WHERE amhsid = 'TC-CTSW016';
 ```
-* **Kết quả mong muốn**: `status = 3` (Hoặc xử lý thành công). Kiểu mã hóa được tự động chuẩn hóa sang `ia5-text-body-part` để bảo đảm tính hợp lệ của SWIM.
+* **Kết quả mong muốn**:
+  - `status = 4` (`OUT_PUBLISHED`).
+  - Giá trị trong cột `body_part_type` được chuyển thành `ia5-text-body-part`.
 
 ---
 
@@ -343,7 +339,7 @@ VALUES ('TC-CTSW017', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'ia5-text-body
 SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW017';
 ```
 
-- Bản ghi được xử lý thành công (`status = 3`).
+- Bản ghi được xử lý thành công (`status = 4` - OUT_PUBLISHED).
 - Trường `payload_content` được sinh ra ở định dạng JSON.
 - JSON chứa:
   - `messageType = "METAR"`
@@ -355,28 +351,20 @@ SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW017';
 ---
 
 ### CTSW018: Convert IPM with General-Text (ISO 646)
-* **Mô tả**: Thử nghiệm với bản tin mã hóa bảng mã General Text (ISO 646).
+* **Mục đích kiểm thử**: Kiểm tra khả năng tiếp nhận điện văn mã hóa bảng mã General Text (ISO 646) dạng `content_type = 'text/plain'` và chuyển đổi sang UTF-8 SWIM JSON chuẩn xác.
 * **Câu lệnh nạp dữ liệu (Input)**:
-
 ```sql
 INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_part_type, content_type, status, text)
-VALUES ('TC-CTSW018', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'general-text-body-part', 'text/plain', 0, 'THIS IS A GENERAL TEXT MESSAGE USING ISO 646 CHARACTER SET.');
+VALUES ('TC-CTSW018', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'general-text-body-part', 'text/plain', 0, 
+'THIS IS A GENERAL TEXT MESSAGE USING ISO 646 CHARACTER SET.');
 ```
 * **Lệnh kiểm tra (Verify)**:
 ```sql
 SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW018';
 ```
-* **Kết quả mong muốn**: Dịch và hiển thị nội dung UTF-8 chuẩn xác trong SWIM JSON.
-- `status = 3` (xử lý thành công).
-- Trường `payload_content` được sinh ra.
-- Nội dung trong `payload_content` là JSON hợp lệ.
-- Nội dung text được giải mã đúng từ bảng mã ISO 646 sang UTF-8.
-- Không xuất hiện ký tự lỗi (`�`, `?`) hoặc lỗi mã hóa.
-- Chuỗi trong JSON phải trùng khớp với nội dung đầu vào:
-
-```text
-THIS IS A GENERAL TEXT MESSAGE USING ISO 646 CHARACTER SET.
-```
+* **Kết quả mong muốn**:
+  - `status = 4` (`OUT_PUBLISHED`).
+  - `payload_content` chứa chuỗi JSON hợp lệ với nội dung giải mã đúng từ ISO 646 sang UTF-8, không có ký tự lỗi.
 
 ---
 
@@ -401,29 +389,26 @@ SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW019';
 ---
 
 ### CTSW020: Notify SS Message to Control Position
-* **Câu lệnh nạp dữ liệu (Input)**: Chèn bản tin khẩn nguy có độ ưu tiên chữ là `SS` (hoặc số ưu tiên `0` tương ứng):
+* **Mục đích kiểm thử**: Kiểm tra xử lý ưu tiên cho bản tin khẩn nguy (`amhs_priority = 'SS'`). Gateway ưu tiên chuyển đổi, đồng thời tự động phát sinh sự kiện cảnh báo đỏ hiển thị lên Dashboard Control Position.
+* **Câu lệnh nạp dữ liệu (Input)**:
 ```sql
 INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_type, content_type, status, text) 
 VALUES ('TC-CTSW020', 'SS', NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'text', 'application/json', 0,
 'ZCZC ALR001
+
 SS VVHHZTZX
+
 070430 VVNBZTZX
+
 ALR TYPE A');
 ```
-
-* **Thao tác kiểm tra**:
+* **Lệnh kiểm tra (Verify)**:
 ```sql
 SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW020';
 ```
-
-* **Kết quả mong muốn**: Trạng thái xử lý thành công. Đồng thời hệ thống ghi nhận vào bảng cảnh báo và hiển thị cảnh báo khẩn nguy trực quan trên Dashboard Control Panel.
-- `status = 3`.
-- `payload_content` được tạo thành công.
-- JSON chứa mức ưu tiên `SS` hoặc giá trị ưu tiên tương ứng.
-- Gateway phát sinh sự kiện cảnh báo đến Control Position.
-- Nếu hệ thống có bảng lưu cảnh báo thì sinh thêm một bản ghi tương ứng.
-- Dashboard Control Panel hiển thị cảnh báo khẩn nguy với mức ưu tiên `SS`.
-- Không phát sinh lỗi trong log của Gateway.
+* **Kết quả mong muốn**:
+  - `status = 4` (`OUT_PUBLISHED`).
+  - Bản tin được phát sinh sự kiện cảnh báo ưu tiên khẩn nguy `SS` gửi sang màn hình điều hành Control Position.
 
 ---
 
@@ -463,7 +448,7 @@ SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW020';
 ```
 * **Lệnh kiểm tra (Verify)**:
 ```sql
-SELECT status, text, priority, time FROM gwin WHERE amhsid = 'TC-CTSW101';
+SELECT status, text, priority, time FROM gwin WHERE message_id = 'TC-CTSW101' OR payload_content LIKE '%TC-CTSW101%';
 ```
 * **Kết quả mong muốn**: Tạo thành công bản ghi trong bảng `gwin` chứa phong bì mặc định và nội dung văn bản hàng không (TAC) hoàn chỉnh.
 
@@ -837,6 +822,7 @@ SWIM Test Tool gửi chuỗi 7 thông điệp AMQP tới IUT giải quyết cho 
 Lệnh kiểm tra bảng `gwin`:
 ```sql
 SELECT status, text, priority, time, body_type FROM gwin WHERE payload_content LIKE '%TC-CTSW103%';
+```
 
 ---
 

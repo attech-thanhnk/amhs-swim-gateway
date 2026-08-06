@@ -43,7 +43,15 @@ public interface GwoutRepository extends JpaRepository<Gwout, Long> {
         long countByStatus(int status);
 
         @Modifying
-        @Query(value = "INSERT IGNORE INTO gwout_history SELECT * FROM gwout WHERE status IN (4, 6, 7) AND time <= :threshold", nativeQuery = true)
+        @Query(value = """
+                        INSERT IGNORE INTO gwout_history (
+                                msgid, amhsid, amhs_priority, swim_priority, time, filing_time, text, body_type, origin, address, optional_heading, subject, amhs_ttl, amhs_registered_id, amhs_delivery_report, content_type, status, payload_content, body_part_type, rejection_reason, error_type
+                        )
+                        SELECT 
+                                msgid, amhsid, amhs_priority, swim_priority, time, filing_time, text, body_type, origin, address, optional_heading, subject, amhs_ttl, amhs_registered_id, amhs_delivery_report, content_type, status, payload_content, body_part_type, rejection_reason, error_type
+                        FROM gwout
+                        WHERE status IN (4, 6, 7) AND time <= :threshold
+                        """, nativeQuery = true)
         int archiveOldRecords(@Param("threshold") java.time.LocalDateTime threshold);
 
         @Modifying

@@ -16,8 +16,10 @@ public enum MessageStatus {
 
     // Outbound (Gwout) statuses
     OUT_PENDING(0),
+    OUT_PROCESSING(1),
     OUT_TRANSFORMED(2),
-    OUT_PUBLISHED(3),
+    OUT_PUBLISHING(3),
+    OUT_PUBLISHED(4),
     OUT_FAILED(5),
     OUT_RESOLVED(6),
     OUT_CANCELLED(7);

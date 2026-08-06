@@ -91,8 +91,8 @@ public class Gwin {
     private String addressingSource;
 
     /**
-     * Global Status.
-     * 0=PENDING, 1=PROCESSING, 2=SENT, 3=FAILED, 4=DEAD, 5=UNROUTED
+     * Global Status:
+     * 0=PENDING, 1=PROCESSING, 2=TRANSFORMED, 3=SENT, 4=FAILED, 5=UNROUTED, 6=RESOLVED, 7=CANCELLED
      */
     @Column(name = "status")
     private Integer status = MessageStatus.IN_PENDING.getValue();

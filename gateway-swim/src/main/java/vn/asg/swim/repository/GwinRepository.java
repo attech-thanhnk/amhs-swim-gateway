@@ -31,7 +31,15 @@ public interface GwinRepository extends JpaRepository<Gwin, Long> {
     long countByStatus(int status);
 
     @Modifying
-    @Query(value = "INSERT IGNORE INTO gwin_history SELECT * FROM gwin WHERE status IN (3, 6, 7) AND time <= :threshold", nativeQuery = true)
+    @Query(value = """
+            INSERT IGNORE INTO gwin_history (
+                msgid, cpa, message_id, source, subject, amqp_properties, priority, time, payload_content, text, body_type, content_type, origin, address, addressing_source, status, error_type
+            )
+            SELECT 
+                msgid, cpa, message_id, source, subject, amqp_properties, priority, time, payload_content, text, body_type, content_type, origin, address, addressing_source, status, error_type
+            FROM gwin
+            WHERE status IN (3, 6, 7) AND time <= :threshold
+            """, nativeQuery = true)
     int archiveOldRecords(@Param("threshold") java.time.LocalDateTime threshold);
 
     @Modifying

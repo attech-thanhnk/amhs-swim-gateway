@@ -67,6 +67,12 @@ public class GwoutHistory {
     @Column(name = "status")
     private Integer status = MessageStatus.OUT_PENDING.getValue();
 
+    @Column(name = "body_part_type", length = 50)
+    private String bodyPartType;
+
+    @Column(name = "rejection_reason", length = 64)
+    private String rejectionReason;
+
     @Column(name = "error_type")
     private Integer errorType = ErrorType.UNDEFINED.getValue();
 

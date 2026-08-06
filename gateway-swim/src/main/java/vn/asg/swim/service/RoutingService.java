@@ -7,6 +7,7 @@ import vn.asg.swim.entity.Routing;
 import vn.asg.swim.repository.RoutingRepository;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -28,21 +29,23 @@ public class RoutingService {
 
         List<Routing> rules = routingRepository.findByDirectionAndActiveTrueOrderByPriorityAsc("OUT");
 
-        // Thử lần 1: So khớp chính xác
+        // Thử lần 1: So khớp chính xác (không phân biệt hoa thường)
         Optional<Routing> match = rules.stream()
-                .filter(r -> messageType.equalsIgnoreCase(r.getMessageType()))
+                .filter(r -> r.getMessageType() != null && messageType.equalsIgnoreCase(r.getMessageType()))
                 .findFirst();
 
         if (match.isPresent()) {
             return match;
         }
 
-        // Thử lần 2: So khớp tiền tố (ví dụ: METAR_TEXT khớp METAR)
+        // Thử lần 2: So khớp linh hoạt hai chiều (ví dụ: rType METAR_TEXT khớp mType METAR)
         return rules.stream()
                 .filter(r -> {
+                    if (r.getMessageType() == null) return false;
                     String rType = r.getMessageType().toUpperCase();
                     String mType = messageType.toUpperCase();
-                    return mType.startsWith(rType + "_") || mType.startsWith(rType + " ");
+                    return rType.startsWith(mType + "_") || rType.startsWith(mType + " ") || rType.startsWith(mType)
+                        || mType.startsWith(rType + "_") || mType.startsWith(rType + " ") || mType.startsWith(rType);
                 })
                 .findFirst();
     }
@@ -75,7 +78,7 @@ public class RoutingService {
         return routingRepository.findByDirectionAndActiveTrueOrderByPriorityAsc("IN")
                 .stream()
                 .map(Routing::getReceiveTopic)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .distinct()
                 .toList();
     }
