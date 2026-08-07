@@ -88,7 +88,7 @@ public class AmhsToGwoutSyncScheduler {
                     .getResultList();
 
             if (rows == null || rows.isEmpty()) {
-                log.trace("AMHS sync checked: 0 new messages found.");
+                log.debug("AMHS sync check: 0 unsynced messages found for {}", localAddressPattern);
                 return;
             }
 
@@ -156,7 +156,7 @@ public class AmhsToGwoutSyncScheduler {
                     // Set initial status to PENDING
                     gwout.setStatus(MessageStatus.OUT_PENDING.getValue());
 
-                    gwoutRepository.save(gwout);
+                    gwoutRepository.saveAndFlush(gwout);
                     log.info("Synced AMHS message ID {} -> gwout#{}", messageId, gwout.getMsgid());
 
                 } catch (Exception e) {
