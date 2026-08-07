@@ -182,29 +182,6 @@ public class AMQPSubscriberService {
         boolean payloadMissing = false;
         boolean payloadMismatch = false;
 
-        String contentType = getMsgProperty(amqpMsg, root, isEnvelopeJson, "content-type");
-        if (contentType == null || contentType.isBlank()) {
-            contentType = getMsgProperty(amqpMsg, root, isEnvelopeJson, "contentType");
-        }
-        if (contentType == null || contentType.isBlank()) {
-            contentType = getMsgProperty(amqpMsg, root, isEnvelopeJson, "content_type");
-        }
-
-        boolean contentTypeSupported = true;
-        if (contentType != null && !contentType.isBlank()) {
-            String ct = contentType.toLowerCase();
-            if (!ct.contains("text/plain") && !ct.contains("application/json") && !ct.contains("application/octet-stream")) {
-                contentTypeSupported = false;
-                log.warn("AMQP: Unsupported content-type '{}'", contentType);
-            }
-            if (ct.contains("text/") || ct.contains("json") || ct.contains("xml")) {
-                binaryPayload = null;
-                if (finalContent != null) {
-                    finalContent = finalContent.replace("\u0000", "");
-                }
-            }
-        }
-
         if (isEnvelopeJson && root != null) {
             JsonNode amqpValNode = root.get("amqp-value");
             if (amqpValNode == null || amqpValNode.isNull()) amqpValNode = root.get("amqp_value");
@@ -278,6 +255,12 @@ public class AMQPSubscriberService {
             if (!ct.contains("text/plain") && !ct.contains("application/json") && !ct.contains("application/octet-stream")) {
                 contentTypeSupported = false;
                 log.warn("AMQP: Unsupported content-type '{}'", contentType);
+            }
+            if (ct.contains("text/") || ct.contains("json") || ct.contains("xml")) {
+                binaryPayload = null;
+                if (finalContent != null) {
+                    finalContent = finalContent.replace("\u0000", "");
+                }
             }
         }
 
