@@ -47,7 +47,7 @@ services:
       - "8180:8180"
     environment:
       - SERVER_PORT=8180
-      - DB_URL=jdbc:mysql://mysql57:3306/asg_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh&useUnicode=true&characterEncoding=UTF-8
+      - DB_URL=jdbc:mysql://mysql57:3306/asg_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&useUnicode=true&characterEncoding=UTF-8
       - DB_USER=root
       - DB_PASS=123456
       - LOG_LEVEL_ASG=INFO
@@ -82,7 +82,7 @@ services:
       - "8181:8181"
     environment:
       - SERVER_PORT=8181
-      - DB_URL=jdbc:mysql://mysql57:3306/asg_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh&useUnicode=true&characterEncoding=UTF-8
+      - DB_URL=jdbc:mysql://mysql57:3306/asg_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&useUnicode=true&characterEncoding=UTF-8
       - DB_USER=root
       - DB_PASS=123456
       - AMQP_HOST=host.docker.internal

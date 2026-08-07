@@ -72,6 +72,8 @@ public class GwoutPollerScheduler {
         if (batch.isEmpty())
             return;
 
+        log.info("Found {} pending gwout messages to convert", batch.size());
+
         for (Gwout gwout : batch) {
             try {
                 outboundDispatchService.convertOutboundMessage(gwout);

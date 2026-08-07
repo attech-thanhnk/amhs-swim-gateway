@@ -22,7 +22,6 @@ import java.util.List;
  * Scheduler to sync messages from AMHS tables 
  */
 @Component
-@RequiredArgsConstructor
 @Slf4j
 public class AmhsToGwoutSyncScheduler {
 
@@ -30,6 +29,12 @@ public class AmhsToGwoutSyncScheduler {
     private final EntityManager entityManager;
     private final GwoutRepository gwoutRepository;
     private final ConfigService configService;
+
+    public AmhsToGwoutSyncScheduler(EntityManager entityManager, GwoutRepository gwoutRepository, ConfigService configService) {
+        this.entityManager = entityManager;
+        this.gwoutRepository = gwoutRepository;
+        this.configService = configService;
+    }
 
     private boolean tableMissingLogged = false;
 
@@ -44,9 +49,10 @@ public class AmhsToGwoutSyncScheduler {
     /**
      * Periodically syncs new messages destined for VVTSSWIM from AMHS database 
      */
-    @Scheduled(fixedDelay = 2000, initialDelay = 5000)
+    @Scheduled(fixedDelay = 2000, initialDelay = 1000)
     @Transactional
     public void syncAmhsToGwout() {
+        log.info("AMHS sync scheduler tick - checking mtcu_tmp...");
         try {
             String localAddress = "VVTSSWIM";
             try {
@@ -87,8 +93,9 @@ public class AmhsToGwoutSyncScheduler {
                     .setParameter("vvtsswimPattern", vvtsswimPattern)
                     .getResultList();
 
+            log.info("AMHS sync query returned {} rows", rows != null ? rows.size() : 0);
+
             if (rows == null || rows.isEmpty()) {
-                log.debug("AMHS sync check: 0 unsynced messages found for {}", localAddressPattern);
                 return;
             }
 
