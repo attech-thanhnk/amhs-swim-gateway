@@ -33,135 +33,129 @@ public class AmhsToGwoutSyncScheduler {
     private boolean tableMissingLogged = false;
 
     /**
-     * Checks if a table exists in the current database schema.
-     */
-    private boolean isTablePresent(String tableName) {
-        try {
-            Number count = (Number) entityManager.createNativeQuery(
-                    "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = LOWER(:tableName)")
-                    .setParameter("tableName", tableName)
-                    .getSingleResult();
-            return count != null && count.longValue() > 0;
-        } catch (Exception e) {
-            log.warn("Failed to check existence for table '{}' via INFORMATION_SCHEMA: {}", tableName, e.getMessage());
-            return true; // Fallback to true so native query executes
-        }
-    }
-
-    /**
      * Periodically syncs new messages destined for VVTSSWIM from AMHS database 
      */
     @Scheduled(fixedDelay = 2000, initialDelay = 5000)
     @Transactional
     public void syncAmhsToGwout() {
-        if (!isTablePresent("mtcu_tmp")) {
-            if (!tableMissingLogged) {
-                log.warn("AMHS source table 'mtcu_tmp' does not exist in database. Skipping AMHS -> gwout sync.");
-                tableMissingLogged = true;
-            }
-            return;
-        }
-        tableMissingLogged = false;
-
-        String localAddress = "VVTSSWIM";
         try {
-            localAddress = configService.getDefaultOriginator();
-        } catch (Exception e) {
-            log.warn("Failed to read default originator from config, fallback to 'VVTSSWIM'");
-        }
-        String localAddressPattern = "%" + localAddress + "%";
-
-        String sql = """
-            SELECT 
-                t.id, 
-                t.content, 
-                t.atsFilingTime, 
-                t.atsPriority, 
-                t.atsOhi, 
-                t.bodyPartType, 
-                t.ipmId, 
-                t.messageId, 
-                t.orAddress,
-                o.address AS recipient_address
-            FROM mtcu_tmp t
-            JOIN mtcu_to o ON t.id = o.receiveMessage_id
-            WHERE o.address LIKE :gatewayAddress
-              AND t.messageId IS NOT NULL
-              AND NOT EXISTS (
-                  SELECT 1 FROM gwout g WHERE g.amhsid = t.messageId
-              )
-        """;
-
-        @SuppressWarnings("unchecked")
-        List<Object[]> rows = entityManager.createNativeQuery(sql)
-                .setParameter("gatewayAddress", localAddressPattern)
-                .getResultList();
-        if (rows.isEmpty()) {
-            return;
-        }
-
-        log.info("Found {} new AMHS messages to sync to gwout", rows.size());
-
-        for (Object[] row : rows) {
+            String localAddress = "VVTSSWIM";
             try {
-                String content = (String) row[1];
-                String atsFilingTime = (String) row[2];
-                String atsPriority = (String) row[3];
-                String atsOhi = (String) row[4];
-                String bodyPartType = row[5] != null ? row[5].toString() : null;
-                String messageId = (String) row[7];
-                String orAddress = (String) row[8];
-                String recipientAddress = (String) row[9];
-
-                Gwout gwout = new Gwout();
-                gwout.setAmhsid(messageId);
-                gwout.setText(content);
-                gwout.setTime(LocalDateTime.now());
-                gwout.setFilingTime(atsFilingTime);
-                gwout.setOptionalHeading(atsOhi);
-                gwout.setAmhsPriority(atsPriority);
-                // Ánh xạ mã bodyPartType (ví dụ 401) từ DB AMHS sang chuỗi chuẩn của ICAO EUR Doc 047
-                String standardBodyPartType = null;
-                String bodyType = "text";
-                if (bodyPartType != null) {
-                    if ("401".equals(bodyPartType) || "ia5-text".equalsIgnoreCase(bodyPartType) || "ia5-text-body-part".equalsIgnoreCase(bodyPartType)) {
-                        standardBodyPartType = "ia5-text-body-part";
-                        bodyType = "text";
-                    } else if ("402".equals(bodyPartType) || "general-text".equalsIgnoreCase(bodyPartType) || "general-text-body-part".equalsIgnoreCase(bodyPartType)) {
-                        standardBodyPartType = "general-text-body-part";
-                        bodyType = "text";
-                    } else {
-                        standardBodyPartType = "file-transfer-body-part";
-                        bodyType = "ftbp";
-                    }
+                String cfg = configService.getDefaultOriginator();
+                if (cfg != null && !cfg.isBlank()) {
+                    localAddress = cfg;
                 }
-                gwout.setBodyPartType(standardBodyPartType);
-                gwout.setBodyType(bodyType);
-                
-                // Convert originator to short format
-                String shortOrigin = AddressUtil.getShort(orAddress);
-                gwout.setOrigin(shortOrigin != null ? shortOrigin : orAddress);
-                
-                // Convert recipient to short format
-                String shortRecipient = AddressUtil.getShort(recipientAddress);
-                gwout.setAddress(shortRecipient != null ? shortRecipient : recipientAddress);
-                
-                // Map ATS priority to AMQP numeric priority
-                int numericPriority = 2;
-                if (atsPriority != null) {
-                    numericPriority = AmqpProperties.mapAtsPriorityToAmqp(atsPriority);
-                }
-                gwout.setSwimPriority(numericPriority);
-                
-                // Set initial status to PENDING
-                gwout.setStatus(MessageStatus.OUT_PENDING.getValue());
-
-                gwoutRepository.save(gwout);
-                log.info("Synced AMHS message ID {} -> gwout#{}", messageId, gwout.getMsgid());
-
             } catch (Exception e) {
-                log.error("Failed to sync AMHS message row: {}", e.getMessage(), e);
+                log.warn("Failed to read default originator from config, fallback to 'VVTSSWIM'");
             }
+            String localAddressPattern = "%" + localAddress + "%";
+            String vvtsswimPattern = "%VVTSSWIM%";
+
+            String sql = """
+                SELECT 
+                    t.id, 
+                    t.content, 
+                    t.atsFilingTime, 
+                    t.atsPriority, 
+                    t.atsOhi, 
+                    t.bodyPartType, 
+                    t.ipmId, 
+                    t.messageId, 
+                    t.orAddress,
+                    o.address AS recipient_address
+                FROM mtcu_tmp t
+                JOIN mtcu_to o ON t.id = o.receiveMessage_id
+                WHERE (o.address LIKE :gatewayAddress OR o.address LIKE :vvtsswimPattern)
+                  AND t.messageId IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM gwout g WHERE g.amhsid = t.messageId
+                  )
+            """;
+
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = entityManager.createNativeQuery(sql)
+                    .setParameter("gatewayAddress", localAddressPattern)
+                    .setParameter("vvtsswimPattern", vvtsswimPattern)
+                    .getResultList();
+
+            if (rows == null || rows.isEmpty()) {
+                log.trace("AMHS sync checked: 0 new messages found.");
+                return;
+            }
+
+            log.info("Found {} new AMHS messages to sync to gwout", rows.size());
+
+            for (Object[] row : rows) {
+                try {
+                    String content = (String) row[1];
+                    String atsFilingTime = (String) row[2];
+                    String atsPriority = (String) row[3];
+                    String atsOhi = (String) row[4];
+                    String bodyPartType = row[5] != null ? row[5].toString() : null;
+                    String messageId = (String) row[7];
+                    String orAddress = (String) row[8];
+                    String recipientAddress = (String) row[9];
+
+                    Gwout gwout = new Gwout();
+                    if (messageId != null && messageId.length() > 200) messageId = messageId.substring(0, 200);
+                    gwout.setAmhsid(messageId);
+                    gwout.setText(content);
+                    gwout.setTime(LocalDateTime.now());
+                    if (atsFilingTime != null && atsFilingTime.length() > 6) atsFilingTime = atsFilingTime.substring(0, 6);
+                    gwout.setFilingTime(atsFilingTime);
+                    if (atsOhi != null && atsOhi.length() > 60) atsOhi = atsOhi.substring(0, 60);
+                    gwout.setOptionalHeading(atsOhi);
+                    if (atsPriority != null && atsPriority.length() > 10) atsPriority = atsPriority.substring(0, 10);
+                    gwout.setAmhsPriority(atsPriority);
+                    // Ánh xạ mã bodyPartType (ví dụ 401) từ DB AMHS sang chuỗi chuẩn của ICAO EUR Doc 047
+                    String standardBodyPartType = null;
+                    String bodyType = "text";
+                    if (bodyPartType != null) {
+                        if ("401".equals(bodyPartType) || "ia5-text".equalsIgnoreCase(bodyPartType) || "ia5-text-body-part".equalsIgnoreCase(bodyPartType)) {
+                            standardBodyPartType = "ia5-text-body-part";
+                            bodyType = "text";
+                        } else if ("402".equals(bodyPartType) || "general-text".equalsIgnoreCase(bodyPartType) || "general-text-body-part".equalsIgnoreCase(bodyPartType)) {
+                            standardBodyPartType = "general-text-body-part";
+                            bodyType = "text";
+                        } else {
+                            standardBodyPartType = "file-transfer-body-part";
+                            bodyType = "ftbp";
+                        }
+                    }
+                    gwout.setBodyPartType(standardBodyPartType);
+                    gwout.setBodyType(bodyType);
+                    
+                    // Convert originator to short format
+                    String shortOrigin = AddressUtil.getShort(orAddress);
+                    String finalOrigin = shortOrigin != null ? shortOrigin : orAddress;
+                    if (finalOrigin != null && finalOrigin.length() > 200) finalOrigin = finalOrigin.substring(0, 200);
+                    gwout.setOrigin(finalOrigin);
+                    
+                    // Convert recipient to short format
+                    String shortRecipient = AddressUtil.getShort(recipientAddress);
+                    String finalRecipient = shortRecipient != null ? shortRecipient : recipientAddress;
+                    if (finalRecipient != null && finalRecipient.length() > 1000) finalRecipient = finalRecipient.substring(0, 1000);
+                    gwout.setAddress(finalRecipient);
+                    
+                    // Map ATS priority to AMQP numeric priority
+                    int numericPriority = 2;
+                    if (atsPriority != null) {
+                        numericPriority = AmqpProperties.mapAtsPriorityToAmqp(atsPriority);
+                    }
+                    gwout.setSwimPriority(numericPriority);
+                    
+                    // Set initial status to PENDING
+                    gwout.setStatus(MessageStatus.OUT_PENDING.getValue());
+
+                    gwoutRepository.save(gwout);
+                    log.info("Synced AMHS message ID {} -> gwout#{}", messageId, gwout.getMsgid());
+
+                } catch (Exception e) {
+                    log.error("Failed to sync AMHS message row: {}", e.getMessage(), e);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("AMHS to gwout sync check error: {}", e.getMessage());
         }
     }
 }
