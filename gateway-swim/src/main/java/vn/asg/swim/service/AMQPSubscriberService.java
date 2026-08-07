@@ -558,7 +558,8 @@ public class AMQPSubscriberService {
         // Phân giải địa chỉ
         ResolvedAddressing resolved = addressingResolver.resolve(amqpMsg, queue, finalContent);
 
-        // 5. Trích xuất và kiểm tra người nhận amhs_recipients
+        // 5. Trích xuất người nhận (Recipients Fallback Chain)
+        // Step 1: Lấy từ AMQP Header / Envelope Application Properties
         List<String> recipientsList = getAppPropertyAsList(amqpMsg, root, isEnvelopeJson, "amhs_recipients");
         if (recipientsList.isEmpty()) {
             recipientsList = getAppPropertyAsList(amqpMsg, root, isEnvelopeJson, "recipients");
@@ -566,20 +567,29 @@ public class AMQPSubscriberService {
         if (recipientsList.isEmpty()) {
             recipientsList = getAppPropertyAsList(amqpMsg, root, isEnvelopeJson, "addressees");
         }
-        if (recipientsList.isEmpty() && resolved != null && resolved.recipients() != null) {
-            String[] parts = resolved.recipients().trim().split("\\s+");
-            for (String part : parts) {
-                if (!part.isBlank()) recipientsList.add(part);
+
+        // Step 2: Lấy từ Direct JSON Payload body (nếu payload là JSON trực tiếp)
+        if (recipientsList.isEmpty() && root != null && !isEnvelopeJson && root.hasNonNull("recipients")) {
+            JsonNode recipientNode = root.get("recipients");
+            String amhsRecipientsValue = recipientNode.asText().trim();
+            if (!amhsRecipientsValue.isEmpty()) {
+                String[] parts = amhsRecipientsValue.split("[,\\s]+");
+                for (String part : parts) {
+                    String trimmed = part.trim();
+                    if (!trimmed.isBlank() && !recipientsList.contains(trimmed)) {
+                        recipientsList.add(trimmed);
+                    }
+                }
             }
         }
 
-        // thêm vào bằng recipients được gửi theo điện văn
-        JsonNode recipientNode = root.get("recipients");
-        String amhsRecipientsValue = recipientNode.asText().trim();
-        if (amhsRecipientsValue != null && !amhsRecipientsValue.isEmpty()) {
-            String[] parts = amhsRecipientsValue.split(",");
+        // Step 3: Fallback sang kết quả phân giải địa chỉ (AddressingResolver)
+        if (recipientsList.isEmpty() && resolved != null && resolved.recipients() != null) {
+            String[] parts = resolved.recipients().trim().split("\\s+");
             for (String part : parts) {
-                if (!part.isBlank()) recipientsList.add(part);
+                if (!part.isBlank() && !recipientsList.contains(part)) {
+                    recipientsList.add(part);
+                }
             }
         }
 

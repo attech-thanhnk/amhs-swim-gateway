@@ -422,4 +422,16 @@ class AMQPSubscriberServiceTest {
             gwin.getStatus().equals(MessageStatus.IN_UNROUTED.getValue())
         ));
     }
+
+    @Test
+    void testPlainTextPayload_ShouldNotThrowNpe() throws JMSException {
+        // Given: Plain text message like ICAO FPL (not JSON root)
+        String plainTextFpl = "(FPL-HVN123-IS-B738/M-SDE2E3FGHIJ1RW/S-VVTS0200-N0450F350 DCT-VVNB0140 DCT)";
+        when(textMessage.getText()).thenReturn(plainTextFpl);
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        // When & Then: Should process without NullPointerException
+        assertDoesNotThrow(() -> service.handleMessage(amqpMessage, "ats/fpl/flightplan"));
+        verify(gwinRepository).save(argThat(gwin -> gwin.getMessageId().equals("test-msg-123")));
+    }
 }
