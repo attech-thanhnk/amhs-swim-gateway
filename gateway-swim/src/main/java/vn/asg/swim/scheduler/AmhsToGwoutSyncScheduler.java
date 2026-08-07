@@ -14,6 +14,7 @@ import vn.asg.converter.common.AddressUtil;
 import vn.asg.swim.model.AmqpProperties;
 import vn.asg.swim.service.ConfigService;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -31,6 +32,14 @@ public class AmhsToGwoutSyncScheduler {
     private final ConfigService configService;
 
     private boolean tableMissingLogged = false;
+
+    private String asString(Object obj) {
+        if (obj == null) return null;
+        if (obj instanceof byte[] bytes) {
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
+        return obj.toString();
+    }
 
     /**
      * Periodically syncs new messages destined for VVTSSWIM from AMHS database 
@@ -87,14 +96,14 @@ public class AmhsToGwoutSyncScheduler {
 
             for (Object[] row : rows) {
                 try {
-                    String content = (String) row[1];
-                    String atsFilingTime = (String) row[2];
-                    String atsPriority = (String) row[3];
-                    String atsOhi = (String) row[4];
-                    String bodyPartType = row[5] != null ? row[5].toString() : null;
-                    String messageId = (String) row[7];
-                    String orAddress = (String) row[8];
-                    String recipientAddress = (String) row[9];
+                    String content = asString(row[1]);
+                    String atsFilingTime = asString(row[2]);
+                    String atsPriority = asString(row[3]);
+                    String atsOhi = asString(row[4]);
+                    String bodyPartType = asString(row[5]);
+                    String messageId = asString(row[7]);
+                    String orAddress = asString(row[8]);
+                    String recipientAddress = asString(row[9]);
 
                     Gwout gwout = new Gwout();
                     if (messageId != null && messageId.length() > 200) messageId = messageId.substring(0, 200);
