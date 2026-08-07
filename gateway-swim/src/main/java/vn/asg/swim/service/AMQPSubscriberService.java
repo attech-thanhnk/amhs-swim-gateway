@@ -828,19 +828,24 @@ public class AMQPSubscriberService {
                 }
             }
 
-            try {
-                String tac = conversionService.toAmhs(finalContent, effectiveType);
-                gwin.setText(tac);
+            if ("ftbp".equalsIgnoreCase(bodyType) || "file-transfer-body-part".equalsIgnoreCase(amhsBodypartType)) {
+                gwin.setText(finalContent);
                 gwin.setStatus(resolved != null && resolved.isResolved() ? MessageStatus.IN_PENDING.getValue() : MessageStatus.IN_UNROUTED.getValue());
-            } catch (Exception e) {
-                log.error("AMQP {} Conversion FAILED: {}", amqpMsgId, e.getMessage());
-                gwin.setText("CONVERSION_FAILED: " + e.getMessage() + "\n" + finalContent);
-                gwin.setStatus(MessageStatus.IN_FAILED.getValue());
-                alertService.create(
-                        GwAlert.TYPE_CONVERT_ERROR,
-                        GwAlert.SEV_WARNING,
-                        "Conversion failed: " + e.getMessage(),
-                        "gwin", null);
+            } else {
+                try {
+                    String tac = conversionService.toAmhs(finalContent, effectiveType);
+                    gwin.setText(tac);
+                    gwin.setStatus(resolved != null && resolved.isResolved() ? MessageStatus.IN_PENDING.getValue() : MessageStatus.IN_UNROUTED.getValue());
+                } catch (Exception e) {
+                    log.error("AMQP {} Conversion FAILED: {}", amqpMsgId, e.getMessage());
+                    gwin.setText("CONVERSION_FAILED: " + e.getMessage() + "\n" + finalContent);
+                    gwin.setStatus(MessageStatus.IN_FAILED.getValue());
+                    alertService.create(
+                            GwAlert.TYPE_CONVERT_ERROR,
+                            GwAlert.SEV_WARNING,
+                            "Conversion failed: " + e.getMessage(),
+                            "gwin", null);
+                }
             }
 
             try {

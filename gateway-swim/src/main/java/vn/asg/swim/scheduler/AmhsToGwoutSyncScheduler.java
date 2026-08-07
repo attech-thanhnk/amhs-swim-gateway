@@ -78,13 +78,22 @@ public class AmhsToGwoutSyncScheduler {
                     t.messageId, 
                     t.orAddress,
                     o.address AS recipient_address
-                FROM mtcu_tmp t
+                FROM (
+                    SELECT id, content, atsFilingTime, atsPriority, atsOhi, bodyPartType, ipmId, messageId, orAddress
+                    FROM mtcu_tmp
+                    ORDER BY id DESC
+                    LIMIT 200
+                ) t
                 JOIN mtcu_to o ON t.id = o.receiveMessage_id
                 WHERE (o.address LIKE :gatewayAddress OR o.address LIKE :vvtsswimPattern)
                   AND t.messageId IS NOT NULL
                   AND NOT EXISTS (
                       SELECT 1 FROM gwout g WHERE g.amhsid = t.messageId
                   )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM gwout_history gh WHERE gh.amhsid = t.messageId
+                  )
+                ORDER BY t.id ASC
             """;
 
             @SuppressWarnings("unchecked")
