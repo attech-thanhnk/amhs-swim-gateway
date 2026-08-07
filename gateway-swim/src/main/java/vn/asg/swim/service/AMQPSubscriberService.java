@@ -142,12 +142,16 @@ public class AMQPSubscriberService {
         } else if (amqpMsg instanceof BytesMessage bm) {
             byte[] buf = new byte[(int) bm.getBodyLength()];
             bm.readBytes(buf);
-            String text = new String(buf, StandardCharsets.UTF_8);
-            if (text.stripLeading().startsWith("<") || isProbablyText(text.stripLeading())) {
-                textPayload = text;
+            if (buf.length >= 2 && ((buf[0] == (byte) 0xFF && buf[1] == (byte) 0xFE) || (buf[0] == (byte) 0xFE && buf[1] == (byte) 0xFF))) {
+                textPayload = new String(buf, StandardCharsets.UTF_16);
             } else {
-                textPayload = text;
-                binaryPayload = buf;
+                String text = new String(buf, StandardCharsets.UTF_8);
+                if (text.stripLeading().startsWith("<") || isProbablyText(text.stripLeading())) {
+                    textPayload = text;
+                } else {
+                    textPayload = text.replace("\u0000", "");
+                    binaryPayload = buf;
+                }
             }
         }
 
@@ -177,6 +181,29 @@ public class AMQPSubscriberService {
         boolean payloadConflict = false;
         boolean payloadMissing = false;
         boolean payloadMismatch = false;
+
+        String contentType = getMsgProperty(amqpMsg, root, isEnvelopeJson, "content-type");
+        if (contentType == null || contentType.isBlank()) {
+            contentType = getMsgProperty(amqpMsg, root, isEnvelopeJson, "contentType");
+        }
+        if (contentType == null || contentType.isBlank()) {
+            contentType = getMsgProperty(amqpMsg, root, isEnvelopeJson, "content_type");
+        }
+
+        boolean contentTypeSupported = true;
+        if (contentType != null && !contentType.isBlank()) {
+            String ct = contentType.toLowerCase();
+            if (!ct.contains("text/plain") && !ct.contains("application/json") && !ct.contains("application/octet-stream")) {
+                contentTypeSupported = false;
+                log.warn("AMQP: Unsupported content-type '{}'", contentType);
+            }
+            if (ct.contains("text/") || ct.contains("json") || ct.contains("xml")) {
+                binaryPayload = null;
+                if (finalContent != null) {
+                    finalContent = finalContent.replace("\u0000", "");
+                }
+            }
+        }
 
         if (isEnvelopeJson && root != null) {
             JsonNode amqpValNode = root.get("amqp-value");
@@ -802,7 +829,16 @@ public class AMQPSubscriberService {
 
         try {
             String effectiveType = subject;
-            if ("SWIM_INTERWORKING".equals(subject)) {
+            if (root != null) {
+                if (root.hasNonNull("messageType")) {
+                    effectiveType = root.get("messageType").asText().trim();
+                } else if (root.hasNonNull("message_type")) {
+                    effectiveType = root.get("message_type").asText().trim();
+                } else if (root.hasNonNull("msgType")) {
+                    effectiveType = root.get("msgType").asText().trim();
+                }
+            }
+            if ("SWIM_INTERWORKING".equalsIgnoreCase(effectiveType) || effectiveType == null || effectiveType.isBlank()) {
                 String detected = detectService.detect(finalContent);
                 if (!"UNKNOWN".equals(detected)) {
                     effectiveType = detected;

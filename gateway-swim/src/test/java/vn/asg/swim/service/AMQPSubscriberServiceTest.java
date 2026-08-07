@@ -434,4 +434,36 @@ class AMQPSubscriberServiceTest {
         assertDoesNotThrow(() -> service.handleMessage(amqpMessage, "ats/fpl/flightplan"));
         verify(gwinRepository).save(argThat(gwin -> gwin.getMessageId().equals("test-msg-123")));
     }
+
+    @Test
+    void testJsonMessageTypeExtraction_ShouldUseJsonMessageType() throws Exception {
+        String jsonFpl = """
+            {
+                "messageId": "FPL_TEXT_12345",
+                "messageType": "FPL",
+                "recipients": "VVVVNVNV"
+            }
+            """;
+        when(textMessage.getText()).thenReturn(jsonFpl);
+        when(amqpMessage.getStringProperty("amhs_subject")).thenReturn("SWIM_INTERWORKING");
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+        when(conversionService.toAmhs(anyString(), eq("FPL"))).thenReturn("(FPL-HVN679-IS...)");
+
+        service.handleMessage(amqpMessage, "ats/fpl/flightplan");
+
+        verify(conversionService).toAmhs(anyString(), eq("FPL"));
+    }
+
+    @Test
+    void testTextPlainContentTypeNotTreatedAsBinary() throws Exception {
+        when(amqpMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("text/plain; charset=\"utf-8\"");
+        when(amqpMessage.getStringProperty("amhs_subject")).thenReturn("FPL");
+        when(textMessage.getText()).thenReturn("Sample text with \u0000 NUL char");
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+        when(conversionService.toAmhs(anyString(), anyString())).thenReturn("(FPL-SAMPLE)");
+
+        service.handleMessage(amqpMessage, "ats/fpl/flightplan");
+
+        verify(gwinRepository).save(argThat(gwin -> !gwin.getText().contains("ATSMHS_VALIDATION_FAILED")));
+    }
 }
