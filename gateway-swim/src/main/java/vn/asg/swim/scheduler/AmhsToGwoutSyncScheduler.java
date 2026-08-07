@@ -37,14 +37,14 @@ public class AmhsToGwoutSyncScheduler {
      */
     private boolean isTablePresent(String tableName) {
         try {
-            @SuppressWarnings("unchecked")
-            List<Object> result = entityManager.createNativeQuery("SHOW TABLES LIKE :tableName")
+            Number count = (Number) entityManager.createNativeQuery(
+                    "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = LOWER(:tableName)")
                     .setParameter("tableName", tableName)
-                    .getResultList();
-            return result != null && !result.isEmpty();
+                    .getSingleResult();
+            return count != null && count.longValue() > 0;
         } catch (Exception e) {
-            log.debug("Failed to check existence for table '{}': {}", tableName, e.getMessage());
-            return false;
+            log.warn("Failed to check existence for table '{}' via INFORMATION_SCHEMA: {}", tableName, e.getMessage());
+            return true; // Fallback to true so native query executes
         }
     }
 
