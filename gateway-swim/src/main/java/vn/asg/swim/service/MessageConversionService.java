@@ -172,12 +172,21 @@ public class MessageConversionService {
             logEntry.setConvertedTime(LocalDateTime.now());
             if (actionTaken != null && actionTaken.length() > 255) {
                 logEntry.setActionTaken(actionTaken.substring(0, 255));
-                logEntry.setRemark(actionTaken);
+                logEntry.setRemark(actionTaken.length() > 1000 ? actionTaken.substring(0, 1000) : actionTaken);
             } else {
                 logEntry.setActionTaken(actionTaken);
             }
-            logEntry.setStatus(status);
-            logEntry.setNonDeliveryReason(rejectionReason);
+            logEntry.setStatus(status != null && status.length() > 8 ? status.substring(0, 8) : status);
+            if (rejectionReason != null) {
+                if (rejectionReason.length() > 64) {
+                    logEntry.setNonDeliveryReason(rejectionReason.substring(0, 64));
+                    if (logEntry.getRemark() == null) {
+                        logEntry.setRemark(rejectionReason.length() > 1000 ? rejectionReason.substring(0, 1000) : rejectionReason);
+                    }
+                } else {
+                    logEntry.setNonDeliveryReason(rejectionReason);
+                }
+            }
             conversionLogRepo.save(logEntry);
         } catch (Exception e) {
             log.error("Failed to write conversion log for AMQP {}: {}", amqpMessageId, e.getMessage());
