@@ -1,8 +1,8 @@
 package vn.asg.swim.service;
 
 import org.junit.jupiter.api.Test;
-import vn.asg.swim.entity.MessageTypeRegistry;
-import vn.asg.swim.repository.MessageTypeRegistryRepository;
+import vn.asg.swim.entity.Routing;
+import vn.asg.swim.repository.RoutingRepository;
 
 import java.util.List;
 
@@ -14,11 +14,11 @@ class MessageDetectServiceTest {
 
     @Test
     void detectTacMessageAfterOperationalHeaders() {
-        MessageTypeRegistryRepository repository = mock(MessageTypeRegistryRepository.class);
-        when(repository.findByActiveTrue()).thenReturn(List.of(
-                registry("NOTAM_TEXT", "("),
-                registry("ARR_TEXT", "(ARR-"),
-                registry("FPL_TEXT", "(FPL-")));
+        RoutingRepository repository = mock(RoutingRepository.class);
+        when(repository.findByDirectionAndActiveTrueOrderByPriorityAsc("OUT")).thenReturn(List.of(
+                rule("NOTAM_TEXT", "("),
+                rule("ARR_TEXT", "(ARR-"),
+                rule("FPL_TEXT", "(FPL-")));
 
         MessageDetectService service = new MessageDetectService(repository);
         service.reloadCache();
@@ -40,10 +40,10 @@ class MessageDetectServiceTest {
 
     @Test
     void detectFplAfterFlwRecHeaderFromDatabase() {
-        MessageTypeRegistryRepository repository = mock(MessageTypeRegistryRepository.class);
-        when(repository.findByActiveTrue()).thenReturn(List.of(
-                registry("NOTAM_TEXT", "("),
-                registry("FPL_TEXT", "(FPL-")));
+        RoutingRepository repository = mock(RoutingRepository.class);
+        when(repository.findByDirectionAndActiveTrueOrderByPriorityAsc("OUT")).thenReturn(List.of(
+                rule("NOTAM_TEXT", "("),
+                rule("FPL_TEXT", "(FPL-")));
 
         MessageDetectService service = new MessageDetectService(repository);
         service.reloadCache();
@@ -64,9 +64,9 @@ class MessageDetectServiceTest {
 
     @Test
     void detectSigmetAfterWmoBulletinAndFirPrefix() {
-        MessageTypeRegistryRepository repository = mock(MessageTypeRegistryRepository.class);
-        when(repository.findByActiveTrue()).thenReturn(List.of(
-                registry("SIGMET_TEXT", "SIGMET ")));
+        RoutingRepository repository = mock(RoutingRepository.class);
+        when(repository.findByDirectionAndActiveTrueOrderByPriorityAsc("OUT")).thenReturn(List.of(
+                rule("SIGMET_TEXT", "SIGMET ")));
 
         MessageDetectService service = new MessageDetectService(repository);
         service.reloadCache();
@@ -82,9 +82,9 @@ class MessageDetectServiceTest {
 
     @Test
     void detectMetarAfterInlineAftnHeader() {
-        MessageTypeRegistryRepository repository = mock(MessageTypeRegistryRepository.class);
-        when(repository.findByActiveTrue()).thenReturn(List.of(
-                registry("METAR_TEXT", "METAR ")));
+        RoutingRepository repository = mock(RoutingRepository.class);
+        when(repository.findByDirectionAndActiveTrueOrderByPriorityAsc("OUT")).thenReturn(List.of(
+                rule("METAR_TEXT", "METAR ")));
 
         MessageDetectService service = new MessageDetectService(repository);
         service.reloadCache();
@@ -96,9 +96,9 @@ class MessageDetectServiceTest {
 
     @Test
     void detectJsonPatternAcrossWhitespaceAndQuotes() {
-        MessageTypeRegistryRepository repository = mock(MessageTypeRegistryRepository.class);
-        when(repository.findByActiveTrue()).thenReturn(List.of(
-                registry("ARR", "\"messageType\":\"ARR\"")));
+        RoutingRepository repository = mock(RoutingRepository.class);
+        when(repository.findByDirectionAndActiveTrueOrderByPriorityAsc("OUT")).thenReturn(List.of(
+                rule("ARR", "\"messageType\":\"ARR\"")));
 
         MessageDetectService service = new MessageDetectService(repository);
         service.reloadCache();
@@ -113,11 +113,12 @@ class MessageDetectServiceTest {
         assertEquals("ARR", service.detect(body));
     }
 
-    private static MessageTypeRegistry registry(String messageType, String detectPattern) {
-        MessageTypeRegistry registry = new MessageTypeRegistry();
-        registry.setMessageType(messageType);
-        registry.setDetectPattern(detectPattern);
-        registry.setActive(true);
-        return registry;
+    private static Routing rule(String messageType, String detectPattern) {
+        Routing rule = new Routing();
+        rule.setDirection("OUT");
+        rule.setMessageType(messageType);
+        rule.setDetectPattern(detectPattern);
+        rule.setActive(true);
+        return rule;
     }
 }

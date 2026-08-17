@@ -2,9 +2,7 @@ package vn.asg.swim;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import vn.asg.converter.ConverterFacade;
 
 import jakarta.annotation.PostConstruct;
 import java.util.TimeZone;
@@ -19,11 +17,6 @@ public class SwimApplication {
     @PostConstruct
     public void init() {
         TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
-    }
-
-    @Bean
-    public ConverterFacade converterFacade() {
-        return new ConverterFacade();
     }
 }
 

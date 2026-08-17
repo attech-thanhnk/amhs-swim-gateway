@@ -120,11 +120,11 @@ public class MessageValidationService {
             errors.add("Failed to read AMQP message properties: " + e.getMessage());
         }
 
-        // S-08: Kiểm tra kích thước bản tin
+        // S-08: Kiểm tra kích thước bản tin (EUR Doc 047 §3.3.1.4: 0 hoặc không cấu hình = không giới hạn)
         if (payload != null) {
             int maxSize = configService.getMaxMsgDataSize();
             int actualSize = payload.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-            if (actualSize > maxSize) {
+            if (maxSize > 0 && actualSize > maxSize) {
                 errors.add(String.format("Message size %d bytes exceeds maximum %d bytes", actualSize, maxSize));
             }
         }
@@ -154,21 +154,21 @@ public class MessageValidationService {
             return ValidationResult.failure(errors);
         }
 
-        // C-05: Kiểm tra kích thước bản tin
+        // C-05: Kiểm tra kích thước bản tin (EUR Doc 047 §3.3.1.4: 0 hoặc không cấu hình = không giới hạn)
         if (payload != null) {
             int maxSize = configService.getMaxMsgDataSize();
             int actualSize = payload.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-            if (actualSize > maxSize) {
+            if (maxSize > 0 && actualSize > maxSize) {
                 errors.add(String.format("Message size %d bytes exceeds maximum %d bytes (content-too-long)",
                         actualSize, maxSize));
             }
         }
 
-        // C-07: Kiểm tra số lượng người nhận
+        // C-07: Kiểm tra số lượng người nhận (EUR Doc 047 §3.3.2.4: 0 hoặc không cấu hình = không giới hạn)
         if (recipients != null && !recipients.isBlank()) {
             String[] recipientArray = recipients.trim().split("\\s+");
             int maxRecipients = configService.getMaxMsgRecipients();
-            if (recipientArray.length > maxRecipients) {
+            if (maxRecipients > 0 && recipientArray.length > maxRecipients) {
                 errors.add(String.format("Recipients count %d exceeds maximum %d (too-many-recipients)",
                         recipientArray.length, maxRecipients));
             }
@@ -221,9 +221,9 @@ public class MessageValidationService {
         List<String> errors = new ArrayList<>();
         String[] addresses = recipients.trim().split("\\s+");
 
-        // S-09: Kiểm tra số lượng người nhận
+        // S-09: Kiểm tra số lượng người nhận (EUR Doc 047 §3.3.2.4: 0 hoặc không cấu hình = không giới hạn)
         int maxRecipients = configService.getMaxMsgRecipients();
-        if (addresses.length > maxRecipients) {
+        if (maxRecipients > 0 && addresses.length > maxRecipients) {
             errors.add(String.format("Recipients count %d exceeds maximum %d", addresses.length, maxRecipients));
         }
 

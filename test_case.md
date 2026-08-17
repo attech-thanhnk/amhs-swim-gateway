@@ -139,8 +139,14 @@ SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW006';
 
 ---
 
-### CTSW008: Reject IPM with Unsupported Content-Type
-* **Mục đích kiểm thử**: Kiểm tra bộ lọc loại nội dung Content-Type. Gateway từ chối các điện văn có định dạng không nằm trong danh sách được phép `ALLOWED_CONTENT_TYPES`.
+### CTSW008: Reject IPM with Unsupported Content-Type — SUPERSEDED (2026-08-16)
+> **Đính chính**: Test case này dựa trên cách hiểu sai khái niệm "content-type". Theo EUR Doc 047 v3.0
+> §4.4.1.1, "content-type" cho chiều AMHS→SWIM là abstract-value X.400 (có phải
+> `"interpersonal-messaging-1988"` — tức IPM hợp lệ — hay không), **không phải chuỗi MIME type**
+> (`application/json`, `text/plain`...). Bộ lọc `ALLOWED_CONTENT_TYPES` theo MIME type đã được gỡ khỏi
+> `OutboundDispatchService`. Loại mã hoá nội dung thực sự (ia5-text/general-text/file-transfer) đã được
+> kiểm tra đúng chỗ khác thông qua EIT/`body_part_type` (xem CTSW016).
+* **Mục đích kiểm thử (cũ, không còn áp dụng)**: Kiểm tra bộ lọc loại nội dung Content-Type. Gateway từ chối các điện văn có định dạng không nằm trong danh sách được phép `ALLOWED_CONTENT_TYPES`.
 * **Câu lệnh nạp dữ liệu (Input)**:
 ```sql
 INSERT INTO gwout (amhsid, amhs_priority, time, filing_time, origin, address, body_type, content_type, status, text) 
@@ -151,9 +157,8 @@ VALUES ('TC-CTSW008', 2, NOW(), '070430', 'VVNBZTZX', 'VVHHZTZX', 'text', 'appli
 ```sql
 SELECT status, payload_content FROM gwout WHERE amhsid = 'TC-CTSW008';
 ```
-* **Kết quả mong muốn**:
-  - `status = 5` (`OUT_FAILED`).
-  - `payload_content = 'Unsupported Content-Type'`.
+* **Kết quả mong muốn (đã cập nhật)**:
+  - `status = 4` (`OUT_PUBLISHED`) — bản tin vẫn được xử lý và phát đi bình thường, giá trị `content_type` không còn được dùng để lọc.
 
 ---
 

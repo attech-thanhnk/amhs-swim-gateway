@@ -22,6 +22,9 @@ public class GwoutHistory {
     @Column(name = "amhsid", length = 200)
     private String amhsid;
 
+    @Column(name = "ipm_id", length = 200)
+    private String ipmId;
+
     @Column(name = "amhs_priority", length = 10)
     private String amhsPriority;
 
@@ -69,6 +72,18 @@ public class GwoutHistory {
 
     @Column(name = "body_part_type", length = 50)
     private String bodyPartType;
+
+    @Column(name = "body_part_charset", length = 20)
+    private String bodyPartCharset;
+
+    @Column(name = "ftbp_file_name", length = 255)
+    private String ftbpFileName;
+
+    @Column(name = "ftbp_object_size", length = 20)
+    private String ftbpObjectSize;
+
+    @Column(name = "ftbp_last_mod", length = 20)
+    private String ftbpLastMod;
 
     @Column(name = "rejection_reason", length = 64)
     private String rejectionReason;

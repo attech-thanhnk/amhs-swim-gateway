@@ -24,7 +24,6 @@ public class GwinDispatch {
 
     // Failed step constants
     public static final String STEP_ROUTING = "routing";
-    public static final String STEP_CONVERT = "convert";
     public static final String STEP_SEND = "send";
 
     @Id
@@ -66,7 +65,7 @@ public class GwinDispatch {
     private String lastError;
 
     /**
-     * Step where the failure occurred: routing / convert / send
+     * Step where the failure occurred: routing / send
      */
     @Column(name = "failed_step", length = 20)
     private String failedStep;

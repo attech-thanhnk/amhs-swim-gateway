@@ -36,7 +36,7 @@ public class Gwin {
     private String source;
 
     /** AMQP Subject Header. Example: FUM, DPI, METAR */
-    @Column(name = "subject", length = 100)
+    @Column(name = "subject", length = 128)
     private String subject;
 
     /**

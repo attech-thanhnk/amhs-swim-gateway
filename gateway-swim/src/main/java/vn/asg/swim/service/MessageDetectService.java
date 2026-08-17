@@ -5,8 +5,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import vn.asg.swim.entity.MessageTypeRegistry;
-import vn.asg.swim.repository.MessageTypeRegistryRepository;
+import vn.asg.swim.entity.Routing;
+import vn.asg.swim.repository.RoutingRepository;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -15,18 +15,19 @@ import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Tự động nhận dạng loại bản tin từ nội dung.
- * Sử dụng khớp mẫu và tự động làm mới bộ nhớ đệm (cache) mỗi 5 phút.
+ * Tự động nhận dạng loại bản tin từ nội dung, dùng cho chiều AMHS -> SWIM.
+ * Mẫu nhận diện lấy từ cột detect_pattern của các rule routing direction=OUT.
+ * Tự động làm mới bộ nhớ đệm (cache) mỗi 5 phút.
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class MessageDetectService {
 
-    private final MessageTypeRegistryRepository registryRepository;
+    private final RoutingRepository routingRepository;
 
-    // Bộ nhớ đệm chứa các loại bản tin, sắp xếp theo độ dài mẫu giảm dần để tránh khớp nhầm
-    private final List<MessageTypeRegistry> cache = new CopyOnWriteArrayList<>();
+    // Bộ nhớ đệm chứa các rule OUT có detect_pattern, sắp xếp theo độ dài mẫu giảm dần để tránh khớp nhầm
+    private final List<Routing> cache = new CopyOnWriteArrayList<>();
 
     /**
      * Nạp lại cấu hình từ cơ sở dữ liệu mỗi 5 phút.
@@ -35,7 +36,7 @@ public class MessageDetectService {
     @Scheduled(fixedDelay = 300_000)
     public void reloadCache() {
         try {
-            List<MessageTypeRegistry> all = registryRepository.findByActiveTrue().stream()
+            List<Routing> all = routingRepository.findByDirectionAndActiveTrueOrderByPriorityAsc("OUT").stream()
                     .filter(r -> r.getDetectPattern() != null && !r.getDetectPattern().isEmpty())
                     .sorted(Comparator.comparingInt(r -> -r.getDetectPattern().length()))
                     .toList();
@@ -44,7 +45,7 @@ public class MessageDetectService {
             cache.addAll(all);
             log.debug("Reload message type cache: {} types", all.size());
         } catch (Exception e) {
-            log.error("Failed to reload message_type_registry: {}", e.getMessage());
+            log.error("Failed to reload routing detect patterns: {}", e.getMessage());
         }
     }
 
@@ -86,7 +87,7 @@ public class MessageDetectService {
         log.debug("Detect: normalized length={}, candidates={}", normalizedBody.length(), candidates.size());
 
         // Khớp với từng mẫu trong cache (đã sắp xếp theo độ dài giảm dần)
-        for (MessageTypeRegistry reg : cache) {
+        for (Routing reg : cache) {
             String pattern = reg.getDetectPattern();
             if (pattern == null || pattern.isEmpty()) continue;
 

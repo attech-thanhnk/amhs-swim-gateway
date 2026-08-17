@@ -6,10 +6,12 @@ USE asg_db;
 SET NAMES 'utf8mb4';
 SET CHARACTER SET utf8mb4;
 
+SET FOREIGN_KEY_CHECKS = 0;
+
 -- ============================================================
--- gateway_config defaults
+-- 1. gateway_config
 -- ============================================================
-INSERT INTO `gateway_config` (`config_key`, `config_value`, `description`, `updated_at`) VALUES
+INSERT IGNORE INTO `gateway_config` (`config_key`, `config_value`, `description`, `updated_at`) VALUES
 ('MAX_MESSAGE_RECIPIENTS',  '20',    'Max recipients per message (0 = unlimited)', NOW()),
 ('POLL_INTERVAL_MS',        '500',   'Tần suất poll tin tức (ms)', NOW()),
 ('INBOUND_BATCH_SIZE',      '10',    'Số lượng tin AMHS xử lý mỗi lô', NOW()),
@@ -21,8 +23,9 @@ INSERT INTO `gateway_config` (`config_key`, `config_value`, `description`, `upda
 ('JWT_SECRET', 'asgGatewaySecretKey2026ChangeInProduction!', 'Khóa bí mật tạo JWT', NOW()),
 ('JWT_EXPIRATION_MS', '3600000', 'Thời hạn Token (ms) - Mặc định 1 giờ', NOW()),
 ('LOG_RETENTION_DAYS',      '30',    'Số ngày giữ log hệ thống', NOW()),
-('DEFAULT_ORIGINATOR_AFTN', 'VVHHZPZX', 'AFTN originator mặc định. Ví dụ: VVHHZPZX', NOW()),
-('DEFAULT_RECIPIENTS_INBOUND', 'VVHHZTZX', 'Recipients mặc định khi không resolve được', NOW()),
+('CLEANUP_ARCHIVE_AFTER_HOURS', '24', 'Số giờ trước khi archive bản ghi đã xử lý xong sang bảng history', NOW()),
+('CLEANUP_RETENTION_DAYS',  '30',    'Số ngày giữ bản ghi trong bảng history trước khi xóa hẳn (EUR Doc 047 §2.5.2.2.3/§2.5.3.2.3: tối thiểu 30 ngày)', NOW()),
+('DEFAULT_ORIGINATOR_AFTN', 'VVHHZPZX', 'AFTN originator cho bản tin', NOW()),
 ('CONVERSION_DIRECTION',    'BOTH',  'BOTH / AMHS_TO_SWIM / SWIM_TO_AMHS', NOW()),
 ('ATSMHS_SERVICE_LEVEL', 'CONTENT_BASED', 'EXTENDED / BASIC / CONTENT_BASED / RECIPIENTS_BASED', NOW()),
 ('AUTHORIZED_AMHS_USERS', 'ALL', 'ALL / BY_LIST / BY_PRMD', NOW()),
@@ -33,208 +36,110 @@ INSERT INTO `gateway_config` (`config_key`, `config_value`, `description`, `upda
 ('ATSMHS_EXTENDED_CAPABLE_ADDRESSES', '', 'Danh sách địa chỉ hỗ trợ Extended ATSMHS', NOW()),
 ('STRICT_COMPLIANCE_MODE', 'false', 'Bật chế độ kiểm tra EUR Doc 047 (S-06)', NOW()),
 ('MAX_MSG_DATA_SIZE', '2097152', 'Kích thước tin tối đa (bytes) - Mặc định 2MB', NOW()),
-('ALLOWED_ORIGINS', 'http://192.168.22.159:5173,http://localhost:5173,http://localhost:3000', 'CORS Allowed Origins (Frontend trên máy 159)', NOW()),
-('GATEWAY_IP', '0.0.0.0', 'IP lắng nghe (0.0.0.0 để nghe mọi card mạng LAN)', NOW()),
-('SERVER_PORT_CP', '8180', 'Cổng dịch vụ Dashboard (CP)', NOW()),
-('SERVER_PORT_SWIM', '8181', 'Cổng dịch vụ SWIM Component', NOW());
+('ALLOWED_ORIGINS', 'http://192.168.22.159:5173,http://localhost:5173,http://localhost:3000', 'CORS Allowed Origins', NOW()),
+('GATEWAY_IP', '0.0.0.0', 'IP lắng nghe', NOW()),
+('SERVER_PORT_CP', '8180', 'Cổng Dashboard', NOW()),
+('SERVER_PORT_SWIM', '8181', 'Cổng SWIM Component', NOW()),
+('GATEWAY_ID', 'ASG-GW-01', 'Định danh Gateway', NOW());
 
 -- ============================================================
--- message_type_registry — nhận diện điện văn
+-- 2. users
 -- ============================================================
-INSERT INTO `message_type_registry` (`message_type`, `detect_pattern`, `scope_source`, `difficulty`, `phase`, `active`, `note`) VALUES
-('METAR', '<iwxxm:METAR', 'body_xml', 'easy', 1, 1, 'IWXXM METAR'),
-('FPL', '<fx:FlightPlan', 'body_xml', 'easy', 1, 1, 'FIXM Flight Plan'),
-('NOTAM', '<aixm:Event', 'body_xml', 'medium', 1, 1, 'AIXM NOTAM'),
-('TAF', '<iwxxm:TAF', 'body_xml', 'easy', 1, 1, 'IWXXM TAF'),
-('SIGMET', '<iwxxm:SIGMET', 'body_xml', 'medium', 1, 1, 'IWXXM SIGMET'),
-('SPECI', '<iwxxm:SPECI', 'body_xml', 'easy', 1, 1, 'IWXXM SPECI'),
-('METAR_TEXT', 'METAR ', 'fixed', 'easy', 1, 1, 'Legacy TAC METAR'),
-('SPECI_TEXT', 'SPECI ', 'fixed', 'easy', 1, 1, 'Legacy TAC SPECI'),
-('FPL_TEXT', '(FPL-', 'fixed', 'easy', 1, 1, 'Legacy TAC FPL'),
-('DEP_TEXT', '(DEP-', 'fixed', 'easy', 1, 1, 'Legacy TAC DEP'),
-('ARR_TEXT', '(ARR-', 'fixed', 'easy', 1, 1, 'Legacy TAC ARR'),
-('CHG_TEXT', '(CHG-', 'fixed', 'easy', 1, 1, 'Legacy TAC CHG'),
-('CNL_TEXT', '(CNL-', 'fixed', 'easy', 1, 1, 'Legacy TAC CNL'),
-('DLA_TEXT', '(DLA-', 'fixed', 'easy', 1, 1, 'Legacy TAC DLA'),
-('NOTAM_TEXT', 'NOTAM ', 'fixed', 'easy', 1, 1, 'Legacy TAC NOTAM'),
-('TAF_TEXT', 'TAF ', 'fixed', 'easy', 1, 1, 'Legacy TAC TAF'),
-('SIGMET_TEXT', 'SIGMET ', 'fixed', 'easy', 1, 1, 'Legacy TAC SIGMET');
-
--- ============================================================
--- routing — dữ liệu mẫu
--- ============================================================
-INSERT INTO `routing` (`direction`, `message_type`, `amhs_address`, `send_queue`, `priority`, `active`, `created_at`, `updated_at`) VALUES
-('OUT', 'METAR', 'VVHHYNYX', 'ats/met/vn', 10, 1, NOW(), NOW()),
-('OUT', 'METAR', 'VVTSYNYX', 'ats/met/vn', 10, 1, NOW(), NOW()),
-('OUT', 'FPL',   'VVHHZPZX', 'ats/atfm/vn', 10, 1, NOW(), NOW()),
-('OUT', 'FPL',   'VVTSZPZX', 'ats/atfm/vn', 10, 1, NOW(), NOW()),
-('OUT', 'NOTAM', 'VVNBZQZX', 'ats/atfm/vn', 10, 1, NOW(), NOW()),
-('OUT', 'METAR_TEXT', 'VVHHZQZX', 'ats/met/vn', 10, 1, NOW(), NOW()),
-('OUT', 'FPL_TEXT',   'VVHHZPZX', 'ats/atfm/vn', 10, 1, NOW(), NOW()),
-('OUT', 'SPECI',      NULL,      'ats/met/vn', 100, 1, NOW(), NOW()),
-('OUT', 'TAF',        NULL,      'ats/met/vn', 100, 1, NOW(), NOW()),
-('OUT', 'SIGMET',     NULL,      'ats/met/vn', 100, 1, NOW(), NOW()),
-('OUT', 'SPECI_TEXT', NULL,      'ats/met/vn', 100, 1, NOW(), NOW()),
-('OUT', 'TAF_TEXT',   NULL,      'ats/met/vn', 100, 1, NOW(), NOW()),
-('OUT', 'SIGMET_TEXT', NULL,     'ats/met/vn', 100, 1, NOW(), NOW()),
-('OUT', 'DEP_TEXT',   NULL,      'ats/atfm/vn', 100, 1, NOW(), NOW()),
-('OUT', 'ARR_TEXT',   NULL,      'ats/atfm/vn', 100, 1, NOW(), NOW()),
-('OUT', 'CHG_TEXT',   NULL,      'ats/atfm/vn', 100, 1, NOW(), NOW()),
-('OUT', 'CNL_TEXT',   NULL,      'ats/atfm/vn', 100, 1, NOW(), NOW()),
-('OUT', 'DLA_TEXT',   NULL,      'ats/atfm/vn', 100, 1, NOW(), NOW()),
-('OUT', 'NOTAM_TEXT', NULL,      'ats/atfm/vn', 100, 1, NOW(), NOW());
-
--- ============================================================
--- users — Danh sách người dùng hệ thống CP mặc định (password: Admin@123)
--- ============================================================
-INSERT INTO `users` (`id`, `username`, `password`, `email`, `full_name`, `role`, `is_active`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `users` (`id`, `username`, `password`, `email`, `full_name`, `role`, `is_active`, `created_at`, `updated_at`) VALUES
 (1, 'admin', '$2a$10$9rwGdXi0PX2nRAEVfQ3zKe0Y/8t2Dx6uxE4HOCjiuvA7.IofHGJzC', 'admin@example.com', 'System Administrator', 'admin', 1, NOW(), NOW()),
 (2, 'viewer', '$2a$10$9rwGdXi0PX2nRAEVfQ3zKe0Y/8t2Dx6uxE4HOCjiuvA7.IofHGJzC', 'viewer@example.com', 'Viewer User', 'viewer', 1, NOW(), NOW());
 
 -- ============================================================
--- accounts — mẫu 1 account Solace
+-- 3. accounts
 -- ============================================================
-INSERT INTO `accounts` (`account_name`, `protocol`, `host`, `port`, `config_json`, `status`, `bind_status`, `sasl_mechanism`, `tls_enabled`) VALUES
-('solace-broker-1', 'AMQP', '192.168.22.159', 5672,
- '{"username":"admin","password":"admin","vpn":"default"}',
- 'ACTIVE', 'DISCONNECTED', 'PLAIN', 0);
+INSERT IGNORE INTO `accounts` (`account_name`, `protocol`, `host`, `port`, `config_json`, `status`, `bind_status`) VALUES
+('solace-broker-primary', 'AMQP', 'host.docker.internal', 5672,
+ '{"username":"admin","password":"admin","vpn":"default"}', 'ACTIVE', 'DISCONNECTED');
 
 -- ============================================================
--- gwout — vài bản ghi mẫu để test
+-- 4. routing (Full Coverage)
+-- Nội dung bản tin luôn được forward nguyên văn (EUR Doc 047: không convert
+-- TAC<->JSON) — cột convert_to_json không còn được code sử dụng nên bỏ khỏi seed.
+-- detect_pattern (chiều OUT) thay thế bảng message_type_registry cũ — chỉ giữ mẫu
+-- TAC vì nội dung AMHS thật luôn là TAC, không bao giờ là JSON.
 -- ============================================================
-INSERT INTO `gwout` (`priority`, `time`, `TEXT`, `origin`, `address`, `amhsid`, `ipm_id`, `filing_time`, `priority2`, `status`, `body_part_type`, `content_type`) VALUES
-(4, NOW(), '<?xml version="1.0" encoding="UTF-8"?><iwxxm:METAR xmlns:iwxxm="http://icao.int/iwxxm/3.0" xmlns:aixm="http://www.aixm.aero/schema/5.1.1" xmlns:gml="http://www.opengis.net/gml/3.2" status="NORMAL"><iwxxm:aerodrome><aixm:AirportHeliport gml:id="ah-vvhh"><aixm:timeSlice><aixm:AirportHeliportTimeSlice gml:id="ahts-vvhh"><aixm:locationIndicatorICAO>VVHH</aixm:locationIndicatorICAO></aixm:AirportHeliportTimeSlice></aixm:timeSlice></aixm:AirportHeliport></iwxxm:aerodrome></iwxxm:METAR>',
- 'VVHHZQZX', 'VVHHYNYX VVTSYNYX', 'VN/HAN/20260407/000001', 'VVHH.20260407.001',
- '070000', 4, 0, 'ia5-text', 'text/plain'),
+INSERT IGNORE INTO `routing` (`direction`, `message_type`, `detect_pattern`, `send_topic`, `priority`, `active`, `note`, `created_by`) VALUES
+-- AMHS -> SWIM (OUT) - Meteorological Group
+('OUT', 'METAR_TEXT',  'METAR ',    'ats/met/metar',  10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'SPECI_TEXT',  'SPECI ',    'ats/met/speci',  10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'TAF_TEXT',    'TAF ',      'ats/met/taf',    10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'SIGMET_TEXT', 'SIGMET ',   'ats/met/sigmet', 5,  1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'AIRMET_TEXT', 'AIRMET ',   'ats/met/airmet', 8,  1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'GAMET_TEXT',  'GAMET ',    'ats/met/gamet',  12, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'SNOWTAM_TEXT','(SNOWTAM',  'ats/met/snowtam', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'ASHTAM_TEXT', 'ASHTAM ',   'ats/met/ashtam', 5,  1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'VAA_TEXT',    'VAA ',      'ats/met/vaa',    5,  1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'TCA_TEXT',    'TCA ',      'ats/met/tca',    5,  1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'SYNOP_TEXT',  'AAXX',      'ats/met/synop',  20, 1, 'AMHS -> SWIM', 'admin'),
 
-(5, NOW(), '<?xml version="1.0" encoding="UTF-8"?><fx:FlightPlan xmlns:fx="http://www.fixm.aero/flight/4.3" xmlns:fb="http://www.fixm.aero/base/4.3"><fx:departure><fx:departureAerodrome><fb:locationIndicator>VVCS</fb:locationIndicator></fx:departureAerodrome></fx:departure><fx:arrival><fx:destinationAerodrome><fb:locationIndicator>VVPQ</fb:locationIndicator></fx:destinationAerodrome></fx:arrival><fx:routeTrajectory><fx:route><fx:routeText>VVCS DCT VVDN DCT VVPQ</fx:routeText></fx:route></fx:routeTrajectory></fx:FlightPlan>',
- 'VVTSZQZX', 'VVTSYNYX', 'VN/SGN/20260407/000002', 'VVTS.20260407.001',
- '070030', 5, 0, 'ia5-text', 'text/plain');
+-- AMHS -> SWIM (OUT) - Flight Planning Group
+('OUT', 'FPL_TEXT',    '(FPL-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'CHG_TEXT',    '(CHG-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'CNL_TEXT',    '(CNL-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'DLA_TEXT',    '(DLA-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'DEP_TEXT',    '(DEP-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'ARR_TEXT',    '(ARR-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'SPL_TEXT',    '(SPL-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'RQP_TEXT',    '(RQP-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'RQS_TEXT',    '(RQS-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'DFPL_TEXT',   'DFPL',  'ats/fpl/daily',      30, 1, 'AMHS -> SWIM', 'admin'),
 
--- ============================================================
--- icao_fir_mapping
--- ============================================================
-INSERT INTO `icao_fir_mapping` (`icao_airport`, `icao_fir`, `airport_name`, `country`) VALUES
--- QUỐC TẾ KHU VỰC --
-('RJTT', 'RJJJ', 'Tokyo Haneda',              'Japan'),
-('RJAA', 'RJJJ', 'Tokyo Narita',              'Japan'),
-('RKSI', 'RKRR', 'Incheon',                   'South Korea'),
-('VDPP', 'VDPP', 'Phnom Penh',                'Cambodia'),
-('VLVT', 'VLVT', 'Wattay',                    'Laos'),
-('VTBD', 'VTBB', 'Don Mueang',                'Thailand'),
-('VTBS', 'VTBB', 'Suvarnabhumi',              'Thailand'),
-('WSSS', 'WSJC', 'Singapore Changi',          'Singapore'),
-('ZGGG', 'ZGZU', 'Guangzhou',                 'China'),
+-- AMHS -> SWIM (OUT) - Coordination & Alerting
+('OUT', 'ALR_TEXT',    '(ALR-', 'ats/alerting',       5,  1, 'Khẩn nguy',   'admin'),
+('OUT', 'EST_TEXT',    '(EST-', 'ats/coordination',   15, 1, 'Phối hợp',    'admin'),
+('OUT', 'CDN_TEXT',    '(CDN-', 'ats/coordination',   15, 1, 'Phối hợp',    'admin'),
+('OUT', 'ACP_TEXT',    '(ACP-', 'ats/coordination',   15, 1, 'Phối hợp',    'admin'),
+('OUT', 'CPL_TEXT',    '(CPL-', 'ats/coordination',   15, 1, 'Phối hợp',    'admin'),
 
--- VIỆT NAM: HANOI FIR (Lý thuyết từ vĩ tuyến 15 trở ra Bắc) --
-('VVNB', 'VVHN', 'Noi Bai (Hanoi)',           'Vietnam'),
-('VVHH', 'VVHN', 'Hanoi ATC (Originator)',    'Vietnam'),
-('VVDN', 'VVHN', 'Da Nang',                   'Vietnam'),
-('VVCI', 'VVHN', 'Cat Bi (Hai Phong)',        'Vietnam'),
-('VVVD', 'VVHN', 'Van Don (Quang Ninh)',      'Vietnam'),
-('VVPB', 'VVHN', 'Phu Bai (Hue)',             'Vietnam'),
-('VVVH', 'VVHN', 'Vinh (Nghe An)',            'Vietnam'),
-('VVDB', 'VVHN', 'Dien Bien Phu',             'Vietnam'),
-('VVTX', 'VVHN', 'Tho Xuan (Thanh Hoa)',      'Vietnam'),
-('VVDH', 'VVHN', 'Dong Hoi',                  'Vietnam'),
-('VVCA', 'VVHN', 'Chu Lai',                   'Vietnam'),
+-- AMHS -> SWIM (OUT) - Others
+('OUT', 'NOTAM_TEXT',  '(',     'ats/notam',          10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'ARP_TEXT',    '(ARP-', 'ats/airep',          15, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'ARS_TEXT',    '(ARS-', 'ats/airep',          15, 1, 'AMHS -> SWIM', 'admin'),
+-- UNKNOWN: catch-all, không set detect_pattern (dùng đúng giá trị fallback có sẵn của MessageDetectService khi không khớp mẫu nào)
+('OUT', 'UNKNOWN',     NULL,    'ats/generic/unknown', 255, 1, 'Catch-all', 'admin');
 
--- VIỆT NAM: HO CHI MINH FIR (Lý thuyết từ vĩ tuyến 15 trở vào Nam) --
-('VVTS', 'VVHM', 'Tan Son Nhat (HCMC)',       'Vietnam'),
-('VVCR', 'VVHM', 'Cam Ranh (Nha Trang)',      'Vietnam'),
-('VVPQ', 'VVHM', 'Phu Quoc',                  'Vietnam'),
-('VVCT', 'VVHM', 'Can Tho',                   'Vietnam'),
-('VVBM', 'VVHM', 'Buon Ma Thuot',             'Vietnam'),
-('VVDL', 'VVHM', 'Lien Khuong (Da Lat)',      'Vietnam'),
-('VVPK', 'VVHM', 'Pleiku',                    'Vietnam'),
-('VVPC', 'VVHM', 'Phu Cat (Quy Nhon)',        'Vietnam'),
-('VVTH', 'VVHM', 'Tuy Hoa',                   'Vietnam'),
-('VVCS', 'VVHM', 'Con Dao',                   'Vietnam'),
-('VVRG', 'VVHM', 'Rach Gia',                  'Vietnam'),
-('VVCM', 'VVHM', 'Ca Mau',                    'Vietnam');
+-- SWIM -> AMHS (IN)
+INSERT IGNORE INTO `routing` (`direction`, `receive_topic`, `message_type`, `priority`, `active`, `recipients`, `note`, `created_by`) VALUES
+('IN', 'ats/met/metar',  'METAR',  10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/speci',  'SPECI',  10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/taf',    'TAF',    10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/sigmet', 'SIGMET', 5,  1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/airmet', 'AIRMET', 8,  1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/gamet',  'GAMET',  12, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/ashtam', 'ASHTAM', 5,  1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/vaa',    'VAA',    5,  1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/tca',    'TCA',    5,  1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
 
--- ============================================================
--- fir_units
--- AFTN addresses theo ICAO Doc 7474 / AIP Vietnam
--- ============================================================
-INSERT INTO `fir_units` (`fir_code`, `unit_type`, `aftn_address`, `role`) VALUES
-('VVHN', 'ACC', 'VVHHZTZX', 'primary'),
-('VVHN', 'MET', 'VVHHZQZX', 'primary'),
-('VVHN', 'ARO', 'VVHHZPZX', 'primary'),
-('VVHN', 'COM', 'VVHHZCZX', 'primary'),
-('VVHM', 'ACC', 'VVTSZDYX', 'primary'),
-('VVHM', 'MET', 'VVTSZQZX', 'primary'),
-('VVHM', 'ARO', 'VVTSZPZX', 'primary'),
-('VVHM', 'COM', 'VVTSZEZX', 'primary');
+('IN', 'ats/fpl/flightplan', 'FPL', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'CHG', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'CNL', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'DLA', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'DEP', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'ARR', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
 
--- ============================================================
--- message_unit_mapping
--- ============================================================
-INSERT INTO `message_unit_mapping` (`message_type`, `requires_unit_types`) VALUES
-('ARR',     'ACC,ARO'),
-('CHG',     'ACC,ARO'),
-('CNL',     'ACC,ARO'),
-('DEP',     'ACC,ARO'),
-('FPL',     'ACC,ARO'),
-('METAR',   'MET,ACC'),
-('NOTAM',   'ACC,ARO,COM'),
-('SIGMET',  'MET,ACC'),
-('SNOWTAM', 'ACC,ARO,COM'),
-('SPECI',   'MET,ACC'),
-('TAF',     'MET,ACC');
+('IN', 'ats/notam',  'NOTAM',      10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/airep',  'ARP',        15, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/airep',  'ARS',        15, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
 
--- ============================================================
--- distribution_list
--- ============================================================
-INSERT INTO `distribution_list` (`list_name`, `recipients`, `message_types`, `scope`, `description`) VALUES
-('VVHH_METAR',  'VVHHZQZX VVHHZTZX VVTSZDYX', 'METAR,SPECI', 'VVHH', 'METAR/SPECI Nội Bài'),
-('VVTS_METAR',  'VVTSZQZX VVTSZDYX',           'METAR,SPECI', 'VVTS', 'METAR/SPECI Tân Sơn Nhất'),
-('VVDN_METAR',  'VVDNZQZX VVDNZDYX',           'METAR,SPECI', 'VVDN', 'METAR/SPECI Đà Nẵng'),
-('VVHH_TAF',    'VVHHZQZX VVHHZTZX',           'TAF',         'VVHH', 'TAF Nội Bài'),
-('VVTS_TAF',    'VVTSZQZX VVTSZDYX',           'TAF',         'VVTS', 'TAF Tân Sơn Nhất'),
-('VVHN_SIGMET', 'VVHHZQZX VVTSZDYX',           'SIGMET',      'VVHN', 'SIGMET FIR Hà Nội (VVHN)'),
-('VVHM_SIGMET', 'VVTSZQZX VVHHZTZX',           'SIGMET',      'VVHM', 'SIGMET FIR HCM (VVHM)'),
-('VVHN_FPL',    'VVHHZTZX VVHHZPZX',           'FPL,CHG,CNL,DEP,ARR', 'VVHN', 'FPL FIR Hà Nội (VVHN)'),
-('VVHM_FPL',    'VVTSZDYX VVTSZPZX',           'FPL,CHG,CNL,DEP,ARR', 'VVHM', 'FPL FIR HCM (VVHM)'),
-('VVHN_NOTAM',  'VVHHZTZX VVHHZPZX VVHHZQZX', 'NOTAM',       'VVHN', 'NOTAM FIR Hà Nội (VVHN)'),
-('VVHM_NOTAM',  'VVTSZDYX VVTSZPZX VVTSZQZX', 'NOTAM',       'VVHM', 'NOTAM FIR HCM (VVHM)'),
-('VN_ALL_ACC',  'VVHHZTZX VVTSZDYX',           NULL,          'GLOBAL', 'Tất cả ACC Việt Nam'),
-('VN_ALL_MET',  'VVHHZQZX VVTSZQZX',           'METAR,TAF,SIGMET', 'GLOBAL', 'Tất cả MET offices Việt Nam');
+-- Coordination & Alerting (IN)
+('IN', 'ats/alerting',     'ALR', 5,  1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/coordination', 'EST', 15, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/coordination', 'CDN', 15, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/coordination', 'ACP', 15, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/coordination', 'CPL', 15, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
 
--- ============================================================
--- fir_prefix_mapping
--- ============================================================
-INSERT INTO `fir_prefix_mapping` (`icao_prefix`, `icao_fir`, `description`) VALUES
-('VV',   'VVHN', 'Hanoi FIR (Mặc định cho toàn bộ VV)'),
-('VVT',  'VVHM', 'Ho Chi Minh FIR (Tân Sơn Nhất / Nam Trung Bộ)'),
-('VVC',  'VVHM', 'Ho Chi Minh FIR (Cam Ranh / Côn Đảo)'),
-('VVPQ', 'VVHM', 'Ho Chi Minh FIR (Phú Quốc)'),
-('VVCT', 'VVHM', 'Ho Chi Minh FIR (Cần Thơ)'),
-('VT',   'VTBB', 'Bangkok FIR (Thailand)'),
-('VD',   'VDPP', 'Phnom Penh FIR (Cambodia)'),
-('VY',   'VYYF', 'Yangon FIR (Myanmar)'),
-('VL',   'VLVT', 'Vientiane FIR (Laos)'),
-('VH',   'VHHK', 'Hong Kong FIR'),
-('VM',   'VHHK', 'Macau (thuộc Hong Kong FIR)'),
-('WS',   'WSJC', 'Singapore FIR'),
-('WM',   'WMFC', 'Kuala Lumpur FIR (Peninsular Malaysia)'),
-('WB',   'WBFC', 'Kota Kinabalu FIR (Borneo/Sabah/Brunei)'),
-('WI',   'WIIF', 'Jakarta FIR (Indonesia tây/bắc)'),
-('WA',   'WAAC', 'Ujung Pandang FIR (Indonesia đông)'),
-('RP',   'RPHI', 'Manila FIR (Philippines)'),
-('RC',   'RCAA', 'Taipei FIR (Taiwan)'),
-('RJ',   'RJJJ', 'Fukuoka FIR (Japan)'),
-('RK',   'RKRR', 'Incheon FIR (South Korea)'),
-('ZB',   'ZBPE', 'Beijing FIR'),
-('ZS',   'ZSHA', 'Shanghai FIR'),
-('ZG',   'ZGZU', 'Guangzhou FIR'),
-('ZJ',   'ZJSA', 'Sanya FIR (Hải Nam - Biển Đông)'),
-('ZP',   'ZPPP', 'Kunming FIR (Vân Nam)'),
-('ZH',   'ZHWH', 'Wuhan FIR'),
-('ZY',   'ZYYY', 'Shenyang FIR'),
-('ZL',   'ZLHW', 'Lanzhou FIR'),
-('ZW',   'ZWWW', 'Urumqi FIR'),
-('VN',   'VNKT', 'Kathmandu FIR (Nepal)'),
-('VI',   'VIDF', 'Delhi FIR (India bắc)'),
-('VE',   'VECF', 'Kolkata FIR (India đông)'),
-('VO',   'VOMF', 'Mumbai/Chennai FIR (India tây/nam)');
+-- Supplementary FPL (IN)
+('IN', 'ats/fpl/flightplan', 'SPL', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'RQP', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'RQS', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+
+-- Special MET (IN)
+('IN', 'ats/met/snowtam', 'SNOWTAM', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/synop',   'SYNOP',   20, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin');
+
+SET FOREIGN_KEY_CHECKS = 1;

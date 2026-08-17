@@ -35,6 +35,10 @@ public class CreateRoutingRequest {
             example = "METAR")
     private String messageType;
 
+    @Schema(description = "Content prefix pattern used to detect this message type (for OUT direction)",
+            example = "METAR ")
+    private String detectPattern;
+
     @Schema(description = "AMQP topic to publish (required for OUT direction)",
             example = "ats/met/metar")
     private String sendTopic;
@@ -43,12 +47,6 @@ public class CreateRoutingRequest {
     @Schema(description = "Priority (0-255, lower number = higher priority)",
             example = "100")
     private Integer priority;
-
-      @Schema(description = "Priority SWIM (0-9)", example = "3")
-    private Integer prioritySwim;
-
-    @Schema(description = "Priority AMHS (SS/DD/FF/GG/KK)", example = "FF")
-    private String priorityAmhs;
 
     @Schema(description = "Enable/disable this rule",
             example = "true")

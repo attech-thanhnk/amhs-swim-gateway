@@ -25,14 +25,12 @@ class AddressingResolverServiceTest {
     @Mock
     private MessageValidationService validationService;
     @Mock
-    private MessageDetectService detectService;
-    @Mock
     private Message jmsMessage;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        service = new AddressingResolverService(routingService, configService, validationService, detectService);
+        service = new AddressingResolverService(routingService, configService, validationService);
 
         when(configService.get(anyString())).thenAnswer(invocation -> "MOCK_VALUE");
 
@@ -40,7 +38,6 @@ class AddressingResolverServiceTest {
                 null);
         when(validationService.validateAftnAddress(anyString(), anyString())).thenReturn(validResult);
         when(validationService.validateAftnRecipients(anyString())).thenReturn(validResult);
-        when(detectService.detect(anyString())).thenReturn("METAR");
     }
 
     @Test
@@ -48,7 +45,7 @@ class AddressingResolverServiceTest {
         when(jmsMessage.getStringProperty("amhs_originator")).thenReturn("VVHHZPZX");
         when(jmsMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX VVTSZDYX");
 
-        ResolvedAddressing result = service.resolve(jmsMessage, "swim.fixm.queue", "xml");
+        ResolvedAddressing result = service.resolve(jmsMessage, "swim.fixm.queue");
 
         assertEquals("VVHHZPZX", result.originator());
         assertTrue(result.recipients().contains("VVHHZTZX"));
@@ -62,9 +59,9 @@ class AddressingResolverServiceTest {
         rule.setRecipients("VVHHZTZX");
         rule.setOriginator("VVHHZPZX");
 
-        when(routingService.findBestMatchIn("swim.test.q", "METAR")).thenReturn(Optional.of(rule));
+        when(routingService.findBestMatchIn("swim.test.q")).thenReturn(Optional.of(rule));
 
-        ResolvedAddressing result = service.resolve(jmsMessage, "swim.test.q", "METAR content");
+        ResolvedAddressing result = service.resolve(jmsMessage, "swim.test.q");
 
         assertEquals("VVHHZPZX", result.originator());
         assertTrue(result.recipients().contains("VVHHZTZX"));

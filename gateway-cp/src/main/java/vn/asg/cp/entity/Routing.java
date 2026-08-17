@@ -55,22 +55,21 @@ public class Routing {
             example = "METAR")
     private String messageType;
 
+    @Column(name = "detect_pattern", length = 255)
+    @Schema(description = "Content prefix pattern used to detect this message type (for OUT direction only)",
+            example = "METAR ")
+    private String detectPattern;
+
     @Column(name = "send_topic", length = 100)
     @Schema(description = "AMQP topic to publish (for OUT direction only)",
             example = "ats/met/metar")
     private String sendTopic;
 
     // ========== COMMON PROPERTIES ==========
-    @Column(name = "priority_swim")
-    @Schema(description = "Priority SWIM (0-9, lower = higher priority)",
-            example = "3")
-    private Integer prioritySwim = 3;
-
-    // ========== OUTBOUND DIRECTION (AMHS → SWIM) ==========
-    @Column(name = "priority_amhs")
-    @Schema(description = "Priority AMHS (SS > DD > FF > GG > KK)",
-            example = "FF")
-    private String priorityAmhs = "FF";
+    @Column(name = "priority")
+    @Schema(description = "Rule matching priority (lower number = matched first by gateway-swim)",
+            example = "100")
+    private Integer priority = 100;
 
     @Column(name = "active")
     @Schema(description = "Enable/disable this rule",

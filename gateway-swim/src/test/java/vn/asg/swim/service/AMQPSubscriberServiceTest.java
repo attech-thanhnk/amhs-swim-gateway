@@ -26,8 +26,8 @@ import static org.mockito.Mockito.*;
 
 /**
  * Test suite for AMQPSubscriberService - SWIM → AMHS direction.
- * Covers critical bug fixes: Issue #3 (race condition), Issue #11 (conversion alert),
- * loopback prevention, authorization, validation.
+ * Covers critical bug fixes: Issue #3 (race condition), loopback prevention,
+ * authorization, validation.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -43,7 +43,6 @@ class AMQPSubscriberServiceTest {
     @Mock private AuthorizationService authorizationService;
     @Mock private AtsmhsServiceLevelResolver atsmhsResolver;
     @Mock private ConfigService configService;
-    @Mock private MessageDetectService detectService;
     @org.mockito.Spy private com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     @InjectMocks
@@ -83,7 +82,7 @@ class AMQPSubscriberServiceTest {
         when(amqpMessage.getJMSMessageID()).thenReturn("test-msg-123");
         when(textMessage.getText()).thenReturn(jsonPayload);
         when(amqpMessage.getJMSPriority()).thenReturn(2);
-        when(amqpMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("application/json");
+        when(amqpMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("text/plain; charset=\"utf-8\"");
         when(amqpMessage.getStringProperty("amhs_subject")).thenReturn("METAR");
         when(amqpMessage.getStringProperty("amhs_gateway_id")).thenReturn(null); // Default: no loopback
 
@@ -94,14 +93,15 @@ class AMQPSubscriberServiceTest {
             new MessageValidationService.ValidationResult(true, List.of());
         when(validationService.validateSwimToAmhs(anyString(), any(), anyString()))
             .thenReturn(validResult);
+        when(validationService.validateAftnAddress(anyString(), anyString()))
+            .thenReturn(validResult);
 
         when(authorizationService.isSwimUserAuthorized(any())).thenReturn(true);
-        when(addressingResolver.resolve(any(), anyString(), anyString()))
+        when(addressingResolver.resolve(any(), anyString()))
             .thenReturn(resolvedAddressing);
-        when(atsmhsResolver.resolve(anyString(), anyString())).thenReturn("ENHANCED");
-        when(atsmhsResolver.validateContent(anyString(), anyString(), anyBoolean())).thenReturn(true);
-        when(detectService.detect(anyString())).thenReturn("METAR");
-        when(conversionService.toAmhs(anyString(), anyString())).thenReturn("METAR VVTS 121200Z=");
+        when(atsmhsResolver.resolve(any(), any(), any())).thenReturn("ENHANCED");
+        when(atsmhsResolver.validateContent(any(), any(), anyBoolean())).thenReturn(true);
+        when(configService.getMaxMsgRecipients()).thenReturn(20);
     }
 
     // ==================== DEDUPLICATION ====================
@@ -228,8 +228,8 @@ class AMQPSubscriberServiceTest {
         // When
         service.handleMessage(amqpMessage, "swim.test.queue");
 
-        // Then: Should reject with alert
-        verify(gwinRepository, never()).save(any());
+        // Then: Should reject but still persist the failed message for audit
+        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue())));
         verify(alertService).create(
             eq(GwAlert.TYPE_VALIDATION_ERROR),
             eq(GwAlert.SEV_ERROR),
@@ -250,20 +250,21 @@ class AMQPSubscriberServiceTest {
         // When
         service.handleMessage(amqpMessage, "swim.test.queue");
 
-        // Then: Should reject
-        verify(gwinRepository, never()).save(any());
+        // Then: Should reject but still persist the failed message for audit
+        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue())));
         verify(alertService).create(
             eq("VALIDATION_ERROR"),
             eq("ERROR"),
-            contains("message-id"),
+            contains("Missing messageId"),
             eq("gwin"),
             isNull()
         );
     }
 
     @Test
-    void testMissingMessageId_NonStrictMode_ShouldGenerateSynthetic() throws JMSException {
-        // Given: No message-id in non-strict mode
+    void testMissingMessageId_NonStrictMode_StillRejected() throws JMSException {
+        // Given: No message-id, non-strict mode (EUR Doc 047 S-06: message-id is mandatory
+        // regardless of compliance mode -> isStrictComplianceMode() has no effect here)
         when(amqpMessage.getJMSMessageID()).thenReturn(null);
         when(configService.isStrictComplianceMode()).thenReturn(false);
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
@@ -271,37 +272,8 @@ class AMQPSubscriberServiceTest {
         // When
         service.handleMessage(amqpMessage, "swim.test.queue");
 
-        // Then: Should generate synthetic ID and process
-        verify(gwinRepository).save(argThat(gwin ->
-            gwin.getMessageId() != null && gwin.getMessageId().startsWith("GW-GEN-")
-        ));
-    }
-
-    // ==================== ISSUE #11: CONVERSION FAILURE ALERT ====================
-
-    @Test
-    void testConversionFailure_ShouldCreateAlert() throws Exception {
-        // Given: Conversion fails
-        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
-        when(conversionService.toAmhs(anyString(), anyString()))
-            .thenThrow(new RuntimeException("Conversion failed: Invalid format"));
-
-        // When
-        service.handleMessage(amqpMessage, "swim.test.queue");
-
-        // Then: Should save with UNROUTED status and create alert
-        verify(gwinRepository).save(argThat(gwin -> {
-            assertEquals(MessageStatus.IN_UNROUTED.getValue(), gwin.getStatus());
-            assertTrue(gwin.getText().contains("CONVERSION_FAILED"));
-            return true;
-        }));
-        verify(alertService).create(
-            eq(GwAlert.TYPE_CONVERT_ERROR),
-            eq(GwAlert.SEV_WARNING),
-            contains("Conversion failed"),
-            eq("gwin"),
-            isNull()
-        );
+        // Then: Rejected but still persisted for audit, same as strict mode
+        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue())));
     }
 
     // ==================== ATSMHS SERVICE LEVEL ====================
@@ -310,14 +282,21 @@ class AMQPSubscriberServiceTest {
     void testAtsmhsBasicMode_BinaryContent_ShouldReject() throws JMSException {
         // Given: BASIC mode cannot handle binary
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
-        when(atsmhsResolver.resolve(anyString(), anyString())).thenReturn("BASIC");
-        when(atsmhsResolver.validateContent(eq("BASIC"), anyString(), eq(true)))
+        when(atsmhsResolver.resolve(any(), any(), any())).thenReturn("BASIC");
+        when(atsmhsResolver.validateContent(eq("BASIC"), any(), eq(true)))
             .thenReturn(false);
 
         // Setup binary message
         jakarta.jms.BytesMessage bytesMessage = mock(jakarta.jms.BytesMessage.class);
         when(bytesMessage.getJMSMessageID()).thenReturn("test-binary-123");
         when(bytesMessage.getBodyLength()).thenReturn(100L);
+        byte[] fakeBinaryContent = new byte[100];
+        java.util.Arrays.fill(fakeBinaryContent, (byte) 0x01); // control byte -> correctly detected as non-text
+        when(bytesMessage.readBytes(any(byte[].class))).thenAnswer(inv -> {
+            byte[] buf = inv.getArgument(0);
+            System.arraycopy(fakeBinaryContent, 0, buf, 0, fakeBinaryContent.length);
+            return fakeBinaryContent.length;
+        });
         when(bytesMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE"))
             .thenReturn("application/octet-stream");
         when(bytesMessage.getJMSPriority()).thenReturn(2);
@@ -331,8 +310,11 @@ class AMQPSubscriberServiceTest {
         // When
         service.handleMessage(bytesMessage, "swim.test.queue");
 
-        // Then: Should reject
-        verify(gwinRepository, never()).save(any());
+        // Then: Should reject but still persist the failed message for audit
+        verify(gwinRepository).save(argThat(gwin ->
+            gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue()) &&
+            gwin.getText().contains("ATSMHS_VALIDATION_FAILED")
+        ));
         verify(alertService).create(
             eq(GwAlert.TYPE_VALIDATION_ERROR),
             eq(GwAlert.SEV_ERROR),
@@ -354,9 +336,9 @@ class AMQPSubscriberServiceTest {
         // When
         service.handleMessage(amqpMessage, "swim.test.queue");
 
-        // Then: Should use ats_priority (SS = 0, Flash/highest priority in this system)
+        // Then: Should use ats_priority (SS -> AMQP priority 6, per EUR Doc 047 v3.0 Table 3/Table 9)
         verify(gwinRepository).save(argThat(gwin ->
-            gwin.getPriority() == 0
+            gwin.getPriority() == 6
         ));
     }
 
@@ -399,27 +381,86 @@ class AMQPSubscriberServiceTest {
             assertEquals("VVHHZPZX", gwin.getOrigin());
             assertEquals("VVHHZTZX VVTSZDYX", gwin.getAddress());
             assertEquals(ResolvedAddressing.SOURCE_ROUTING_RULE, gwin.getAddressingSource());
-            assertTrue(gwin.getText().contains("METAR VVTS"));
+            assertTrue(gwin.getText().contains("\"messageType\": \"METAR\""));
+            assertTrue(gwin.getText().contains("\"stationIcao\": \"VVTS\""));
             return true;
         }));
     }
 
     @Test
-    void testUnresolvedAddressing_ShouldSetUnrouted() throws JMSException {
-        // Given: Addressing cannot be resolved
+    void testAmhsUnaware_OctetStreamContentType_ShouldMapToFtbpBodyType() throws JMSException {
+        // Given: bản tin SWIM "AMHS-unaware" - không có amhs_bodypart_type, chỉ có content-type
+        when(amqpMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("application/octet-stream");
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        // When
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        // Then: EUR Doc 047 §4.5.2.4(b) - suy luận bodyType từ content-type khi thiếu amhs_bodypart_type
+        verify(gwinRepository).save(argThat(gwin -> {
+            assertEquals("ftbp", gwin.getBodyType());
+            return true;
+        }));
+    }
+
+    @Test
+    void testPartiallyInvalidRecipients_ShouldDropInvalidOnesNotRejectWhole() throws JMSException {
+        // Given: amhs_recipients có 1 địa chỉ hợp lệ + 1 địa chỉ sai định dạng (EUR Doc 047 §4.5.2.9)
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+        when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX,BADADDR");
+        when(validationService.validateAftnAddress(eq("VVHHZTZX"), anyString()))
+            .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+        when(validationService.validateAftnAddress(eq("BADADDR"), anyString()))
+            .thenReturn(new MessageValidationService.ValidationResult(false, List.of("bad format")));
+
+        // When
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        // Then: bản tin KHÔNG bị từ chối cả gói, chỉ loại recipient sai, và báo Control Position
+        verify(gwinRepository).save(argThat(gwin -> {
+            assertEquals(MessageStatus.IN_PENDING.getValue(), gwin.getStatus());
+            assertEquals("VVHHZTZX", gwin.getAddress());
+            return true;
+        }));
+        verify(alertService).create(
+            eq(GwAlert.TYPE_VALIDATION_ERROR), eq(GwAlert.SEV_WARNING),
+            contains("BADADDR"), eq("gwin"), isNull()
+        );
+    }
+
+    @Test
+    void testAllRecipientsInvalid_ShouldRejectWhole() throws JMSException {
+        // Given: TẤT CẢ recipient đều sai định dạng -> phải từ chối cả bản tin (EUR Doc 047 §4.5.2.9c)
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+        when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn("BADADDR1,BADADDR2");
+        when(validationService.validateAftnAddress(anyString(), anyString()))
+            .thenReturn(new MessageValidationService.ValidationResult(false, List.of("bad format")));
+
+        // When
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        // Then
+        verify(gwinRepository).save(argThat(gwin ->
+            gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue())
+        ));
+    }
+
+    @Test
+    void testUnresolvedAddressing_ShouldRejectAsMandatoryFieldMissing() throws JMSException {
+        // Given: Addressing cannot be resolved -> amhs_recipients ends up empty
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
         ResolvedAddressing unresolved = new ResolvedAddressing(
             null, null, ResolvedAddressing.SOURCE_UNRESOLVED
         );
-        when(addressingResolver.resolve(any(), anyString(), anyString()))
+        when(addressingResolver.resolve(any(), anyString()))
             .thenReturn(unresolved);
 
         // When
         service.handleMessage(amqpMessage, "swim.test.queue");
 
-        // Then: Should save with UNROUTED status
+        // Then: EUR Doc 047 treats amhs_recipients as mandatory -> rejected (still persisted for audit)
         verify(gwinRepository).save(argThat(gwin ->
-            gwin.getStatus().equals(MessageStatus.IN_UNROUTED.getValue())
+            gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue())
         ));
     }
 
@@ -436,7 +477,7 @@ class AMQPSubscriberServiceTest {
     }
 
     @Test
-    void testJsonMessageTypeExtraction_ShouldUseJsonMessageType() throws Exception {
+    void testJsonPayload_ShouldBeForwardedUnchanged() throws Exception {
         String jsonFpl = """
             {
                 "messageId": "FPL_TEXT_12345",
@@ -447,11 +488,11 @@ class AMQPSubscriberServiceTest {
         when(textMessage.getText()).thenReturn(jsonFpl);
         when(amqpMessage.getStringProperty("amhs_subject")).thenReturn("SWIM_INTERWORKING");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
-        when(conversionService.toAmhs(anyString(), eq("FPL"))).thenReturn("(FPL-HVN679-IS...)");
 
         service.handleMessage(amqpMessage, "ats/fpl/flightplan");
 
-        verify(conversionService).toAmhs(anyString(), eq("FPL"));
+        // Content must pass through unconverted (ICAO Doc 047: keep original content regardless of direction)
+        verify(gwinRepository).save(argThat(gwin -> gwin.getText().equals(jsonFpl)));
     }
 
     @Test
@@ -460,7 +501,6 @@ class AMQPSubscriberServiceTest {
         when(amqpMessage.getStringProperty("amhs_subject")).thenReturn("FPL");
         when(textMessage.getText()).thenReturn("Sample text with \u0000 NUL char");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
-        when(conversionService.toAmhs(anyString(), anyString())).thenReturn("(FPL-SAMPLE)");
 
         service.handleMessage(amqpMessage, "ats/fpl/flightplan");
 

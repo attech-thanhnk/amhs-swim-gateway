@@ -13,7 +13,7 @@ import java.util.List;
 public interface GwoutRepository extends JpaRepository<Gwout, Long> {
 
         /**
-         * Poll a batch of PENDING records (status = 0 or NULL) for conversion.
+         * Poll a batch of PENDING records (status = 0 or NULL) to forward.
          */
         @Query(value = """
                         SELECT * FROM gwout
@@ -22,7 +22,7 @@ public interface GwoutRepository extends JpaRepository<Gwout, Long> {
                         LIMIT :batchSize
                         FOR UPDATE
                         """, nativeQuery = true)
-        List<Gwout> findPendingConvertBatch(@Param("batchSize") int batchSize);
+        List<Gwout> findPendingForwardBatch(@Param("batchSize") int batchSize);
 
         /**
          * Poll a batch of TRANSFORMED records (status = 2) for publishing to Solace.
@@ -45,10 +45,10 @@ public interface GwoutRepository extends JpaRepository<Gwout, Long> {
         @Modifying
         @Query(value = """
                         INSERT IGNORE INTO gwout_history (
-                                msgid, amhsid, amhs_priority, swim_priority, time, filing_time, text, body_type, origin, address, optional_heading, subject, amhs_ttl, amhs_registered_id, amhs_delivery_report, content_type, status, payload_content, body_part_type, rejection_reason, error_type
+                                msgid, amhsid, ipm_id, amhs_priority, swim_priority, time, filing_time, text, body_type, origin, address, optional_heading, subject, amhs_ttl, amhs_registered_id, amhs_delivery_report, content_type, status, payload_content, body_part_type, body_part_charset, ftbp_file_name, ftbp_object_size, ftbp_last_mod, rejection_reason, error_type
                         )
-                        SELECT 
-                                msgid, amhsid, amhs_priority, swim_priority, time, filing_time, text, body_type, origin, address, optional_heading, subject, amhs_ttl, amhs_registered_id, amhs_delivery_report, content_type, status, payload_content, body_part_type, rejection_reason, error_type
+                        SELECT
+                                msgid, amhsid, ipm_id, amhs_priority, swim_priority, time, filing_time, text, body_type, origin, address, optional_heading, subject, amhs_ttl, amhs_registered_id, amhs_delivery_report, content_type, status, payload_content, body_part_type, body_part_charset, ftbp_file_name, ftbp_object_size, ftbp_last_mod, rejection_reason, error_type
                         FROM gwout
                         WHERE status IN (4, 6, 7) AND time <= :threshold
                         """, nativeQuery = true)

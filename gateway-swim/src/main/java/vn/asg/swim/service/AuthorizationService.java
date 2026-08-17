@@ -68,7 +68,6 @@ public class AuthorizationService {
         }
 
         try {
-            // Thử lấy thông tin user-id từ bản tin AMQP
             String userId = amqpMsg.getStringProperty("user_id");
             String enterprise = amqpMsg.getStringProperty("swim_enterprise");
 

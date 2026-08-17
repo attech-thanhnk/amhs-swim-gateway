@@ -29,7 +29,6 @@ public class GwoutDispatch {
     public static final String STEP_AUTHORIZATION = "authorization";
     public static final String STEP_DETECT = "detect";
     public static final String STEP_ROUTING = "routing";
-    public static final String STEP_CONVERT = "convert";
     public static final String STEP_PUBLISH = "publish";
 
     @Id
@@ -89,7 +88,7 @@ public class GwoutDispatch {
     private String lastError;
 
     /**
-     * Bước xảy ra lỗi cuối cùng: detect / routing / convert / publish
+     * Bước xảy ra lỗi cuối cùng: detect / routing / publish
      */
     @Column(name = "failed_step", length = 20)
     private String failedStep;

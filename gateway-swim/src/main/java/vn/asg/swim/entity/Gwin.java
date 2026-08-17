@@ -34,7 +34,7 @@ public class Gwin {
     private String source;
 
     /** AMQP Subject Header. Example: FUM, DPI, METAR */
-    @Column(name = "subject", length = 100)
+    @Column(name = "subject", length = 128)
     private String subject;
 
     /**
@@ -59,7 +59,7 @@ public class Gwin {
     @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
     private String payloadContent;
 
-    /** Converted plain text payload for AMHS */
+    /** Plain text payload forwarded to AMHS unchanged */
     @Column(name = "TEXT", columnDefinition = "MEDIUMTEXT")
     private String text;
 

@@ -77,6 +77,18 @@ public class Gwout {
     @Column(name = "body_part_type", length = 50)
     private String bodyPartType;
 
+    @Column(name = "body_part_charset", length = 20)
+    private String bodyPartCharset;
+
+    @Column(name = "ftbp_file_name", length = 255)
+    private String ftbpFileName;
+
+    @Column(name = "ftbp_object_size", length = 20)
+    private String ftbpObjectSize;
+
+    @Column(name = "ftbp_last_mod", length = 20)
+    private String ftbpLastMod;
+
     @Column(name = "message_signed", length = 20)
     private String messageSigned;
 

@@ -19,9 +19,13 @@ public class Gwout {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long msgid;
 
-    /** X.400 message-id */
+    /** X.400 message-id (MTS-Identifier) */
     @Column(name = "amhsid", length = 200)
     private String amhsid;
+
+    /** X.400 IPM-Identifier — EUR Doc 047 §4.3.1.2(b), riêng biệt với MTS-Identifier (amhsid) */
+    @Column(name = "ipm_id", length = 200)
+    private String ipmId;
 
     /** AMHS Priority: 'SS', 'DD', 'FF', 'GG', 'KK' */
     @Column(name = "amhs_priority", length = 10)
@@ -87,12 +91,28 @@ public class Gwout {
     @Column(name = "status")
     private Integer status = MessageStatus.OUT_PENDING.getValue();
 
-    /** Converted JSON/TEXT content */
+    /** Original AMHS body forwarded to SWIM unchanged */
     @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
     private String payloadContent;
 
     @Column(name = "body_part_type", length = 50)
     private String bodyPartType;
+
+    /** Repertoire của general-text-body-part — EUR Doc 047 §4.4.3.4.9: ISO-646 / ISO-8859-1 */
+    @Column(name = "body_part_charset", length = 20)
+    private String bodyPartCharset;
+
+    /** FTBP incomplete-pathname — EUR Doc 047 §4.4.3.4.2 Table 4 (amhs_ftbp_file_name) */
+    @Column(name = "ftbp_file_name", length = 255)
+    private String ftbpFileName;
+
+    /** FTBP actual-values (bytes) — EUR Doc 047 §4.4.3.4.2 Table 4 (amhs_ftbp_object_size) */
+    @Column(name = "ftbp_object_size", length = 20)
+    private String ftbpObjectSize;
+
+    /** FTBP date-and-time-of-last-modification — EUR Doc 047 §4.4.3.4.2 Table 4 (amhs_ftbp_last_mod) */
+    @Column(name = "ftbp_last_mod", length = 20)
+    private String ftbpLastMod;
 
     @Column(name = "rejection_reason", length = 64)
     private String rejectionReason;
@@ -116,6 +136,13 @@ public class Gwout {
         this.amhsid = amhsid;
     }
 
+    public String getIpmId() {
+        return ipmId;
+    }
+
+    public void setIpmId(String ipmId) {
+        this.ipmId = ipmId;
+    }
 
     public String getAmhsPriority() {
         return amhsPriority;
@@ -251,6 +278,38 @@ public class Gwout {
 
     public void setBodyPartType(String bodyPartType) {
         this.bodyPartType = bodyPartType;
+    }
+
+    public String getBodyPartCharset() {
+        return bodyPartCharset;
+    }
+
+    public void setBodyPartCharset(String bodyPartCharset) {
+        this.bodyPartCharset = bodyPartCharset;
+    }
+
+    public String getFtbpFileName() {
+        return ftbpFileName;
+    }
+
+    public void setFtbpFileName(String ftbpFileName) {
+        this.ftbpFileName = ftbpFileName;
+    }
+
+    public String getFtbpObjectSize() {
+        return ftbpObjectSize;
+    }
+
+    public void setFtbpObjectSize(String ftbpObjectSize) {
+        this.ftbpObjectSize = ftbpObjectSize;
+    }
+
+    public String getFtbpLastMod() {
+        return ftbpLastMod;
+    }
+
+    public void setFtbpLastMod(String ftbpLastMod) {
+        this.ftbpLastMod = ftbpLastMod;
     }
 
     public String getRejectionReason() {

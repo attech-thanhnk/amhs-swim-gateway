@@ -41,7 +41,6 @@ public class DatabaseCleanupScheduler {
         LocalDateTime threshold = LocalDateTime.now().minusHours(archiveAfterHours);
 
         try {
-            // 1. Archive Gwout records
             int archivedGwoutDispatches = gwoutDispatchRepository.archiveOldDispatches(threshold);
             int archivedGwouts = gwoutRepository.archiveOldRecords(threshold);
             
@@ -56,13 +55,11 @@ public class DatabaseCleanupScheduler {
                 log.info("Cleaned up gwout queue: Removed {} dispatches, {} gwout records from active tables.", deletedGwoutDispatches, deletedGwouts);
             }
 
-            // 2. Archive Gwin records
             int archivedGwins = gwinRepository.archiveOldRecords(threshold);
 
             if (archivedGwins > 0) {
                 log.info("Archived: {} gwin records to history (older than {} hours).", archivedGwins, archiveAfterHours);
 
-                // Delete from active queue tables
                 int deletedGwins = gwinRepository.deleteArchivedRecords();
 
                 log.info("Cleaned up gwin queue: Removed {} gwin records from active tables.", deletedGwins);
@@ -93,7 +90,6 @@ public class DatabaseCleanupScheduler {
                 log.info("Gwout history purged: Removed {} old dispatches, {} old gwouts.", deletedGwoutDispatches, deletedGwouts);
             }
 
-            // Delete parent history for gwin
             int deletedGwins = gwinRepository.deleteOldHistoryRecords(threshold);
 
             if (deletedGwins > 0) {

@@ -36,4 +36,6 @@ public interface RoutingRepository extends JpaRepository<Routing, Integer>, JpaS
 
   @Query("SELECT DISTINCT r.receiveTopic FROM Routing r WHERE r.direction = 'IN' AND r.active = true AND r.receiveTopic IS NOT NULL ORDER BY r.receiveTopic")
   List<String> findDistinctActiveInboundTopics();
+
+  List<Routing> findByDirection(String direction);
 }

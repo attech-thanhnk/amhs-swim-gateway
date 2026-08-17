@@ -181,19 +181,19 @@ public class AmqpProperties {
     }
 
     /**
-     * Build from priority code
+     * EUR Doc 047 v3.0 §4.5.2.2 Table 9 (Mapping of AMQP priority): AMQP priority
+     * (>=6/5/4/3/<=2) -> ATS-message-priority (SS/DD/FF/GG/KK).
      */
     public static String mapPriorityToAmhs(int priority) {
         if (priority < 0 || priority > 9) {
             throw new IllegalArgumentException("Invalid AMQP priority: " + priority);
         }
+        if (priority >= 6) return "SS";
         return switch (priority) {
-            case 9 -> "SS";
-            case 8 -> "DD";
-            case 5, 6, 7 -> "FF";
-            case 2, 3, 4 -> "GG";
-            case 0, 1 -> "KK";
-            default -> "GG"; // fallback nếu giá trị ngoài 0-9
+            case 5 -> "DD";
+            case 4 -> "FF";
+            case 3 -> "GG";
+            default -> "KK"; // <= 2
         };
     }
 
@@ -201,16 +201,20 @@ public class AmqpProperties {
         return mapPriorityToAmhs(priority);
     }
 
+    /**
+     * EUR Doc 047 v3.0 §4.4.3.2.2 Table 3 (ATS Priority to AMQP Priority conversion):
+     * SS=6, DD=5, FF=4, GG=3, KK=2. Default AMQP priority per the same section's note is 4.
+     */
     public static int mapAtsPriorityToAmqp(String atsPri) {
         if (atsPri == null)
-            return 2;
+            return 4;
         return switch (atsPri.toUpperCase().trim()) {
-            case "SS" -> 9;
-            case "DD" -> 8;
-            case "FF" -> 6;
+            case "SS" -> 6;
+            case "DD" -> 5;
+            case "FF" -> 4;
             case "GG" -> 3;
-            case "KK" -> 1;
-            default -> 2;
+            case "KK" -> 2;
+            default -> 4;
         };
     }
 }

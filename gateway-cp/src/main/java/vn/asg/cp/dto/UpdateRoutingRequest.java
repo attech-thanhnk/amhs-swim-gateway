@@ -32,6 +32,10 @@ public class UpdateRoutingRequest {
             example = "METAR")
     private String messageType;
 
+    @Schema(description = "Content prefix pattern used to detect this message type (for OUT direction)",
+            example = "METAR ")
+    private String detectPattern;
+
     @Schema(description = "AMQP topic to publish (for OUT direction)",
             example = "ats/met/metar")
     private String sendTopic;
@@ -40,19 +44,9 @@ public class UpdateRoutingRequest {
             example = "100")
     private Integer priority;
 
-    @Schema(description = "Priority AMHS (SS/DD/FF/GG/KK)", example = "FF")
-    private String priorityAmhs;
-
-    @Schema(description = "Priority SWIM (0-9)", example = "3")
-    private Integer prioritySwim;
-
     @Schema(description = "Enable/disable this rule",
             example = "true")
     private Boolean active;
-
-    @Schema(description = "Output format choice: true=JSON, false=TAC Forward",
-            example = "true")
-    private Boolean convertToJson;
 
     @Schema(description = "Optional note/description",
             example = "Updated routing rule")

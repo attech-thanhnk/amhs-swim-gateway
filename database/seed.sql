@@ -1,5 +1,5 @@
 -- ============================================================
--- ASG — Seed Data (Full 1:1 Symmetry TAC & JSON)
+-- ASG — Seed Data
 -- ============================================================
 USE asg_db;
 
@@ -23,6 +23,8 @@ INSERT IGNORE INTO `gateway_config` (`config_key`, `config_value`, `description`
 ('JWT_SECRET', 'asgGatewaySecretKey2026ChangeInProduction!', 'Khóa bí mật tạo JWT', NOW()),
 ('JWT_EXPIRATION_MS', '3600000', 'Thời hạn Token (ms) - Mặc định 1 giờ', NOW()),
 ('LOG_RETENTION_DAYS',      '30',    'Số ngày giữ log hệ thống', NOW()),
+('CLEANUP_ARCHIVE_AFTER_HOURS', '24', 'Số giờ trước khi archive bản ghi đã xử lý xong sang bảng history', NOW()),
+('CLEANUP_RETENTION_DAYS',  '30',    'Số ngày giữ bản ghi trong bảng history trước khi xóa hẳn (EUR Doc 047 §2.5.2.2.3/§2.5.3.2.3: tối thiểu 30 ngày)', NOW()),
 ('DEFAULT_ORIGINATOR_AFTN', 'VVHHZPZX', 'AFTN originator cho bản tin', NOW()),
 ('CONVERSION_DIRECTION',    'BOTH',  'BOTH / AMHS_TO_SWIM / SWIM_TO_AMHS', NOW()),
 ('ATSMHS_SERVICE_LEVEL', 'CONTENT_BASED', 'EXTENDED / BASIC / CONTENT_BASED / RECIPIENTS_BASED', NOW()),
@@ -41,169 +43,103 @@ INSERT IGNORE INTO `gateway_config` (`config_key`, `config_value`, `description`
 ('GATEWAY_ID', 'ASG-GW-01', 'Định danh Gateway', NOW());
 
 -- ============================================================
--- 2. message_type_registry - Đồng bộ 1:1 (JSON vs TAC)
--- ============================================================
-INSERT IGNORE INTO `message_type_registry` (`message_type`, `detect_pattern`, `active`, `note`) VALUES
--- Modern JSON Standards (SWIM Side)
-('METAR', '"messageType":"METAR"', 1, 'JSON METAR'),
-('SPECI', '"messageType":"SPECI"', 1, 'JSON SPECI'),
-('TAF', '"messageType":"TAF"', 1, 'JSON TAF'),
-('SIGMET', '"messageType":"SIGMET"', 1, 'JSON SIGMET'),
-('AIRMET', '"messageType":"AIRMET"', 1, 'JSON AIRMET'),
-('GAMET', '"messageType":"GAMET"', 1, 'JSON GAMET'),
-('FPL', '"messageType":"FPL"', 1, 'JSON Flight Plan'),
-('CHG', '"messageType":"CHG"', 1, 'JSON Change'),
-('CNL', '"messageType":"CNL"', 1, 'JSON Cancel'),
-('DLA', '"messageType":"DLA"', 1, 'JSON Delay'),
-('DEP', '"messageType":"DEP"', 1, 'JSON Departure'),
-('ARR', '"messageType":"ARR"', 1, 'JSON Arrival'),
-('NOTAM', '"messageType":"NOTAM"', 1, 'JSON NOTAM'),
-('ASHTAM', '"messageType":"ASHTAM"', 1, 'JSON ASHTAM'),
-('VAA', '"messageType":"VAA"', 1, 'JSON Volcanic Ash Advisory'),
-('TCA', '"messageType":"TCA"', 1, 'JSON Tropical Cyclone Advisory'),
-('ARP', '"messageType":"ARP"', 1, 'JSON AIREP'),
-('ARS', '"messageType":"ARS"', 1, 'JSON AIREP Special'),
-('ALR', '"messageType":"ALR"', 1, 'JSON Alerting'),
-('EST', '"messageType":"EST"', 1, 'JSON Estimate'),
-('CDN', '"messageType":"CDN"', 1, 'JSON Coordination'),
-('ACP', '"messageType":"ACP"', 1, 'JSON Acceptance'),
-('SPL', '"messageType":"SPL"', 1, 'JSON Supplementary FPL'),
-('RQP', '"messageType":"RQP"', 1, 'JSON Request FPL'),
-('RQS', '"messageType":"RQS"', 1, 'JSON Request Supplementary FPL'),
-('CPL', '"messageType":"CPL"', 1, 'JSON Current FPL'),
-('SNOWTAM', '"messageType":"SNOWTAM"', 1, 'JSON SNOWTAM'),
-('SYNOP', '"messageType":"SYNOP"', 1, 'JSON SYNOP'),
-('DFPL', '"messageType":"DFPL"', 1, 'JSON Daily FPL');
-
--- Legacy TAC Standards (AMHS Side)
-INSERT IGNORE INTO `message_type_registry` (`message_type`, `detect_pattern`, `active`, `note`) VALUES
-('METAR_TEXT', 'METAR ', 1, 'TAC METAR'),
-('SPECI_TEXT', 'SPECI ', 1, 'TAC SPECI'),
-('TAF_TEXT', 'TAF ', 1, 'TAC TAF'),
-('SIGMET_TEXT', 'SIGMET ', 1, 'TAC SIGMET'),
-('AIRMET_TEXT', 'AIRMET ', 1, 'TAC AIRMET'),
-('GAMET_TEXT', 'GAMET ', 1, 'TAC GAMET'),
-('FPL_TEXT', '(FPL-', 1, 'TAC FPL'),
-('CHG_TEXT', '(CHG-', 1, 'TAC CHG'),
-('CNL_TEXT', '(CNL-', 1, 'TAC CNL'),
-('DLA_TEXT', '(DLA-', 1, 'TAC DLA'),
-('DEP_TEXT', '(DEP-', 1, 'TAC DEP'),
-('ARR_TEXT', '(ARR-', 1, 'TAC ARR'),
-('NOTAM_TEXT', '(', 1, 'TAC NOTAM'),
-('ASHTAM_TEXT', 'ASHTAM ', 1, 'TAC ASHTAM'),
-('VAA_TEXT', 'VAA ', 1, 'TAC VAA'),
-('TCA_TEXT', 'TCA ', 1, 'TAC TCA'),
-('ARP_TEXT', '(ARP-', 1, 'TAC AIREP'),
-('ARS_TEXT', '(ARS-', 1, 'TAC AIREP Special'),
-('ALR_TEXT', '(ALR-', 1, 'Alerting Message (TAC)'),
-('EST_TEXT', '(EST-', 1, 'Estimate Message (TAC)'),
-('CDN_TEXT', '(CDN-', 1, 'Coordination Message (TAC)'),
-('ACP_TEXT', '(ACP-', 1, 'Acceptance Message (TAC)'),
-('SPL_TEXT', '(SPL-', 1, 'Supplementary Flight Plan (TAC)'),
-('RQP_TEXT', '(RQP-', 1, 'Request Flight Plan (TAC)'),
-('RQS_TEXT', '(RQS-', 1, 'Request Supplementary Flight Plan (TAC)'),
-('CPL_TEXT', '(CPL-', 1, 'Current Flight Plan (TAC)'),
-('SNOWTAM_TEXT', '(SNOWTAM', 1, 'Snowtam Message (TAC)'),
-('SYNOP_TEXT', 'AAXX', 1, 'Synoptic Report (TAC)'),
-('DFPL_TEXT', 'DFPL', 1, 'Daily Flight Plan Report'),
-('UNKNOWN', 'UNKNOWN', 1, 'Loại không xác định');
-
--- ============================================================
--- 3. users
+-- 2. users
 -- ============================================================
 INSERT IGNORE INTO `users` (`id`, `username`, `password`, `email`, `full_name`, `role`, `is_active`, `created_at`, `updated_at`) VALUES
 (1, 'admin', '$2a$10$9rwGdXi0PX2nRAEVfQ3zKe0Y/8t2Dx6uxE4HOCjiuvA7.IofHGJzC', 'admin@example.com', 'System Administrator', 'admin', 1, NOW(), NOW()),
 (2, 'viewer', '$2a$10$9rwGdXi0PX2nRAEVfQ3zKe0Y/8t2Dx6uxE4HOCjiuvA7.IofHGJzC', 'viewer@example.com', 'Viewer User', 'viewer', 1, NOW(), NOW());
 
 -- ============================================================
--- 4. accounts
+-- 3. accounts
 -- ============================================================
 INSERT IGNORE INTO `accounts` (`account_name`, `protocol`, `host`, `port`, `config_json`, `status`, `bind_status`) VALUES
 ('solace-broker-primary', 'AMQP', 'host.docker.internal', 5672,
  '{"username":"admin","password":"admin","vpn":"default"}', 'ACTIVE', 'DISCONNECTED');
 
 -- ============================================================
--- 5. routing
+-- 4. routing (Full Coverage)
+-- Nội dung bản tin luôn được forward nguyên văn (EUR Doc 047: không convert
+-- TAC<->JSON) — cột convert_to_json không còn được code sử dụng nên bỏ khỏi seed.
+-- detect_pattern (chiều OUT) thay thế bảng message_type_registry cũ — chỉ giữ mẫu
+-- TAC vì nội dung AMHS thật luôn là TAC, không bao giờ là JSON.
 -- ============================================================
--- ============================================================
--- 5. routing (Full Coverage)
--- ============================================================
-INSERT IGNORE INTO `routing` (`direction`, `message_type`, `send_topic`, `priority`, `active`, `convert_to_json`, `note`, `created_by`) VALUES
+INSERT IGNORE INTO `routing` (`direction`, `message_type`, `detect_pattern`, `send_topic`, `priority`, `active`, `note`, `created_by`) VALUES
 -- AMHS -> SWIM (OUT) - Meteorological Group
-('OUT', 'METAR_TEXT',  'ats/met/metar',  10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'SPECI_TEXT',  'ats/met/speci',  10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'TAF_TEXT',    'ats/met/taf',    10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'SIGMET_TEXT', 'ats/met/sigmet', 5,  1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'AIRMET_TEXT', 'ats/met/airmet', 8,  1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'GAMET_TEXT',  'ats/met/gamet',  12, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'SNOWTAM_TEXT','ats/met/snowtam', 10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'ASHTAM_TEXT', 'ats/met/ashtam', 5,  1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'VAA_TEXT',    'ats/met/vaa',    5,  1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'TCA_TEXT',    'ats/met/tca',    5,  1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'SYNOP_TEXT',  'ats/met/synop',  20, 1, 1, 'TAC -> JSON', 'admin'),
+('OUT', 'METAR_TEXT',  'METAR ',    'ats/met/metar',  10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'SPECI_TEXT',  'SPECI ',    'ats/met/speci',  10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'TAF_TEXT',    'TAF ',      'ats/met/taf',    10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'SIGMET_TEXT', 'SIGMET ',   'ats/met/sigmet', 5,  1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'AIRMET_TEXT', 'AIRMET ',   'ats/met/airmet', 8,  1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'GAMET_TEXT',  'GAMET ',    'ats/met/gamet',  12, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'SNOWTAM_TEXT','(SNOWTAM',  'ats/met/snowtam', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'ASHTAM_TEXT', 'ASHTAM ',   'ats/met/ashtam', 5,  1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'VAA_TEXT',    'VAA ',      'ats/met/vaa',    5,  1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'TCA_TEXT',    'TCA ',      'ats/met/tca',    5,  1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'SYNOP_TEXT',  'AAXX',      'ats/met/synop',  20, 1, 'AMHS -> SWIM', 'admin'),
 
 -- AMHS -> SWIM (OUT) - Flight Planning Group
-('OUT', 'FPL_TEXT',    'ats/fpl/flightplan', 10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'CHG_TEXT',    'ats/fpl/flightplan', 10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'CNL_TEXT',    'ats/fpl/flightplan', 10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'DLA_TEXT',    'ats/fpl/flightplan', 10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'DEP_TEXT',    'ats/fpl/flightplan', 10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'ARR_TEXT',    'ats/fpl/flightplan', 10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'SPL_TEXT',    'ats/fpl/flightplan', 10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'RQP_TEXT',    'ats/fpl/flightplan', 10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'RQS_TEXT',    'ats/fpl/flightplan', 10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'DFPL_TEXT',   'ats/fpl/daily',      30, 1, 0, 'Keep TAC',    'admin'),
+('OUT', 'FPL_TEXT',    '(FPL-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'CHG_TEXT',    '(CHG-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'CNL_TEXT',    '(CNL-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'DLA_TEXT',    '(DLA-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'DEP_TEXT',    '(DEP-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'ARR_TEXT',    '(ARR-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'SPL_TEXT',    '(SPL-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'RQP_TEXT',    '(RQP-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'RQS_TEXT',    '(RQS-', 'ats/fpl/flightplan', 10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'DFPL_TEXT',   'DFPL',  'ats/fpl/daily',      30, 1, 'AMHS -> SWIM', 'admin'),
 
 -- AMHS -> SWIM (OUT) - Coordination & Alerting
-('OUT', 'ALR_TEXT',    'ats/alerting',       5,  1, 1, 'Khẩn nguy',   'admin'),
-('OUT', 'EST_TEXT',    'ats/coordination',   15, 1, 1, 'Phối hợp',    'admin'),
-('OUT', 'CDN_TEXT',    'ats/coordination',   15, 1, 1, 'Phối hợp',    'admin'),
-('OUT', 'ACP_TEXT',    'ats/coordination',   15, 1, 1, 'Phối hợp',    'admin'),
-('OUT', 'CPL_TEXT',    'ats/coordination',   15, 1, 1, 'Phối hợp',    'admin'),
+('OUT', 'ALR_TEXT',    '(ALR-', 'ats/alerting',       5,  1, 'Khẩn nguy',   'admin'),
+('OUT', 'EST_TEXT',    '(EST-', 'ats/coordination',   15, 1, 'Phối hợp',    'admin'),
+('OUT', 'CDN_TEXT',    '(CDN-', 'ats/coordination',   15, 1, 'Phối hợp',    'admin'),
+('OUT', 'ACP_TEXT',    '(ACP-', 'ats/coordination',   15, 1, 'Phối hợp',    'admin'),
+('OUT', 'CPL_TEXT',    '(CPL-', 'ats/coordination',   15, 1, 'Phối hợp',    'admin'),
 
 -- AMHS -> SWIM (OUT) - Others
-('OUT', 'NOTAM_TEXT',  'ats/notam',          10, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'ARP_TEXT',    'ats/airep',          15, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'ARS_TEXT',    'ats/airep',          15, 1, 1, 'TAC -> JSON', 'admin'),
-('OUT', 'UNKNOWN',     'ats/generic/unknown', 255, 1, 0, 'Catch-all', 'admin');
+('OUT', 'NOTAM_TEXT',  '(',     'ats/notam',          10, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'ARP_TEXT',    '(ARP-', 'ats/airep',          15, 1, 'AMHS -> SWIM', 'admin'),
+('OUT', 'ARS_TEXT',    '(ARS-', 'ats/airep',          15, 1, 'AMHS -> SWIM', 'admin'),
+-- UNKNOWN: catch-all, không set detect_pattern (dùng đúng giá trị fallback có sẵn của MessageDetectService khi không khớp mẫu nào)
+('OUT', 'UNKNOWN',     NULL,    'ats/generic/unknown', 255, 1, 'Catch-all', 'admin');
 
 -- SWIM -> AMHS (IN)
-INSERT IGNORE INTO `routing` (`direction`, `receive_topic`, `message_type`, `priority`, `active`, `convert_to_json`, `recipients`, `note`, `created_by`) VALUES
-('IN', 'ats/met/metar',  'METAR',  10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/met/speci',  'SPECI',  10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/met/taf',    'TAF',    10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/met/sigmet', 'SIGMET', 5,  1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/met/airmet', 'AIRMET', 8,  1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/met/gamet',  'GAMET',  12, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/met/ashtam', 'ASHTAM', 5,  1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/met/vaa',    'VAA',    5,  1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/met/tca',    'TCA',    5,  1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
+INSERT IGNORE INTO `routing` (`direction`, `receive_topic`, `message_type`, `priority`, `active`, `recipients`, `note`, `created_by`) VALUES
+('IN', 'ats/met/metar',  'METAR',  10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/speci',  'SPECI',  10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/taf',    'TAF',    10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/sigmet', 'SIGMET', 5,  1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/airmet', 'AIRMET', 8,  1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/gamet',  'GAMET',  12, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/ashtam', 'ASHTAM', 5,  1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/vaa',    'VAA',    5,  1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/tca',    'TCA',    5,  1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
 
-('IN', 'ats/fpl/flightplan', 'FPL', 10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/fpl/flightplan', 'CHG', 10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/fpl/flightplan', 'CNL', 10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/fpl/flightplan', 'DLA', 10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/fpl/flightplan', 'DEP', 10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/fpl/flightplan', 'ARR', 10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'FPL', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'CHG', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'CNL', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'DLA', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'DEP', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'ARR', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
 
-('IN', 'ats/notam',  'NOTAM',      10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/airep',  'ARP',        15, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/airep',  'ARS',        15, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
+('IN', 'ats/notam',  'NOTAM',      10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/airep',  'ARP',        15, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/airep',  'ARS',        15, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
 
 -- Coordination & Alerting (IN)
-('IN', 'ats/alerting',     'ALR', 5,  1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/coordination', 'EST', 15, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/coordination', 'CDN', 15, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/coordination', 'ACP', 15, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/coordination', 'CPL', 15, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
+('IN', 'ats/alerting',     'ALR', 5,  1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/coordination', 'EST', 15, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/coordination', 'CDN', 15, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/coordination', 'ACP', 15, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/coordination', 'CPL', 15, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
 
 -- Supplementary FPL (IN)
-('IN', 'ats/fpl/flightplan', 'SPL', 10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/fpl/flightplan', 'RQP', 10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/fpl/flightplan', 'RQS', 10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'SPL', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'RQP', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/fpl/flightplan', 'RQS', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
 
 -- Special MET (IN)
-('IN', 'ats/met/snowtam', 'SNOWTAM', 10, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin'),
-('IN', 'ats/met/synop',   'SYNOP',   20, 1, 0, 'VVNBZTZX', 'JSON -> AMHS', 'admin');
+('IN', 'ats/met/snowtam', 'SNOWTAM', 10, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin'),
+('IN', 'ats/met/synop',   'SYNOP',   20, 1, 'VVNBZTZX', 'SWIM -> AMHS', 'admin');
 
 SET FOREIGN_KEY_CHECKS = 1;

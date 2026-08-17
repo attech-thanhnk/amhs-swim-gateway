@@ -16,7 +16,6 @@
     <modules>
         <module>gateway-swim</module>
         <module>gateway-cp</module>
-        <module>gateway-converter</module>
     </modules>
 
     <properties>

@@ -51,23 +51,18 @@ public class RoutingService {
     }
 
     /**
-     * Tìm kiếm rule phù hợp cho chiều nhận về (Inbound) theo topic và filter.
+     * Tìm kiếm rule phù hợp cho chiều nhận về (Inbound) theo topic.
      */
-    public Optional<Routing> findBestMatchIn(String topic, String filter) {
+    public Optional<Routing> findBestMatchIn(String topic) {
         if (topic == null)
             return Optional.empty();
 
         List<Routing> rules = routingRepository.findByDirectionAndActiveTrueOrderByPriorityAsc("IN");
 
-        // Chuẩn hóa topic (thay dấu chấm bằng dấu gạch chéo)
         String normalizedTopic = topic.replace('.', '/');
 
         return rules.stream()
                 .filter(r -> normalizedTopic.equalsIgnoreCase(r.getReceiveTopic()))
-                .filter(r -> {
-                    if (filter == null || r.getMessageFilter() == null) return true;
-                    return filter.equalsIgnoreCase(r.getMessageFilter());
-                })
                 .findFirst();
     }
 

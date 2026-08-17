@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS `gwin` (
   `xml_payload` mediumtext,
   `TEXT` mediumtext,
   `source` varchar(200) DEFAULT NULL,
-  `subject` varchar(100) DEFAULT NULL,
+  `subject` varchar(128) DEFAULT NULL,
   `amqp_properties` text,
   `body_type` varchar(10) DEFAULT 'text',
   `origin` varchar(200) DEFAULT NULL,
@@ -137,6 +137,10 @@ CREATE TABLE IF NOT EXISTS `gwout` (
   `amqp_message_id` varchar(256) DEFAULT NULL,
   `body_type` varchar(10) DEFAULT 'text',
   `body_part_type` varchar(50) DEFAULT NULL,
+  `body_part_charset` varchar(20) DEFAULT NULL,
+  `ftbp_file_name` varchar(255) DEFAULT NULL,
+  `ftbp_object_size` varchar(20) DEFAULT NULL,
+  `ftbp_last_mod` varchar(20) DEFAULT NULL,
   `content_type` varchar(100) DEFAULT NULL,
   `message_signed` varchar(20) DEFAULT NULL,
   `rejection_reason` varchar(64) DEFAULT NULL,
@@ -207,19 +211,6 @@ CREATE TABLE IF NOT EXISTS `message_conversion_log` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================
--- Bảng message_type_registry: Quy tắc nhận diện loại tin nhắn
--- ============================================================
-CREATE TABLE IF NOT EXISTS `message_type_registry` (
-  `id` bigint(20) NOT NULL AUTO_INCREMENT,
-  `message_type` varchar(50) NOT NULL,
-  `detect_pattern` varchar(255) NOT NULL,
-  `active` tinyint(1) NOT NULL DEFAULT '1',
-  `note` varchar(500) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `message_type` (`message_type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- ============================================================
 -- Bảng performance_metrics: Thống kê hiệu năng định kỳ
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `performance_metrics` (
@@ -244,6 +235,7 @@ CREATE TABLE IF NOT EXISTS `routing` (
   `recipients` varchar(500) DEFAULT NULL,
   `originator` varchar(8) DEFAULT NULL,
   `message_type` varchar(50) DEFAULT NULL,
+  `detect_pattern` varchar(255) DEFAULT NULL,
   `send_topic` varchar(100) DEFAULT NULL,
   `priority` int(11) DEFAULT '100',
   `active` tinyint(1) DEFAULT '1',

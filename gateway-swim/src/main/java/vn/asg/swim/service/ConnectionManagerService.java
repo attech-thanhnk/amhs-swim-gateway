@@ -147,7 +147,6 @@ public class ConnectionManagerService {
                 log.warn("No active database configuration found. Falling back to configuration from application.properties.");
             }
 
-            // Giải mã mật khẩu nếu được mã hóa bằng Jasypt
             currentPass = decryptIfEncrypted(currentPass);
 
             String scheme = currentTls ? "amqps" : "amqp";
@@ -192,7 +191,6 @@ public class ConnectionManagerService {
                          "AMQP connection established: " + url);
 
             } catch (Exception ex) {
-                // Giải phóng kết nối mới nếu thiết lập thất bại
                 if (newConn != null) {
                     try { newConn.close(); } catch (Exception ignored) {}
                 }

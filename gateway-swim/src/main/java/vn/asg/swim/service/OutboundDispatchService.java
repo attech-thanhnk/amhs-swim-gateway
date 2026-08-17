@@ -9,13 +9,11 @@ import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.GwoutDispatch;
 import vn.asg.swim.entity.MessageStatus;
-import vn.asg.swim.entity.Routing;
 import vn.asg.swim.repository.GwoutDispatchRepository;
 import vn.asg.swim.repository.GwoutRepository;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Xử lý tiến trình gửi tin đi từ hàng đợi gwout_dispatch (chiều AMHS sang
@@ -38,14 +36,12 @@ public class OutboundDispatchService {
     private final GwoutRepository gwoutRepository;
 
     /**
-     * Thực hiện kiểm tra, phân tích và chuyển đổi bản tin AMHS sang định dạng SWIM
-     * (JSON).
+     * Thực hiện kiểm tra, phân tích bản tin AMHS và chuyển tiếp nguyên văn sang SWIM.
      * Trạng thái sau khi hoàn tất sẽ được đặt thành TRANSFORMED (2) hoặc FAILED
      * (5).
      */
     @Transactional
-    public void convertOutboundMessage(Gwout gwout) {
-        // Kiểm tra định dạng origin (8 ký tự, in hoa, không có số, không có khoảng trắng)
+    public void processOutboundMessage(Gwout gwout) {
         String origin = gwout.getOrigin();
         if (origin == null || !origin.matches("^[A-Z]{8}$")) {
             log.warn("gwout#{} rejected: origin '{}' is invalid (must be 8 uppercase alphabetic characters, no digits, no spaces)",
@@ -53,51 +49,9 @@ public class OutboundDispatchService {
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
             gwout.setPayloadContent("Rejected: Originator must be exactly 8 uppercase alphabetic characters (no digits, no spaces)");
             gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwim(gwout, null, "REJECTED", "invalid_origin_format");
+            conversionService.logAmhsToSwimRejected(gwout, "invalid_origin_format", "invalid-arguments",
+                    "unable to convert to AMQP due to unrecognized originator O/R address");
             return;
-        }
-
-        // Kiểm tra kích thước bản tin (MAX_PAYLOAD_SIZE)
-        int maxPayloadSize = configService.getInt("MAX_PAYLOAD_SIZE", 2097152);
-        if (gwout.getText() != null && gwout.getText().length() > maxPayloadSize) {
-            log.warn("gwout#{} rejected: payload size {} exceeds MAX_PAYLOAD_SIZE {}",
-                    gwout.getMsgid(), gwout.getText().length(), maxPayloadSize);
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-            gwout.setPayloadContent("Rejected: Message size exceeds maximum allowed payload size");
-            gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwim(gwout, null, "REJECTED", "payload_size_exceeded");
-            return;
-        }
-
-        // Kiểm tra Content-Type (ALLOWED_CONTENT_TYPES)
-        if (gwout.getContentType() != null && !gwout.getContentType().isEmpty()) {
-            List<String> allowedContentTypes;
-            try {
-                allowedContentTypes = configService.getCommaSeparatedConfig("ALLOWED_CONTENT_TYPES");
-            } catch (Exception e) {
-                allowedContentTypes = java.util.Arrays.asList("application/json", "application/xml", "text/plain", "text/xml");
-            }
-            String cleanContentType = gwout.getContentType().split(";")[0].trim().toLowerCase();
-            boolean isAllowed = false;
-            for (String allowed : allowedContentTypes) {
-                if (allowed.trim().toLowerCase().equalsIgnoreCase(cleanContentType)) {
-                    isAllowed = true;
-                    break;
-                }
-            }
-            // Mặc định hỗ trợ text/plain và text/xml cho các điện văn AMHS dạng văn bản thô (General-Text / IA5)
-            if (!isAllowed && ("text/plain".equalsIgnoreCase(cleanContentType) || "text/xml".equalsIgnoreCase(cleanContentType))) {
-                isAllowed = true;
-            }
-            if (!isAllowed) {
-                log.warn("gwout#{} rejected: Content-Type '{}' is not supported",
-                        gwout.getMsgid(), gwout.getContentType());
-                gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-                gwout.setPayloadContent("Unsupported Content-Type");
-                gwoutRepository.save(gwout);
-                conversionService.logAmhsToSwim(gwout, null, "REJECTED", "unsupported_content_type");
-                return;
-            }
         }
 
         // CTSW011 - CTSW013: Phát hiện bản tin Probe từ AMHS
@@ -108,7 +62,6 @@ public class OutboundDispatchService {
             return;
         }
 
-        // 1. Kiểm tra tính hợp lệ bản tin
         MessageValidationService.ValidationResult dirResult = validationService.validateAmhsToSwim(gwout.getText(),
                 gwout.getAddress());
         if (!dirResult.isValid()) {
@@ -120,12 +73,11 @@ public class OutboundDispatchService {
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
             gwout.setPayloadContent("Validation failed: " + dirResult.getErrorMessage());
             gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwim(gwout, null, "REJECTED",
-                    "validation_failed: " + dirResult.getErrorMessage());
+            conversionService.logAmhsToSwimRejected(gwout, "validation_failed: " + dirResult.getErrorMessage(),
+                    ndrDiagnosticFor(dirResult.getErrorMessage()), null);
             return;
         }
 
-        // 2. Kiểm tra quyền của người gửi
         if (!authorizationService.isAmhsUserAuthorized(gwout.getOrigin())) {
             log.warn("gwout#{} REJECTED: AMHS originator '{}' not authorized", gwout.getMsgid(), gwout.getOrigin());
             alertService.create(
@@ -162,13 +114,12 @@ public class OutboundDispatchService {
                 gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
                 gwout.setPayloadContent("EIT validation failed: " + eitResult.getErrorMessage());
                 gwoutRepository.save(gwout);
-                conversionService.logAmhsToSwim(gwout, null, "REJECTED",
-                        "unsupported_eit: " + eitResult.getErrorMessage());
+                conversionService.logAmhsToSwimRejected(gwout, "unsupported_eit: " + eitResult.getErrorMessage(),
+                        "content-syntax-error", "unable to convert to AMQP due to unsupported body part type");
                 return;
             }
         }
 
-        // 3. Kiểm tra thời hạn hiệu lực bản tin (TTL)
         if (gwout.getAmhsTtl() != null && gwout.getAmhsTtl().isBefore(LocalDateTime.now())) {
             log.info("gwout#{} TTL expired, marking as published", gwout.getMsgid());
             gwout.setStatus(MessageStatus.OUT_PUBLISHED.getValue()); // coi như thành công nhưng skip
@@ -190,13 +141,10 @@ public class OutboundDispatchService {
             return;
         }
 
-        Routing rule;
         try {
-            var ruleOpt = routingService.findBestMatchOut(messageType);
-            if (ruleOpt.isEmpty()) {
+            if (routingService.findBestMatchOut(messageType).isEmpty()) {
                 throw new RuntimeException("No routing rule for type=" + messageType);
             }
-            rule = ruleOpt.get();
         } catch (Exception e) {
             log.error("gwout#{} failed to find routing rule: {}", gwout.getMsgid(), e.getMessage());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
@@ -206,83 +154,31 @@ public class OutboundDispatchService {
             return;
         }
 
-        // Bắt đầu convert
-        String convertedBody;
+        // Giữ nguyên nội dung bản tin gốc, không convert theo chiều nào (theo ICAO Doc 047)
         try {
-            if (Boolean.TRUE.equals(rule.getConvertToJson())) {
-                boolean isAlreadyJson = gwout.getPayloadContent() != null
-                        && gwout.getPayloadContent().trim().startsWith("{");
-                if (!isAlreadyJson) {
-                    convertedBody = conversionService.toSwim(body, messageType, gwout.getOptionalHeading(), gwout.getSubject());
-                    gwout.setPayloadContent(convertedBody);
-                }
-            } else {
-                log.debug("Routing rule for {} specifies TAC output. Forwarding original body.", messageType);
-                if (gwout.getPayloadContent() == null || gwout.getPayloadContent().isBlank()
-                        || gwout.getPayloadContent().trim().startsWith("{")) {
-                    gwout.setPayloadContent(body);
-                }
-            }
+            gwout.setPayloadContent(body);
             gwout.setStatus(MessageStatus.OUT_TRANSFORMED.getValue()); // Thành công -> TRANSFORMED
             if (gwout.getAmhsPriority() != null) {
-                Integer swimPri = convertToSwimPriority(gwout.getAmhsPriority());
-                gwout.setSwimPriority(swimPri);
+                gwout.setSwimPriority(vn.asg.swim.model.AmqpProperties.mapAtsPriorityToAmqp(gwout.getAmhsPriority()));
             }
             gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwim(gwout, null, "OK", "transformed_to_json");
-            log.info("gwout#{} successfully converted -> status=TRANSFORMED", gwout.getMsgid());
+            conversionService.logAmhsToSwim(gwout, null, "OK", "forwarded_unchanged");
+            log.info("gwout#{} forwarded unchanged -> status=TRANSFORMED", gwout.getMsgid());
         } catch (Exception e) {
-            log.error("gwout#{} conversion failed: {}", gwout.getMsgid(), e.getMessage());
+            log.error("gwout#{} processing failed: {}", gwout.getMsgid(), e.getMessage());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-            gwout.setPayloadContent("Conversion failed: " + e.getMessage());
+            gwout.setPayloadContent("Processing failed: " + e.getMessage());
             gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwim(gwout, null, "ERROR", "conversion_failed: " + e.getMessage());
+            conversionService.logAmhsToSwim(gwout, null, "ERROR", "processing_failed: " + e.getMessage());
         }
-    }
-
-    /**
-     * Chuyển đổi số độ ưu tiên SWIM/AMQP sang danh sách mã ký tự AMHS tương ứng.
-     * 
-     * @param priority Số độ ưu tiên (Header.priority)
-     * @return Danh sách các mã ký tự AMHS khả thi (ATS Priority)
-     */
-    public String convertToAmhsCodes(int priority) {
-        return switch (priority) {
-            case 8 -> "SS";
-            case 7 -> "FF";
-            case 6 -> "GG";
-            default -> "KK"; // Trả về danh sách rỗng nếu số không hợp lệ
-        };
-    }
-
-    /**
-     * Chuyển đổi mã ký tự AMHS sang số độ ưu tiên SWIM/AMQP tương ứng.
-     * 
-     * @param amhsCode Mã ký tự AMHS (không phân biệt chữ hoa/thường)
-     * @return Số độ ưu tiên SWIM/AMQP, hoặc null nếu mã không hợp lệ
-     */
-    public Integer convertToSwimPriority(String amhsCode) {
-        if (amhsCode == null) {
-            return null;
-        }
-
-        return switch (amhsCode.trim().toUpperCase()) {
-            case "SS" -> 8;
-            case "DD", "FF" -> 7;
-            case "GG", "KK" -> 6;
-            default -> null; // Trả về null nếu mã truyền vào không nằm trong bảng
-        };
     }
 
     /**
      * Xử lý bản ghi phân phối tin đi từ hàng đợi (chỉ thực hiện publish dữ liệu đã
-     * convert).
+     * chuyển tiếp).
      */
     @Transactional
     public void processDispatch(GwoutDispatch dispatch) {
-        dispatch.setStatus(GwoutDispatch.STATUS_PROCESSING);
-        gwoutDispatchRepository.save(dispatch);
-
         Gwout gwout = gwoutRepository.findById(dispatch.getGwoutId()).orElse(null);
         if (gwout == null) {
             handleFailure(dispatch, GwoutDispatch.STEP_ROUTING,
@@ -290,9 +186,9 @@ public class OutboundDispatchService {
             return;
         }
 
-        // Đọc nội dung JSON/TAC đã convert từ trước
-        String convertedBody = gwout.getPayloadContent();
-        if (convertedBody == null || convertedBody.isBlank()) {
+        // Đọc nội dung bản tin gốc đã lưu ở bước trước
+        String payloadContent = gwout.getPayloadContent();
+        if (payloadContent == null || payloadContent.isBlank()) {
             handleFailure(dispatch, GwoutDispatch.STEP_PUBLISH,
                     new RuntimeException("payload_content is empty for gwout#" + gwout.getMsgid()));
             return;
@@ -304,26 +200,54 @@ public class OutboundDispatchService {
             return;
         }
 
-        // Đánh dấu trạng thái PUBLISHING trước khi gửi
-        dispatch.setStatus(GwoutDispatch.STATUS_PUBLISHING);
-        gwoutDispatchRepository.save(dispatch);
+        // EUR Doc 047 §4.4.3.4.4: 1 IPM AMHS chỉ sinh ra 1 message AMQP duy nhất.
+        // Gộp mọi dispatch cùng gwout + cùng topic còn sẵn sàng xử lý vào 1 lần publish,
+        // amhs_recipients chứa danh sách đầy đủ (phân cách dấu phẩy) thay vì gửi trùng N lần.
+        LocalDateTime now = LocalDateTime.now();
+        List<GwoutDispatch> group = gwoutDispatchRepository.findByGwoutId(gwout.getMsgid()).stream()
+                .filter(d -> dispatch.getTopic().equals(d.getTopic()))
+                .filter(d -> GwoutDispatch.STATUS_PENDING.equals(d.getStatus())
+                        || GwoutDispatch.STATUS_FAILED.equals(d.getStatus()))
+                .filter(d -> d.getNextRetryAt() == null || !d.getNextRetryAt().isAfter(now))
+                .toList();
+
+        boolean stillEligible = group.stream()
+                .anyMatch(d -> java.util.Objects.equals(d.getId(), dispatch.getId()));
+        if (!stillEligible) {
+            return; // Đã được publish gộp bởi 1 dispatch anh em khác trong cùng batch
+        }
+
+        String combinedRecipients = group.stream()
+                .map(GwoutDispatch::getRecipient)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .collect(java.util.stream.Collectors.joining(","));
+
+        for (GwoutDispatch d : group) {
+            d.setStatus(GwoutDispatch.STATUS_PUBLISHING);
+            gwoutDispatchRepository.save(d);
+        }
 
         try {
-            publish(gwout, dispatch.getTopic(), dispatch.getRecipient(), convertedBody,
-                    gwout.getContentType());
+            publish(gwout, dispatch.getTopic(), combinedRecipients, payloadContent, gwout.getContentType());
 
-            // Gửi tin thành công -> cập nhật trạng thái SENT
-            dispatch.setStatus(GwoutDispatch.STATUS_SENT);
-            dispatch.setSentAt(LocalDateTime.now());
-            gwoutDispatchRepository.save(dispatch);
-            log.info("dispatch#{} SENT -> topic={}", dispatch.getId(), dispatch.getTopic());
+            LocalDateTime sentAt = LocalDateTime.now();
+            for (GwoutDispatch d : group) {
+                d.setStatus(GwoutDispatch.STATUS_SENT);
+                d.setSentAt(sentAt);
+                gwoutDispatchRepository.save(d);
+            }
+            log.info("gwout#{} -> {} dispatch(es) merged into 1 AMQP publish -> topic={}, recipients={}",
+                    gwout.getMsgid(), group.size(), dispatch.getTopic(), combinedRecipients);
 
         } catch (Exception e) {
-            handleFailure(dispatch, GwoutDispatch.STEP_PUBLISH, e);
+            for (GwoutDispatch d : group) {
+                handleFailure(d, GwoutDispatch.STEP_PUBLISH, e);
+            }
             return;
         }
 
-        checkAndUpdateGwoutStatus(dispatch.getGwoutId());
+        checkAndUpdateGwoutStatus(gwout.getMsgid());
     }
 
     /**
@@ -353,8 +277,9 @@ public class OutboundDispatchService {
                 message = session.createTextMessage(body);
             }
 
+            // EUR Doc 047 v3.0 §4.4.3.3.3: content-type chỉ được text/plain;charset="utf-8" hoặc application/octet-stream
             String ct = contentType != null ? contentType
-                    : ("ftbp".equalsIgnoreCase(gwout.getBodyType()) ? "application/octet-stream" : "application/json");
+                    : ("ftbp".equalsIgnoreCase(gwout.getBodyType()) ? "application/octet-stream" : "text/plain; charset=\"utf-8\"");
             message.setStringProperty("JMS_AMQP_CONTENT_TYPE", ct);
 
             if (gwout.getOrigin() != null) {
@@ -363,8 +288,9 @@ public class OutboundDispatchService {
             if (recipient != null) {
                 message.setStringProperty("amhs_recipients", recipient);
             }
-            if (gwout.getAmhsid() != null) {
-                message.setStringProperty("amhs_ipm_id", gwout.getAmhsid());
+            // EUR Doc 047 §4.4.3.4.1: amhs_ipm_id chứa IPM-Identifier, không phải MTS-Identifier (amhsid)
+            if (gwout.getIpmId() != null) {
+                message.setStringProperty("amhs_ipm_id", gwout.getIpmId());
             }
             if (gwout.getAmhsPriority() != null) {
                 message.setStringProperty("amhs_ats_pri", gwout.getAmhsPriority());
@@ -378,24 +304,34 @@ public class OutboundDispatchService {
             if (gwout.getOptionalHeading() != null) {
                 message.setStringProperty("amhs_ats_ohi", gwout.getOptionalHeading());
             }
-            if (gwout.getBodyType() != null) {
-                if ("ftbp".equalsIgnoreCase(gwout.getBodyType())) {
-                    message.setStringProperty("amhs_bodypart_type", "file-transfer-body-part");
-                    message.setStringProperty("amhs_ftbp_file_name", "attachment.bin");
-                    if (gwout.getAmhsRegisteredId() != null) {
-                        message.setStringProperty("amhs_registered_identifier", gwout.getAmhsRegisteredId());
-                    }
-                } else {
-                    String bodyPartType = "text".equals(gwout.getBodyType())
-                            ? "ia5-text-body-part"
-                            : "file-transfer-body-part";
-                    message.setStringProperty("amhs_bodypart_type", bodyPartType);
+            // EUR Doc 047 Table 7 §4.4.3.4.9: dùng body part type đã chuẩn hóa (có thể là
+            // general-text-body-part), không tự ý suy giảm về ia5-text-body-part từ bodyType thô
+            String bodyPartType = gwout.getBodyPartType() != null ? gwout.getBodyPartType()
+                    : ("ftbp".equalsIgnoreCase(gwout.getBodyType()) ? "file-transfer-body-part" : "ia5-text-body-part");
+            message.setStringProperty("amhs_bodypart_type", bodyPartType);
+            if ("file-transfer-body-part".equals(bodyPartType)) {
+                // EUR Doc 047 §4.4.3.4.2 Table 4: các property FTBP là T1 (conditionally translated) —
+                // chỉ gán khi biết dữ liệu thật (từ Gwout.ftbp*, nếu nguồn AMHS đã cung cấp), không bịa giá trị
+                if (gwout.getFtbpFileName() != null) {
+                    message.setStringProperty("amhs_ftbp_file_name", gwout.getFtbpFileName());
                 }
+                if (gwout.getFtbpObjectSize() != null) {
+                    message.setStringProperty("amhs_ftbp_object_size", gwout.getFtbpObjectSize());
+                }
+                if (gwout.getFtbpLastMod() != null) {
+                    message.setStringProperty("amhs_ftbp_last_mod", gwout.getFtbpLastMod());
+                }
+                if (gwout.getAmhsRegisteredId() != null) {
+                    message.setStringProperty("amhs_registered_identifier", gwout.getAmhsRegisteredId());
+                }
+            } else if ("ia5-text".equals(bodyPartType) || "ia5-text-body-part".equals(bodyPartType)) {
+                message.setStringProperty("amhs_content_encoding", "IA5");
+            } else if ("general-text-body-part".equals(bodyPartType) && gwout.getBodyPartCharset() != null) {
+                message.setStringProperty("amhs_content_encoding", gwout.getBodyPartCharset());
             }
-            message.setStringProperty("amhs_content_encoding", "IA5");
             message.setStringProperty("amhs_message_signed", "unsigned");
             message.setStringProperty("amhs_gateway_id", configService.getGatewayId());
-            message.setJMSMessageID(UUID.randomUUID().toString());
+            // EUR Doc 047 §4.4.3.3.1: message-id shall be generated by the SWIM component, not the ITCU
             message.setJMSTimestamp(System.currentTimeMillis());
 
             producer.send(message);
@@ -524,7 +460,6 @@ public class OutboundDispatchService {
             return;
         }
 
-        // Detect message type and routing rule to resolve the correct publish topic
         String messageType;
         try {
             messageType = detectService.detect(gwout.getText());
@@ -569,6 +504,17 @@ public class OutboundDispatchService {
     }
 
     /**
+     * Suy ra non-delivery-diagnostic-code theo ma trận EUR Doc 047 §4.4.2.6/§4.4.2.7
+     * từ thông báo lỗi của MessageValidationService (đã gắn sẵn mã chẩn đoán trong ngoặc).
+     */
+    private String ndrDiagnosticFor(String errorMessage) {
+        if (errorMessage == null) return null;
+        if (errorMessage.contains("content-too-long")) return "content-too-long";
+        if (errorMessage.contains("too-many-recipients")) return "too-many-recipients";
+        return null;
+    }
+
+    /**
      * CTSW011 - CTSW013: Xử lý bản tin Probe nhận từ AMHS.
      */
     private void processAmhsProbe(Gwout gwout) {
@@ -593,22 +539,22 @@ public class OutboundDispatchService {
         // 2. CTSW012: Kiểm tra tính hợp lệ của Recipients
         String recipients = gwout.getAddress();
         if (recipients == null || recipients.isBlank()) {
-            rejectProbe(gwout, "Recipients list is empty", "empty-recipients");
+            rejectProbe(gwout, "Recipients list is empty", "empty-recipients", null);
             return;
         }
 
         String[] recipientArray = recipients.trim().split("\\s+");
         for (String recipient : recipientArray) {
-            // Kiểm tra định dạng địa chỉ AFTN
             var formatResult = validationService.validateAftnAddress(recipient, "Recipient");
             if (!formatResult.isValid()) {
-                rejectProbe(gwout, "Invalid recipient format: " + recipient, "invalid-recipient-format");
+                // EUR Doc 047 §4.4.6.5: address conversion into an AF-address failed
+                rejectProbe(gwout, "Invalid recipient format: " + recipient, "invalid-recipient-format",
+                        "unrecognised-OR-name");
                 return;
             }
 
-            // Kiểm tra địa chỉ người nhận có tồn tại trong cấu hình định tuyến không
             if (!isRecipientKnown(recipient)) {
-                rejectProbe(gwout, "Unknown recipient: " + recipient, "unknown-recipient");
+                rejectProbe(gwout, "Unknown recipient: " + recipient, "unknown-recipient", "unrecognised-OR-name");
                 return;
             }
         }
@@ -622,13 +568,13 @@ public class OutboundDispatchService {
         conversionService.logAmhsToSwim(gwout, null, "OK", "dr_generated_probe");
     }
 
-    private void rejectProbe(Gwout gwout, String reason, String rejectionCode) {
+    private void rejectProbe(Gwout gwout, String reason, String rejectionCode, String ndrDiagnostic) {
         log.warn("Probe gwout#{} REJECTED: {}", gwout.getMsgid(), reason);
         gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
         gwout.setPayloadContent("NDR: " + reason);
         gwout.setRejectionReason(rejectionCode);
         gwoutRepository.save(gwout);
-        conversionService.logAmhsToSwim(gwout, null, "REJECTED", "ndr_" + rejectionCode + ": " + reason);
+        conversionService.logAmhsToSwimRejected(gwout, "ndr_" + rejectionCode + ": " + reason, ndrDiagnostic, null);
     }
 
     private boolean isRecipientKnown(String recipient) {

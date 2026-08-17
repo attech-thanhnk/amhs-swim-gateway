@@ -18,7 +18,6 @@ public class GwAlert {
     public static final String TYPE_CONNECTION_LOST = "CONNECTION_LOST";
     public static final String TYPE_MESSAGE_DEAD = "MESSAGE_DEAD";
     public static final String TYPE_QUEUE_BACKLOG = "QUEUE_BACKLOG";
-    public static final String TYPE_CONVERT_ERROR = "CONVERT_ERROR";
     public static final String TYPE_ROUTING_ERROR = "ROUTING_ERROR";
     public static final String TYPE_VALIDATION_ERROR = "VALIDATION_ERROR";
 
@@ -39,8 +38,7 @@ public class GwAlert {
 
     /**
      * Alert type.
-     * Examples: CONNECTION_LOST, MESSAGE_DEAD, QUEUE_BACKLOG, CONVERT_ERROR,
-     * ROUTING_ERROR
+     * Examples: CONNECTION_LOST, MESSAGE_DEAD, QUEUE_BACKLOG, ROUTING_ERROR
      */
     @Column(name = "alert_type", length = 30, nullable = false)
     private String alertType;

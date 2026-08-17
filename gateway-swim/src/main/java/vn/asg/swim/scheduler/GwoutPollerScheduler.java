@@ -40,7 +40,7 @@ public class GwoutPollerScheduler {
     private final AlertService alertService;
 
     /**
-     * Single Outbound Pipeline: Run conversion, dispatch creation, and publishing
+     * Single Outbound Pipeline: Run forwarding, dispatch creation, and publishing
      * sequentially to prevent Spring Thread Starvation.
      */
     @Scheduled(fixedDelayString = "#{configService.getPollIntervalMs()}", initialDelay = 5000)
@@ -49,8 +49,8 @@ public class GwoutPollerScheduler {
             return;
         }
 
-        // Step 1: Convert raw messages (status = 0 -> 2)
-        pollGwoutAndConvert();
+        // Step 1: Forward raw messages unchanged (status = 0 -> 2)
+        pollGwoutAndForward();
 
         // Step 2: Create dispatches (status = 2 -> 1)
         pollGwoutAndCreateDispatches();
@@ -59,26 +59,26 @@ public class GwoutPollerScheduler {
         pollDispatchesAndProcess();
     }
 
-    void pollGwoutAndConvert() {
+    void pollGwoutAndForward() {
         int batchSize = configService.getInt("OUTBOUND_BATCH_SIZE");
         List<Gwout> batch;
         try {
-            batch = gwoutRepository.findPendingConvertBatch(batchSize);
+            batch = gwoutRepository.findPendingForwardBatch(batchSize);
         } catch (Exception e) {
-            log.error("Error polling gwout for convert: {}", e.getMessage());
+            log.error("Error polling gwout for forwarding: {}", e.getMessage());
             return;
         }
 
         if (batch.isEmpty())
             return;
 
-        log.info("Found {} pending gwout messages to convert", batch.size());
+        log.info("Found {} pending gwout messages to forward", batch.size());
 
         for (Gwout gwout : batch) {
             try {
-                outboundDispatchService.convertOutboundMessage(gwout);
+                outboundDispatchService.processOutboundMessage(gwout);
             } catch (Exception e) {
-                log.error("Error converting gwout#{}: {}", gwout.getMsgid(), e.getMessage());
+                log.error("Error forwarding gwout#{}: {}", gwout.getMsgid(), e.getMessage());
             }
         }
     }

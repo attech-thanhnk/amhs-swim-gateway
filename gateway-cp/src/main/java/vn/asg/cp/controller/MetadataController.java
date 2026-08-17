@@ -5,18 +5,24 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import vn.asg.cp.repository.MessageTypeRegistryRepository;
+import vn.asg.cp.repository.RoutingRepository;
 
 @RestController
 @RequestMapping("/api/metadata")
 @RequiredArgsConstructor
 public class MetadataController {
 
-    private final MessageTypeRegistryRepository messageTypeRegistryRepository;
+    private final RoutingRepository routingRepository;
 
+    /**
+     * Danh sách loại bản tin AMHS -> SWIM nhận diện được, lấy từ các rule routing
+     * direction=OUT có detect_pattern (thay cho bảng message_type_registry cũ).
+     */
     @GetMapping("/message-types")
     public ResponseEntity<?> getMessageTypes() {
-        return ResponseEntity.ok(messageTypeRegistryRepository.findAll());
+        return ResponseEntity.ok(routingRepository.findByDirection("OUT").stream()
+                .filter(r -> r.getMessageType() != null)
+                .toList());
     }
 
     @GetMapping("/roles")

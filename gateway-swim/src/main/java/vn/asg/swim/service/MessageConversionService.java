@@ -3,12 +3,8 @@ package vn.asg.swim.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import vn.asg.converter.ConverterFacade;
-import vn.asg.converter.core.ConversionResult;
-import vn.asg.converter.core.OutputFormat;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.MessageConversionLog;
-import vn.asg.swim.exception.ConversionException;
 import vn.asg.swim.repository.MessageConversionLogRepository;
 
 import java.time.LocalDate;
@@ -16,8 +12,9 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * Logic chuyển đổi định dạng bản tin (conversion) cho luồng SWIM và AMHS.
- * Ánh xạ độ ưu tiên, OHI, body part type và filing time theo đặc tả.
+ * Ánh xạ độ ưu tiên, OHI, body part type, filing time và ghi log chuyển tiếp
+ * bản tin giữa luồng SWIM và AMHS. Nội dung bản tin (body) được giữ nguyên,
+ * không convert định dạng ở cả hai chiều (theo ICAO Doc 047).
  */
 @Service
 @RequiredArgsConstructor
@@ -25,100 +22,14 @@ import java.time.format.DateTimeFormatter;
 public class MessageConversionService {
 
     private final MessageConversionLogRepository conversionLogRepo;
-    private final ConverterFacade converterFacade;
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
-
-    /**
-     * Chuyển đổi TAC sang JSON (chiều AMHS sang SWIM).
-     */
-    public String toSwim(String amhsBody, String messageType) throws ConversionException {
-        return toSwim(amhsBody, messageType, null, null);
-    }
-
-    public String toSwim(String amhsBody, String messageType, String optionalHeading) throws ConversionException {
-        return toSwim(amhsBody, messageType, optionalHeading, null);
-    }
-
-    public String toSwim(String amhsBody, String messageType, String optionalHeading, String subject) throws ConversionException {
-        if (amhsBody == null || amhsBody.isBlank()) {
-            return "";
-        }
-
-        ConversionResult result = converterFacade.convert(amhsBody, messageType, OutputFormat.JSON, optionalHeading, subject);
-        if (!result.isSuccess()) {
-            throw new ConversionException(result.getErrorMessage(), messageType, "TAC", "JSON");
-        }
-        return result.getPayload();
-    }
-
-    /**
-     * Chuyển đổi JSON sang TAC (chiều SWIM sang AMHS).
-     */
-    public String toAmhs(String swimBody, String messageType) throws ConversionException {
-        if (swimBody == null || swimBody.isBlank()) {
-            return "";
-        }
-
-        // Đã là định dạng TAC rồi, trả về luôn
-        if (swimBody.trim().startsWith("(")) {
-            return swimBody.trim();
-        }
-
-        ConversionResult result = converterFacade.convert(swimBody, messageType, OutputFormat.TEXT);
-        if (!result.isSuccess()) {
-            throw new ConversionException(result.getErrorMessage(), messageType, "JSON", "TAC");
-        }
-        return result.getPayload();
-    }
-
-    /**
-     * Ánh xạ độ ưu tiên ATS (SS/DD/FF/GG/KK) sang giá trị số AMQP (0-9).
-     */
-    public byte mapAtsPriorityToAmqp(String atsPriority) {
-        return (byte) vn.asg.swim.model.AmqpProperties.mapAtsPriorityToAmqp(atsPriority);
-    }
-
-    /**
-     * Ánh xạ độ ưu tiên AMQP (0-9) sang định dạng ATS (SS/DD/FF/GG/KK).
-     */
-    public String mapAmqpPriorityToAts(int amqpPriority) {
-        return vn.asg.swim.model.AmqpProperties.mapPriorityToAts(amqpPriority);
-    }
-
-    /**
-     * Cắt ngắn thông tin OHI theo đặc tả: độ ưu tiên >= 5 tối đa 48 ký tự, ngược lại tối đa 53 ký tự.
-     */
-    public String processOhi(String ohi, int amqpPriority) {
-        if (ohi == null || ohi.isBlank())
-            return null;
-        int maxLen = (amqpPriority >= 5) ? 48 : 53;
-        return ohi.length() > maxLen ? ohi.substring(0, maxLen) : ohi;
-    }
-
-    /**
-     * Ánh xạ loại body part sang bảng mã tương ứng (IA5, ISO-646, ISO-8859-1).
-     */
-    public String mapBodyPartTypeToEncoding(String bodyPartType) {
-        if (bodyPartType == null)
-            return null;
-        return switch (bodyPartType.toLowerCase()) {
-            case "ia5-text", "ia5-text-body-part", "ia5_text_body_part" -> "IA5";
-            case "general-text-body-part", "general-text-body-part-iso-646",
-                    "general-text-body-part (iso-646)" ->
-                "ISO-646";
-            case "general-text-body-part-iso-8859-1",
-                    "general-text-body-part (iso-8859-1)" ->
-                "ISO-8859-1";
-            default -> null;
-        };
-    }
 
     /**
      * Ghi log chuyển đổi chiều gửi đi AMHS sang SWIM.
      */
     public void logAmhsToSwim(Gwout gwout, String amqpMessageId, String status, String actionTaken,
-            String mtsId, String ipmId) {
+            String mtsId, String ipmId, String nonDeliveryDiagnostic, String supplementaryInfo) {
         try {
             MessageConversionLog logEntry = new MessageConversionLog();
             logEntry.setDate(LocalDate.now().format(DATE_FMT));
@@ -142,6 +53,16 @@ public class MessageConversionService {
                 logEntry.setActionTaken(actionTaken);
             }
             logEntry.setStatus(status);
+            // EUR Doc 047 §4.3.1.2(d)/§4.4.8: NDR reason-code is always "unable-to-transfer"
+            // in every rejection scenario this ITCU implements; only the diagnostic-code varies.
+            if (nonDeliveryDiagnostic != null) {
+                logEntry.setNonDeliveryReason("unable-to-transfer");
+                logEntry.setNonDeliveryDiagnostic(nonDeliveryDiagnostic);
+            }
+            if (supplementaryInfo != null) {
+                logEntry.setSupplementaryInfo(
+                        supplementaryInfo.length() > 512 ? supplementaryInfo.substring(0, 512) : supplementaryInfo);
+            }
             conversionLogRepo.saveAndFlush(logEntry);
         } catch (Exception e) {
             log.error("Failed to write conversion log for gwout#{}: {}", gwout.getMsgid(), e.getMessage());
@@ -149,10 +70,20 @@ public class MessageConversionService {
     }
 
     /**
-     * Log chuyển đổi AMHS sang SWIM (không kèm theo MTS/IPM ID).
+     * Log chuyển đổi AMHS sang SWIM, tự lấy MTS-Identifier/IPM-Identifier từ gwout.
      */
     public void logAmhsToSwim(Gwout gwout, String amqpMessageId, String status, String actionTaken) {
-        logAmhsToSwim(gwout, amqpMessageId, status, actionTaken, null, null);
+        logAmhsToSwim(gwout, amqpMessageId, status, actionTaken, gwout.getAmhsid(), gwout.getIpmId(), null, null);
+    }
+
+    /**
+     * Log bản tin AMHS→SWIM bị từ chối kèm NDR non-delivery-diagnostic-code theo ma trận
+     * EUR Doc 047 §4.4.1-§4.4.2/§4.4.6 (reason-code luôn là "unable-to-transfer").
+     */
+    public void logAmhsToSwimRejected(Gwout gwout, String actionTaken, String nonDeliveryDiagnostic,
+            String supplementaryInfo) {
+        logAmhsToSwim(gwout, null, "REJECTED", actionTaken, gwout.getAmhsid(), gwout.getIpmId(),
+                nonDeliveryDiagnostic, supplementaryInfo);
     }
 
     /**
@@ -199,12 +130,5 @@ public class MessageConversionService {
     public void logSwimToAmhs(String amqpMessageId, String originator,
             String status, String actionTaken, String rejectionReason) {
         logSwimToAmhs(amqpMessageId, originator, status, actionTaken, rejectionReason, null);
-    }
-
-    /**
-     * Kiểm tra định dạng thời gian nộp (filing time) gồm 6 chữ số (DDhhmm).
-     */
-    public boolean isValidFilingTime(String ft) {
-        return ft != null && ft.matches("\\d{6}");
     }
 }

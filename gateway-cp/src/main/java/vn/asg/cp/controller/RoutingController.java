@@ -53,12 +53,10 @@ public class RoutingController {
         routing.setRecipients(request.getRecipients());
         routing.setOriginator(request.getOriginator());
         routing.setMessageType(request.getMessageType());
+        routing.setDetectPattern(request.getDetectPattern());
         routing.setSendTopic(request.getSendTopic());
-        routing.setPriorityAmhs(request.getPriorityAmhs() != null ? request.getPriorityAmhs() : "FF");
-        routing.setPrioritySwim(request.getPrioritySwim() != null ? request.getPrioritySwim() : 3);
-        // routing.setPriority(request.getPriority() != null ? request.getPriority() : 100);
+        routing.setPriority(request.getPriority() != null ? request.getPriority() : 100);
         routing.setActive(request.getActive() != null ? request.getActive() : true);
-//        routing.setConvertToJson(request.getConvertToJson() != null ? request.getConvertToJson() : true);
         routing.setNote(request.getNote());
 
         sanitizeTopic(routing);
@@ -103,16 +101,14 @@ public class RoutingController {
             existing.setOriginator(request.getOriginator());
         if (request.getMessageType() != null)
             existing.setMessageType(request.getMessageType());
+        if (request.getDetectPattern() != null)
+            existing.setDetectPattern(request.getDetectPattern());
         if (request.getSendTopic() != null)
             existing.setSendTopic(request.getSendTopic());
-        if (request.getPriorityAmhs() != null)
-            existing.setPriorityAmhs(request.getPriorityAmhs());
-        if (request.getPrioritySwim() != null)
-            existing.setPrioritySwim(request.getPrioritySwim());
+        if (request.getPriority() != null)
+            existing.setPriority(request.getPriority());
         if (request.getActive() != null)
             existing.setActive(request.getActive());
-//        if (request.getConvertToJson() != null)
-//            existing.setConvertToJson(request.getConvertToJson());
         if (request.getNote() != null)
             existing.setNote(request.getNote());
 

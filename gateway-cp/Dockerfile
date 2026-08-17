@@ -6,11 +6,10 @@ WORKDIR /app
 
 # Copy POM files and source code to leverage Docker cache
 COPY pom.xml .
-COPY gateway-converter ./gateway-converter
 COPY gateway-swim ./gateway-swim
 COPY gateway-cp ./gateway-cp
 
-# Build only gateway-cp and its dependency module (gateway-converter)
+# Build only gateway-cp
 # Use BuildKit cache mounting to speed up Maven builds
 RUN --mount=type=cache,target=/root/.m2 mvn clean package -pl gateway-cp -am -DskipTests
 

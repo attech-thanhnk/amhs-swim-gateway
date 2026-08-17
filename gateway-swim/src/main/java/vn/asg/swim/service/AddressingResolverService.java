@@ -13,7 +13,7 @@ import vn.asg.swim.model.ResolvedAddressing;
  * Áp dụng thứ tự ưu tiên Simple Routing:
  * <ol>
  * <li>AMQP Properties</li>
- * <li>Routing Rules — cấu hình trong bảng `routing` dựa theo queue & filter</li>
+ * <li>Routing Rules — cấu hình trong bảng `routing` dựa theo queue</li>
  * </ol>
  */
 @Service
@@ -24,12 +24,11 @@ public class AddressingResolverService {
     private final RoutingService routingService;
     private final ConfigService configService;
     private final MessageValidationService validationService;
-    private final MessageDetectService detectService;
 
     /**
      * Phân giải địa chỉ AMHS gửi và nhận từ bản tin AMQP.
      */
-    public ResolvedAddressing resolve(Message amqpMsg, String queue, String body) {
+    public ResolvedAddressing resolve(Message amqpMsg, String queue) {
         // Chiến lược 1: Sử dụng AMQP Properties
         ResolvedAddressing result = resolveFromAmqpProperties(amqpMsg);
         if (resolved(result)) {
@@ -37,7 +36,7 @@ public class AddressingResolverService {
         }
 
         // Chiến lược 2: Sử dụng Simple Routing Rules
-        result = resolveFromRoutingRules(queue, body);
+        result = resolveFromRoutingRules(queue);
         if (resolved(result)) {
             return result;
         }
@@ -83,9 +82,8 @@ public class AddressingResolverService {
     /**
      * Phân giải địa chỉ dựa theo cấu hình định tuyến trong database.
      */
-    private ResolvedAddressing resolveFromRoutingRules(String queue, String body) {
-        String messageFilter = extractMessageType(body);
-        var ruleOpt = routingService.findBestMatchIn(queue, messageFilter);
+    private ResolvedAddressing resolveFromRoutingRules(String queue) {
+        var ruleOpt = routingService.findBestMatchIn(queue);
 
         if (ruleOpt.isPresent()) {
             var rule = ruleOpt.get();
@@ -94,7 +92,7 @@ public class AddressingResolverService {
                 String orig = rule.getOriginator() != null && !rule.getOriginator().isBlank()
                         ? rule.getOriginator()
                         : configService.getDefaultOriginator();
-                log.debug("AddressingResolver: Resolved via Routing Rules queue={}, filter={}", queue, messageFilter);
+                log.debug("AddressingResolver: Resolved via Routing Rules queue={}", queue);
                 return new ResolvedAddressing(orig, recs, ResolvedAddressing.SOURCE_ROUTING_RULE);
             }
         }
@@ -106,14 +104,6 @@ public class AddressingResolverService {
      */
     private boolean resolved(ResolvedAddressing r) {
         return r != null && r.isResolved();
-    }
-
-    /**
-     * Nhận dạng loại bản tin từ nội dung body.
-     */
-    private String extractMessageType(String body) {
-        String detected = detectService.detect(body);
-        return "UNKNOWN".equals(detected) ? null : detected;
     }
 
     /**

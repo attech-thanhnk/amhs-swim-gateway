@@ -108,6 +108,10 @@ public class MessagesController {
                 m.put("swimPriority", g.getSwimPriority());
                 m.put("amqpMessageId", g.getAmqpMessageId());
                 m.put("bodyPartType", g.getBodyPartType());
+                m.put("bodyPartCharset", g.getBodyPartCharset());
+                m.put("ftbpFileName", g.getFtbpFileName());
+                m.put("ftbpObjectSize", g.getFtbpObjectSize());
+                m.put("ftbpLastMod", g.getFtbpLastMod());
                 m.put("messageSigned", g.getMessageSigned());
                 m.put("rejectionReason", g.getRejectionReason());
                 m.put("rejectionDiagnostic", g.getRejectionDiagnostic());

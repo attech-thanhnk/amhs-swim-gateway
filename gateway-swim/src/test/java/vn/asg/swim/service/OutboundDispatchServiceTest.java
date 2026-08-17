@@ -24,7 +24,7 @@ import static org.mockito.Mockito.*;
 
 /**
  * Test suite for OutboundDispatchService - AMHS → SWIM direction.
- * Covers critical bug fixes: Issue #1 (status logic), Issue #2 (cache), TTL, retry logic.
+ * Covers critical bug fixes: Issue #1 (status logic), content forwarding, TTL, retry logic.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -47,6 +47,8 @@ class OutboundDispatchServiceTest {
     private Gwout gwout;
     private GwoutDispatch dispatch;
     private Routing routing;
+    private MessageProducer mockProducer;
+    private TextMessage mockTextMessage;
 
     @BeforeEach
     void setUp() {
@@ -69,7 +71,6 @@ class OutboundDispatchServiceTest {
         routing = new Routing();
         routing.setMessageType("METAR");
         routing.setSendTopic("ats.met.metar");
-        routing.setConvertToJson(true);
 
         // Default config mocks
         when(configService.getInt("RETRY_MAX_COUNT")).thenReturn(3);
@@ -77,9 +78,6 @@ class OutboundDispatchServiceTest {
         when(configService.getInt("RETRY_DELAY_2ND_SECONDS")).thenReturn(120);
         when(configService.getInt("RETRY_DELAY_3RD_SECONDS")).thenReturn(300);
         when(configService.getGatewayId()).thenReturn("ASG-GW-01");
-        when(configService.getInt(eq("MAX_PAYLOAD_SIZE"), anyInt())).thenReturn(2097152);
-        when(configService.getCommaSeparatedConfig("ALLOWED_CONTENT_TYPES"))
-            .thenReturn(List.of("text/plain", "application/json", "application/xml"));
         when(routingService.existsOriginatorOut(anyString())).thenReturn(true);
     }
 
@@ -95,7 +93,7 @@ class OutboundDispatchServiceTest {
             .thenReturn(invalidResult);
 
         // When
-        service.convertOutboundMessage(gwout);
+        service.processOutboundMessage(gwout);
 
         // Then: Status should be FAILED
         assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
@@ -121,7 +119,7 @@ class OutboundDispatchServiceTest {
         when(authorizationService.isAmhsUserAuthorized("VVTSZYYX")).thenReturn(false);
 
         // When
-        service.convertOutboundMessage(gwout);
+        service.processOutboundMessage(gwout);
 
         // Then: Should fail gwout status
         assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
@@ -148,7 +146,7 @@ class OutboundDispatchServiceTest {
         when(authorizationService.isAmhsUserAuthorized(anyString())).thenReturn(true);
 
         // When
-        service.convertOutboundMessage(gwout);
+        service.processOutboundMessage(gwout);
 
         // Then: Should mark as OUT_PUBLISHED (accepted skip)
         assertEquals(MessageStatus.OUT_PUBLISHED.getValue(), gwout.getStatus());
@@ -169,55 +167,35 @@ class OutboundDispatchServiceTest {
         verify(connectionManager).createSession();
     }
 
-    // ==================== ISSUE #2: CONVERSION CACHE ====================
+    // ==================== CONTENT FORWARDED UNCHANGED (ICAO Doc 047) ====================
 
     @Test
-    void testConversionCache_DetectsExistingJson_ShouldNotReconvert() throws Exception {
-        // Given: gwout already has JSON payload cached
+    void testForwardsOriginalBody_OverwritesStaleCache() throws Exception {
+        // Given: gwout has a stale/pre-existing payload
         gwout.setPayloadContent("{\"stationIcao\":\"VVTS\",\"messageType\":\"METAR\"}");
         when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
         setupValidScenario();
 
         // When
-        service.convertOutboundMessage(gwout);
+        service.processOutboundMessage(gwout);
 
-        // Then: Should NOT call conversionService.toSwim (use cache)
-        verify(conversionService, never()).toSwim(anyString(), anyString(), any(), any());
+        // Then: payloadContent is replaced with the original AMHS body, unconverted
+        assertEquals(gwout.getText(), gwout.getPayloadContent());
+        verify(conversionService).logAmhsToSwim(eq(gwout), isNull(), eq("OK"), eq("forwarded_unchanged"));
     }
 
     @Test
-    void testConversionCache_NoCache_ShouldConvertAndCache() throws Exception {
-        // Given: No cached payload
+    void testForwardsOriginalBody_NoPriorPayload() throws Exception {
         setupValidScenario();
-        gwout.setPayloadContent(null);
-        when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
-        when(conversionService.toSwim(anyString(), eq("METAR"), any(), any()))
-            .thenReturn("{\"stationIcao\":\"VVTS\",\"observationTime\":\"121200Z\"}");
-
-        // When
-        service.convertOutboundMessage(gwout);
-
-        // Then: Should call conversion AND save cache
-        verify(conversionService).toSwim(anyString(), eq("METAR"), any(), any());
-        verify(gwoutRepository, atLeastOnce()).save(argThat(g ->
-            g.getPayloadContent() != null &&
-            g.getPayloadContent().contains("stationIcao")
-        ));
-    }
-
-    @Test
-    void testConversionCache_TacFormat_ShouldNotConvert() throws Exception {
-        // Given: Routing rule says keep TAC format
-        setupValidScenario();
-        routing.setConvertToJson(false);
         gwout.setPayloadContent(null);
         when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
 
         // When
-        service.convertOutboundMessage(gwout);
+        service.processOutboundMessage(gwout);
 
-        // Then: Should NOT convert, use original body
-        verify(conversionService, never()).toSwim(anyString(), anyString());
+        // Then: original body is forwarded as-is
+        assertEquals(gwout.getText(), gwout.getPayloadContent());
+        assertEquals(MessageStatus.OUT_TRANSFORMED.getValue(), gwout.getStatus());
     }
 
     // ==================== ROUTING LOGIC ====================
@@ -235,7 +213,7 @@ class OutboundDispatchServiceTest {
         when(routingService.findBestMatchOut("UNKNOWN")).thenReturn(Optional.empty());
 
         // When
-        service.convertOutboundMessage(gwout);
+        service.processOutboundMessage(gwout);
 
         // Then: Should fail at routing step
         assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
@@ -312,6 +290,36 @@ class OutboundDispatchServiceTest {
         }));
     }
 
+    @Test
+    void testMultipleRecipients_ShouldMergeIntoSinglePublish() throws Exception {
+        // Given: 2 dispatch cùng gwout, cùng topic (kết quả của createDispatches cho gwout đa recipient)
+        when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
+        setupValidScenario();
+
+        GwoutDispatch dispatch2 = new GwoutDispatch();
+        dispatch2.setId(101L);
+        dispatch2.setGwoutId(1L);
+        dispatch2.setRecipient("VVCIZTZX");
+        dispatch2.setStatus(GwoutDispatch.STATUS_PENDING);
+        dispatch2.setRetryCount(0);
+        dispatch2.setTopic("ats.met.metar");
+
+        when(gwoutDispatchRepository.findByGwoutId(1L)).thenReturn(List.of(dispatch, dispatch2));
+
+        // When: xử lý dispatch đầu tiên trong batch
+        service.processDispatch(dispatch);
+
+        // Then: chỉ 1 lần publish (send) duy nhất, amhs_recipients gộp cả 2 địa chỉ
+        verify(mockProducer, times(1)).send(any());
+        verify(mockTextMessage).setStringProperty("amhs_recipients", "VVHHZTZX,VVCIZTZX");
+        assertEquals(GwoutDispatch.STATUS_SENT, dispatch.getStatus());
+        assertEquals(GwoutDispatch.STATUS_SENT, dispatch2.getStatus());
+
+        // Dispatch anh em (dispatch2) không còn PENDING/FAILED nên vòng lặp poller kế tiếp sẽ bỏ qua
+        service.processDispatch(dispatch2);
+        verify(mockProducer, times(1)).send(any());
+    }
+
     // ==================== PROBE AND EIT TESTS ====================
 
     @Test
@@ -331,7 +339,7 @@ class OutboundDispatchServiceTest {
         when(configService.get("AUTHORIZED_AMHS_ADDRESSES")).thenReturn("VVHHZTZX");
 
         // When
-        service.convertOutboundMessage(probe);
+        service.processOutboundMessage(probe);
 
         // Then: Should mark as OUT_PUBLISHED and log DR
         assertEquals(MessageStatus.OUT_PUBLISHED.getValue(), probe.getStatus());
@@ -352,7 +360,7 @@ class OutboundDispatchServiceTest {
         when(authorizationService.isAmhsUserAuthorized("UNKNOWNX")).thenReturn(false);
 
         // When
-        service.convertOutboundMessage(probe);
+        service.processOutboundMessage(probe);
 
         // Then: Should mark as OUT_FAILED, log REJECTED and ndr_unknown_originator
         assertEquals(MessageStatus.OUT_FAILED.getValue(), probe.getStatus());
@@ -379,7 +387,7 @@ class OutboundDispatchServiceTest {
         when(routingService.isRecipientConfigured("UNKNOWN")).thenReturn(false);
 
         // When
-        service.convertOutboundMessage(probe);
+        service.processOutboundMessage(probe);
 
         // Then: Should mark as OUT_FAILED and generate NDR
         assertEquals(MessageStatus.OUT_FAILED.getValue(), probe.getStatus());
@@ -400,13 +408,14 @@ class OutboundDispatchServiceTest {
         );
 
         // When
-        service.convertOutboundMessage(gwout);
+        service.processOutboundMessage(gwout);
 
         // Then: Should mark as OUT_FAILED and log conversion log
         assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
         assertTrue(gwout.getPayloadContent().contains("EIT validation failed:"));
         verify(gwoutRepository).save(gwout);
-        verify(conversionService).logAmhsToSwim(eq(gwout), any(), eq("REJECTED"), contains("unsupported_eit"));
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("unsupported_eit"),
+                eq("content-syntax-error"), anyString());
     }
 
     @Test
@@ -417,13 +426,14 @@ class OutboundDispatchServiceTest {
         badGwout.setOrigin("vvtszpy1"); // has numbers and lowercase
 
         // When
-        service.convertOutboundMessage(badGwout);
+        service.processOutboundMessage(badGwout);
 
         // Then: Should fail immediately
         assertEquals(MessageStatus.OUT_FAILED.getValue(), badGwout.getStatus());
         assertTrue(badGwout.getPayloadContent().contains("Rejected: Originator must be"));
         verify(gwoutRepository).save(badGwout);
-        verify(conversionService).logAmhsToSwim(eq(badGwout), any(), eq("REJECTED"), eq("invalid_origin_format"));
+        verify(conversionService).logAmhsToSwimRejected(eq(badGwout), eq("invalid_origin_format"),
+                eq("invalid-arguments"), anyString());
     }
 
     @Test
@@ -435,7 +445,7 @@ class OutboundDispatchServiceTest {
             .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
 
         // When
-        service.convertOutboundMessage(gwout);
+        service.processOutboundMessage(gwout);
 
         // Then: Should convert bodyPartType to ia5-text-body-part and pass validation
         assertEquals("ia5-text-body-part", gwout.getBodyPartType());
@@ -457,14 +467,15 @@ class OutboundDispatchServiceTest {
         // Set payload content and topic on test entities to bypass empty check in processDispatch
         gwout.setPayloadContent("{\"stationIcao\":\"VVTS\",\"observationTime\":\"121200Z\"}");
         dispatch.setTopic("ats.met.metar");
+        when(gwoutDispatchRepository.findByGwoutId(1L)).thenReturn(List.of(dispatch));
 
         // Mock AMQP publishing
         Session session = mock(Session.class);
-        MessageProducer producer = mock(MessageProducer.class);
-        TextMessage textMessage = mock(TextMessage.class);
+        mockProducer = mock(MessageProducer.class);
+        mockTextMessage = mock(TextMessage.class);
 
         when(connectionManager.createSession()).thenReturn(session);
-        when(connectionManager.createProducer(any(), anyString())).thenReturn(producer);
-        when(session.createTextMessage(anyString())).thenReturn(textMessage);
+        when(connectionManager.createProducer(any(), anyString())).thenReturn(mockProducer);
+        when(session.createTextMessage(anyString())).thenReturn(mockTextMessage);
     }
 }

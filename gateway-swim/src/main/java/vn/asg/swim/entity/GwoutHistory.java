@@ -19,6 +19,9 @@ public class GwoutHistory {
     @Column(name = "amhsid", length = 200)
     private String amhsid;
 
+    @Column(name = "ipm_id", length = 200)
+    private String ipmId;
+
     @Column(name = "amhs_priority", length = 10)
     private String amhsPriority;
 
@@ -70,6 +73,18 @@ public class GwoutHistory {
     @Column(name = "body_part_type", length = 50)
     private String bodyPartType;
 
+    @Column(name = "body_part_charset", length = 20)
+    private String bodyPartCharset;
+
+    @Column(name = "ftbp_file_name", length = 255)
+    private String ftbpFileName;
+
+    @Column(name = "ftbp_object_size", length = 20)
+    private String ftbpObjectSize;
+
+    @Column(name = "ftbp_last_mod", length = 20)
+    private String ftbpLastMod;
+
     @Column(name = "rejection_reason", length = 64)
     private String rejectionReason;
 
@@ -80,6 +95,8 @@ public class GwoutHistory {
     public void setMsgid(Long msgid) { this.msgid = msgid; }
     public String getAmhsid() { return amhsid; }
     public void setAmhsid(String amhsid) { this.amhsid = amhsid; }
+    public String getIpmId() { return ipmId; }
+    public void setIpmId(String ipmId) { this.ipmId = ipmId; }
     public String getAmhsPriority() { return amhsPriority; }
     public void setAmhsPriority(String amhsPriority) { this.amhsPriority = amhsPriority; }
     public Integer getSwimPriority() { return swimPriority; }
@@ -114,6 +131,14 @@ public class GwoutHistory {
     public void setPayloadContent(String payloadContent) { this.payloadContent = payloadContent; }
     public String getBodyPartType() { return bodyPartType; }
     public void setBodyPartType(String bodyPartType) { this.bodyPartType = bodyPartType; }
+    public String getBodyPartCharset() { return bodyPartCharset; }
+    public void setBodyPartCharset(String bodyPartCharset) { this.bodyPartCharset = bodyPartCharset; }
+    public String getFtbpFileName() { return ftbpFileName; }
+    public void setFtbpFileName(String ftbpFileName) { this.ftbpFileName = ftbpFileName; }
+    public String getFtbpObjectSize() { return ftbpObjectSize; }
+    public void setFtbpObjectSize(String ftbpObjectSize) { this.ftbpObjectSize = ftbpObjectSize; }
+    public String getFtbpLastMod() { return ftbpLastMod; }
+    public void setFtbpLastMod(String ftbpLastMod) { this.ftbpLastMod = ftbpLastMod; }
     public String getRejectionReason() { return rejectionReason; }
     public void setRejectionReason(String rejectionReason) { this.rejectionReason = rejectionReason; }
     public Integer getErrorType() { return errorType; }

@@ -25,9 +25,6 @@ public class Routing {
     @Column(name = "receive_topic", length = 100)
     private String receiveTopic;
 
-    @Column(name = "message_filter", length = 100)
-    private String messageFilter;
-
     @Column(name = "recipients", length = 500)
     private String recipients;
 
@@ -38,6 +35,10 @@ public class Routing {
     @Column(name = "message_type", length = 50)
     private String messageType;
 
+    /** Mẫu nhận diện loại bản tin từ nội dung thô (prefix). Ví dụ: "METAR ", "(FPL-" */
+    @Column(name = "detect_pattern", length = 255)
+    private String detectPattern;
+
     @Column(name = "send_topic", length = 100)
     private String sendTopic;
 
@@ -47,9 +48,6 @@ public class Routing {
 
     @Column(name = "active")
     private Boolean active = true;
-
-    @Column(name = "convert_to_json")
-    private Boolean convertToJson = true;
 
     @Column(name = "note", columnDefinition = "TEXT")
     private String note;
@@ -87,14 +85,6 @@ public class Routing {
         this.receiveTopic = receiveTopic;
     }
 
-    public String getMessageFilter() {
-        return messageFilter;
-    }
-
-    public void setMessageFilter(String messageFilter) {
-        this.messageFilter = messageFilter;
-    }
-
     public String getRecipients() {
         return recipients;
     }
@@ -119,6 +109,14 @@ public class Routing {
         this.messageType = messageType;
     }
 
+    public String getDetectPattern() {
+        return detectPattern;
+    }
+
+    public void setDetectPattern(String detectPattern) {
+        this.detectPattern = detectPattern;
+    }
+
     public String getSendTopic() {
         return sendTopic;
     }
@@ -141,14 +139,6 @@ public class Routing {
 
     public void setActive(Boolean active) {
         this.active = active;
-    }
-
-    public Boolean getConvertToJson() {
-        return convertToJson;
-    }
-
-    public void setConvertToJson(Boolean convertToJson) {
-        this.convertToJson = convertToJson;
     }
 
     public String getNote() {
