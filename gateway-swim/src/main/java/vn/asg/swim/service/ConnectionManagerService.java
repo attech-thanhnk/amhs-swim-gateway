@@ -188,12 +188,12 @@ public class ConnectionManagerService {
             currentPass = decryptIfEncrypted(currentPass);
 
             String scheme = currentTls ? "amqps" : "amqp";
-            // amqp.idleTimeout: gửi frame rỗng định kỳ để giữ kết nối "sống" qua các
-            // NAT/firewall im lặng lâu sẽ tự đóng; tcpKeepAlive: bổ sung keep-alive ở tầng TCP.
-            // Khắc phục lỗi "Transport closed due to the peer exceeding our requested idle-timeout"
-            // xảy ra rải rác khi không có traffic AMHS/SWIM trong một khoảng thời gian.
-            String url = String.format("%s://%s:%d?amqp.idleTimeout=30000&transport.tcpKeepAlive=true&amqp.saslMechanisms=PLAIN",
+            // amqp.idleTimeout=120000 (2 phút) giữ kết nối thông suốt khi rảnh;
+            // failover:(...)?failover.maxReconnectAttempts=-1 tự động khôi phục kết nối ngầm khi mạng giật lag.
+            String baseAmqpUrl = String.format("%s://%s:%d?amqp.idleTimeout=120000&transport.tcpKeepAlive=true&amqp.saslMechanisms=PLAIN",
                     scheme, currentHost, currentPort);
+            String url = String.format("failover:(%s)?failover.maxReconnectAttempts=-1&failover.initialReconnectDelay=2000&failover.reconnectDelay=2000&failover.maxReconnectDelay=10000",
+                    baseAmqpUrl);
 
             log.info("Connecting to AMQP broker at {} as '{}'...", url, currentUser);
             updateBindStatus(BIND_CONNECTING);
