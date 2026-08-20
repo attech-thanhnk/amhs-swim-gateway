@@ -192,7 +192,7 @@ public class ConnectionManagerService {
             // NAT/firewall im lặng lâu sẽ tự đóng; tcpKeepAlive: bổ sung keep-alive ở tầng TCP.
             // Khắc phục lỗi "Transport closed due to the peer exceeding our requested idle-timeout"
             // xảy ra rải rác khi không có traffic AMHS/SWIM trong một khoảng thời gian.
-            String url = String.format("%s://%s:%d?amqp.idleTimeout=30000&transport.tcpKeepAlive=true&jms.saslMechanisms=PLAIN",
+            String url = String.format("%s://%s:%d?amqp.idleTimeout=30000&transport.tcpKeepAlive=true&amqp.saslMechanisms=PLAIN",
                     scheme, currentHost, currentPort);
 
             log.info("Connecting to AMQP broker at {} as '{}'...", url, currentUser);
