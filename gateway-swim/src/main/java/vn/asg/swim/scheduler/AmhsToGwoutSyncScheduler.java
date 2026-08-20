@@ -107,9 +107,6 @@ public class AmhsToGwoutSyncScheduler {
                   AND NOT EXISTS (
                       SELECT 1 FROM gwout g WHERE g.amhsid = t.messageId
                   )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM gwout_history gh WHERE gh.amhsid = t.messageId
-                  )
                 ORDER BY t.id ASC
             """;
 

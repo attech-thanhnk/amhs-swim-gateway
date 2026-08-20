@@ -86,8 +86,10 @@ public class Gwin {
 
     /**
      * Global Status.
-     * 0=PENDING, 4=FAILED, 5=UNROUTED, 6=RESOLVED, 7=CANCELLED
+     * 0=PENDING, 1=UNROUTED, 2=TRANSFORMED, 3=DELIVERED, 4=FAILED, 5=RESOLVED, 6=CANCELLED
      */
     @Column(name = "status")
-    private Integer status = MessageStatus.IN_PENDING.getValue();
+    private Integer status = InboundStatus.PENDING.getValue();
 }
+
+

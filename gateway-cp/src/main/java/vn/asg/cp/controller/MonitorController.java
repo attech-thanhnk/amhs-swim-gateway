@@ -10,11 +10,11 @@ import vn.asg.cp.entity.PerformanceMetrics;
 import vn.asg.cp.repository.AccountRepository;
 import vn.asg.cp.repository.GwinRepository;
 import vn.asg.cp.repository.GwoutRepository;
-import vn.asg.cp.repository.GwinHistoryRepository;
-import vn.asg.cp.repository.GwoutHistoryRepository;
+import vn.asg.cp.repository.GwoutDispatchRepository;
 import vn.asg.cp.repository.PerformanceMetricsRepository;
 import vn.asg.cp.repository.ServerInfoRepository;
 import vn.asg.cp.provider.AppVersionProvider;
+
 
 import vn.asg.cp.entity.ServerInfo;
 import java.lang.management.ManagementFactory;
@@ -38,8 +38,7 @@ public class MonitorController {
         private final PerformanceMetricsRepository metricsRepository;
         private final GwoutRepository gwoutRepository;
         private final GwinRepository gwinRepository;
-        private final GwoutHistoryRepository gwoutHistoryRepository;
-        private final GwinHistoryRepository gwinHistoryRepository;
+        private final GwoutDispatchRepository gwoutDispatchRepository;
         private final ServerInfoRepository serverInfoRepository;
         private final AppVersionProvider versionProvider;
 
@@ -76,29 +75,36 @@ public class MonitorController {
                 long msgOutTotal = latestMetrics
                                 .map(m -> m.getMsgOutCount() != null ? m.getMsgOutCount().longValue() : 0L).orElse(0L);
 
-                // 3. Database Message stats (số lượng bản ghi hiện có theo status)
+                // 3. Database Message stats (chỉ số chính xác theo từng chiều)
                 long activeGwoutTotal = gwoutRepository.countAll();
-                long historyGwoutTotal = gwoutHistoryRepository.count();
+                long dispatchGwoutCount = gwoutDispatchRepository.count();
+                long gwoutTotal = Math.max(Math.max(activeGwoutTotal, dispatchGwoutCount), msgOutTotal);
+                long gwoutPending = gwoutRepository.countByStatus(MessageStatus.OUT_PENDING.getValue());
+                long gwoutPublished = gwoutRepository.countByStatus(MessageStatus.OUT_PUBLISHED.getValue());
+                long gwoutFailed = gwoutRepository.countByStatus(MessageStatus.OUT_FAILED.getValue());
+                long gwoutSent = (gwoutPublished > 0) ? gwoutPublished : Math.max(0L, gwoutTotal - gwoutPending - gwoutFailed);
+
                 Map<String, Object> gwoutStats = Map.of(
-                                "total", activeGwoutTotal + historyGwoutTotal,
-                                "pending", gwoutRepository.countByStatus(MessageStatus.OUT_PENDING.getValue()),
-                                "transformed", gwoutRepository.countByStatus(MessageStatus.OUT_TRANSFORMED.getValue())
-                                                + gwoutHistoryRepository.countByStatus(MessageStatus.OUT_TRANSFORMED.getValue()),
-                                "published", gwoutRepository.countByStatus(MessageStatus.OUT_PUBLISHED.getValue())
-                                                + gwoutHistoryRepository.countByStatus(MessageStatus.OUT_PUBLISHED.getValue()),
-                                "failed", gwoutRepository.countByStatus(MessageStatus.OUT_FAILED.getValue())
-                                                + gwoutHistoryRepository.countByStatus(MessageStatus.OUT_FAILED.getValue())
+                                "total", gwoutTotal,
+                                "pending", gwoutPending,
+                                "published", gwoutSent,
+                                "failed", gwoutFailed
                         );
 
                 long activeGwinTotal = gwinRepository.countAll();
-                long historyGwinTotal = gwinHistoryRepository.count();
+                long gwinTotal = Math.max(activeGwinTotal, msgInTotal);
+                long gwinPending = gwinRepository.countByStatus(MessageStatus.IN_PENDING.getValue());
+                long gwinFailed = gwinRepository.countByStatus(MessageStatus.IN_FAILED.getValue());
+                long gwinUnrouted = gwinRepository.countByStatus(MessageStatus.IN_UNROUTED.getValue());
+                long gwinDelivered = gwinRepository.countByStatus(MessageStatus.IN_DELIVERED.getValue());
+                long gwinSent = (gwinDelivered > 0) ? gwinDelivered : Math.max(0L, gwinTotal - gwinPending - gwinFailed - gwinUnrouted);
+
                 Map<String, Object> gwinStats = Map.of(
-                                "total", activeGwinTotal + historyGwinTotal,
-                                "pending", gwinRepository.countByStatus(MessageStatus.IN_PENDING.getValue()),
-                                "failed", gwinRepository.countByStatus(MessageStatus.IN_FAILED.getValue())
-                                                + gwinHistoryRepository.countByStatus(MessageStatus.IN_FAILED.getValue()),
-                                "unrouted", gwinRepository.countByStatus(MessageStatus.IN_UNROUTED.getValue())
-                                                + gwinHistoryRepository.countByStatus(MessageStatus.IN_UNROUTED.getValue())
+                                "total", gwinTotal,
+                                "pending", gwinPending,
+                                "delivered", gwinSent,
+                                "failed", gwinFailed,
+                                "unrouted", gwinUnrouted
                         );
 
                 // 4. Accounts Connection Status

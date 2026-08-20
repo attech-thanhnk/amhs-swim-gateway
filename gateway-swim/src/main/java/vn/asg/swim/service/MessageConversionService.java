@@ -91,7 +91,7 @@ public class MessageConversionService {
      */
     public void logSwimToAmhs(String amqpMessageId, String originator,
             String status, String actionTaken,
-            String rejectionReason, String ipmId) {
+            String rejectionReason, String ipmId, String content) {
         try {
             MessageConversionLog logEntry = new MessageConversionLog();
             logEntry.setDate(LocalDate.now().format(DATE_FMT));
@@ -100,6 +100,7 @@ public class MessageConversionService {
             logEntry.setAmqpMessageId(amqpMessageId);
             logEntry.setIpmId(ipmId);
             logEntry.setOrigin(originator);
+            logEntry.setContent(content);
             logEntry.setConvertedTime(LocalDateTime.now());
             if (actionTaken != null && actionTaken.length() > 255) {
                 logEntry.setActionTaken(actionTaken.substring(0, 255));
@@ -124,11 +125,18 @@ public class MessageConversionService {
         }
     }
 
+    public void logSwimToAmhs(String amqpMessageId, String originator,
+            String status, String actionTaken,
+            String rejectionReason, String ipmId) {
+        logSwimToAmhs(amqpMessageId, originator, status, actionTaken, rejectionReason, ipmId, null);
+    }
+
     /**
      * Log chuyển đổi SWIM sang AMHS (không kèm theo IPM-ID).
      */
     public void logSwimToAmhs(String amqpMessageId, String originator,
             String status, String actionTaken, String rejectionReason) {
-        logSwimToAmhs(amqpMessageId, originator, status, actionTaken, rejectionReason, null);
+        logSwimToAmhs(amqpMessageId, originator, status, actionTaken, rejectionReason, null, null);
     }
+
 }

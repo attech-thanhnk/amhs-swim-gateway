@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.qpid.jms.JmsConnectionFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationContext;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.jasypt.encryption.StringEncryptor;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -87,6 +88,43 @@ public class ConnectionManagerService {
     }
 
     /**
+     * Định kỳ mỗi 5 giây rà soát trạng thái tài khoản trong CSDL để tự động ngắt/kết nối lại khi có sự thay đổi từ UI.
+     */
+    @Scheduled(fixedDelay = 5000)
+    public synchronized void monitorConnectionState() {
+        var activeAcc = accountRepository.findFirstByProtocolAndStatusIgnoreCase("AMQP", "ACTIVE").orElse(null);
+
+        if (activeAcc == null) {
+            if (connected.get() || BIND_CONNECTED.equals(bindStatus)) {
+                log.info("AMQP account disabled/removed in DB. Closing active connection.");
+                disconnectInternal();
+            }
+            return;
+        }
+
+        // Nếu có tài khoản ACTIVE nhưng đang ở trạng thái CONNECTING hoặc mất kết nối -> tiến hành connect
+        if (!connected.get() || BIND_CONNECTING.equals(activeAcc.getBindStatus()) || (activeAccountId != null && !activeAccountId.equals(activeAcc.getId()))) {
+            log.info("Active AMQP account change or reconnect requested for account '{}' (bindStatus={}). Connecting...",
+                    activeAcc.getAccountName(), activeAcc.getBindStatus());
+            connect();
+        }
+    }
+
+    public synchronized void disconnectInternal() {
+        try {
+            if (connection != null) {
+                connection.close();
+            }
+        } catch (Exception ignored) {
+        } finally {
+            connection = null;
+            connected.set(false);
+            activeAccountId = null;
+            updateBindStatus(BIND_DISCONNECTED);
+        }
+    }
+
+    /**
      * Giải mã mật khẩu nếu ở định dạng mã hóa.
      */
     private String decryptIfEncrypted(String val) {
@@ -154,7 +192,7 @@ public class ConnectionManagerService {
             // NAT/firewall im lặng lâu sẽ tự đóng; tcpKeepAlive: bổ sung keep-alive ở tầng TCP.
             // Khắc phục lỗi "Transport closed due to the peer exceeding our requested idle-timeout"
             // xảy ra rải rác khi không có traffic AMHS/SWIM trong một khoảng thời gian.
-            String url = String.format("%s://%s:%d?amqp.idleTimeout=30000&transport.tcpKeepAlive=true",
+            String url = String.format("%s://%s:%d?amqp.idleTimeout=30000&transport.tcpKeepAlive=true&jms.saslMechanisms=PLAIN",
                     scheme, currentHost, currentPort);
 
             log.info("Connecting to AMQP broker at {} as '{}'...", url, currentUser);

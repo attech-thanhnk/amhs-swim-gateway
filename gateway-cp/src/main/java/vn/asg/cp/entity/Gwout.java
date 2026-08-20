@@ -108,8 +108,10 @@ public class Gwout {
 
     /**
      * Trạng thái tổng. Phản ánh tình trạng của tất cả gwout_dispatch con.
-     * 0=PENDING, 2=TRANSFORMED, 4=PUBLISHED, 5=FAILED, 6=RESOLVED, 7=CANCELLED
+     * 0=PENDING, 1=TRANSFORMED, 2=PUBLISHED, 3=FAILED, 4=UNROUTED, 5=RESOLVED, 6=CANCELLED
      */
     @Column(name = "status")
-    private Integer status = MessageStatus.OUT_PENDING.getValue();
+    private Integer status = OutboundStatus.PENDING.getValue();
 }
+
+

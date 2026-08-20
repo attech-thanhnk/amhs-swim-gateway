@@ -36,14 +36,16 @@ public class TrafficLogsController {
 
         Specification<MessageConversionLog> spec = Specification.where(null);
 
-        if (from != null) {
-            LocalDateTime fromDt = LocalDateTime.parse(from);
+        LocalDateTime fromDt = parseDateTime(from);
+        if (fromDt != null) {
             spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("convertedTime"), fromDt));
         }
-        if (to != null) {
-            LocalDateTime toDt = LocalDateTime.parse(to);
+
+        LocalDateTime toDt = parseDateTime(to);
+        if (toDt != null) {
             spec = spec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("convertedTime"), toDt));
         }
+
         if (!"ALL".equals(direction)) {
             if ("AMHS_TO_SWIM".equals(direction)) {
                 spec = spec.and((r, q, cb) -> cb.and(
@@ -64,6 +66,22 @@ public class TrafficLogsController {
 
         return ResponseEntity.ok(ApiResponse.ok(PageData.from(result)));
     }
+
+    private LocalDateTime parseDateTime(String str) {
+        if (str == null || str.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(str.trim());
+        } catch (Exception e) {
+            try {
+                return java.time.LocalDate.parse(str.trim()).atStartOfDay();
+            } catch (Exception ex) {
+                return null;
+            }
+        }
+    }
+
 
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<MessageConversionLog>> getOne(@PathVariable("id") Long id) {

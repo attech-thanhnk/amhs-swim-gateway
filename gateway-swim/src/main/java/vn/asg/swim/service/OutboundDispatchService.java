@@ -138,6 +138,8 @@ public class OutboundDispatchService {
         } catch (Exception e) {
             log.error("gwout#{} failed to detect message type: {}", gwout.getMsgid(), e.getMessage());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setRejectionReason("type-detection-failed");
+            gwout.setRejectionDiagnostic("content-syntax-error");
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "ERROR", "type_detection_failed: " + e.getMessage());
             return;
@@ -150,6 +152,8 @@ public class OutboundDispatchService {
         } catch (Exception e) {
             log.error("gwout#{} failed to find routing rule: {}", gwout.getMsgid(), e.getMessage());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setRejectionReason("no-routing-rule");
+            gwout.setRejectionDiagnostic("unrecognised-OR-name");
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "ERROR", "routing_failed: " + e.getMessage());
             return;
@@ -157,16 +161,18 @@ public class OutboundDispatchService {
 
         // Giữ nguyên nội dung bản tin gốc, không convert theo chiều nào (theo ICAO Doc 047)
         try {
-            gwout.setStatus(MessageStatus.OUT_TRANSFORMED.getValue()); // Thành công -> TRANSFORMED
+            gwout.setStatus(MessageStatus.OUT_TRANSFORMED.getValue());
             if (gwout.getAmhsPriority() != null) {
                 gwout.setSwimPriority(vn.asg.swim.model.AmqpProperties.mapAtsPriorityToAmqp(gwout.getAmhsPriority()));
             }
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "OK", "forwarded_unchanged");
-            log.info("gwout#{} forwarded unchanged -> status=TRANSFORMED", gwout.getMsgid());
+            log.info("gwout#{} forwarded unchanged -> status=OUT_TRANSFORMED", gwout.getMsgid());
         } catch (Exception e) {
             log.error("gwout#{} processing failed: {}", gwout.getMsgid(), e.getMessage());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setRejectionReason("processing-failed");
+            gwout.setRejectionDiagnostic("system-failure");
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "ERROR", "processing_failed: " + e.getMessage());
         }
@@ -460,6 +466,8 @@ public class OutboundDispatchService {
                     "gwout#" + gwout.getMsgid() + " has no valid AFTN recipients",
                     "gwout", gwout.getMsgid());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setRejectionReason("invalid-recipients");
+            gwout.setRejectionDiagnostic("unrecognised-OR-name");
             gwoutRepository.save(gwout);
             return;
         }
@@ -470,6 +478,8 @@ public class OutboundDispatchService {
         } catch (Exception e) {
             log.error("gwout#{} failed to detect type in dispatch creation: {}", gwout.getMsgid(), e.getMessage());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setRejectionReason("type-detection-failed");
+            gwout.setRejectionDiagnostic("content-syntax-error");
             gwoutRepository.save(gwout);
             return;
         }
@@ -478,6 +488,8 @@ public class OutboundDispatchService {
         if (ruleOpt.isEmpty()) {
             log.warn("gwout#{} has no routing rule matching type '{}'", gwout.getMsgid(), messageType);
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setRejectionReason("no-routing-rule");
+            gwout.setRejectionDiagnostic("unrecognised-OR-name");
             gwoutRepository.save(gwout);
             return;
         }
@@ -486,6 +498,8 @@ public class OutboundDispatchService {
         if (topic == null || topic.isBlank()) {
             log.error("gwout#{} matching routing rule has null/empty send_topic", gwout.getMsgid());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setRejectionReason("empty-send-topic");
+            gwout.setRejectionDiagnostic("system-failure");
             gwoutRepository.save(gwout);
             return;
         }

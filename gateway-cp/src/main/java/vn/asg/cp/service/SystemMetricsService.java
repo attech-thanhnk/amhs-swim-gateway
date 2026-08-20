@@ -230,21 +230,36 @@ public class SystemMetricsService {
     }
 
     private String getMysqlPid() throws Exception {
+        // 1. Ưu tiên dùng OSHI quét trực tiếp danh sách tiến trình hệ thống (hỗ trợ mọi tên mysqld.exe, mariadbd.exe, mysqld)
+        if (os != null) {
+            try {
+                for (oshi.software.os.OSProcess proc : os.getProcesses()) {
+                    String name = proc.getName().toLowerCase();
+                    if (name.contains("mysqld") || name.contains("mariadb") || name.contains("mysql")) {
+                        return String.valueOf(proc.getProcessID());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("OSHI search mysql process error: {}", e.getMessage());
+            }
+        }
+
+        // 2. Fallback lệnh command line
         String osName = System.getProperty("os.name").toLowerCase();
         if (osName.contains("win")) {
             Process p = Runtime.getRuntime().exec(new String[]{"cmd.exe", "/c", "tasklist /FI \"IMAGENAME eq mysqld.exe\" /FO CSV /NH"});
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
                 String line = reader.readLine();
-                if (line != null && line.contains("mysqld.exe")) {
+                if (line != null && (line.contains("mysqld") || line.contains("mariadb"))) {
                     String[] parts = line.split("\",\"");
                     if (parts.length > 1) {
-                        return parts[1].replace("\"", ""); // The second column is PID
+                        return parts[1].replace("\"", "");
                     }
                 }
             }
             throw new RuntimeException("MySQL process not found on Windows");
         } else {
-            Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", "pgrep mysqld"});
+            Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", "pgrep -f mysqld"});
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
                 String pid = reader.readLine();
                 if (pid == null || pid.isEmpty()) {

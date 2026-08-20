@@ -30,25 +30,5 @@ public interface GwoutDispatchRepository extends JpaRepository<GwoutDispatch, Lo
   List<GwoutDispatch> findByGwoutId(Long gwoutId);
 
   long countByStatus(String status);
-
-  @Modifying
-  @Query(value = """
-      INSERT IGNORE INTO gwout_dispatch_history (
-          id, gwout_id, recipient, message_type, scope, topic, amqp_account, status, retry_count, next_retry_at, last_error, failed_step, created_at, updated_at, sent_at
-      )
-      SELECT 
-          gd.id, gd.gwout_id, gd.recipient, gd.message_type, gd.scope, gd.topic, gd.amqp_account, gd.status, gd.retry_count, gd.next_retry_at, gd.last_error, gd.failed_step, gd.created_at, gd.updated_at, gd.sent_at
-      FROM gwout_dispatch gd 
-      INNER JOIN gwout g ON gd.gwout_id = g.msgid 
-      WHERE g.status IN (2, 4, 5) AND g.time <= :threshold
-      """, nativeQuery = true)
-  int archiveOldDispatches(@Param("threshold") java.time.LocalDateTime threshold);
-
-  @Modifying
-  @Query(value = "DELETE gd FROM gwout_dispatch gd INNER JOIN gwout_dispatch_history gdh ON gd.id = gdh.id", nativeQuery = true)
-  int deleteArchivedDispatches();
-
-  @Modifying
-  @Query(value = "DELETE FROM gwout_dispatch_history WHERE created_at < :thresholdDate", nativeQuery = true)
-  int deleteOldHistoryRecords(@Param("thresholdDate") java.time.LocalDateTime thresholdDate);
 }
+

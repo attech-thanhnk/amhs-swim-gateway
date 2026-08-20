@@ -642,7 +642,9 @@ public class AMQPSubscriberService {
                     gwin.getStatus().equals(MessageStatus.IN_PENDING.getValue()) ? "OK" : "UNROUTED",
                     actionTag,
                     (resolved != null && resolved.isResolved()) ? null : "MISSING_AMHS_RECIPIENTS",
-                    amhsIpmId);
+                    amhsIpmId,
+                    gwin.getPayloadContent());
+
 
         } catch (Exception e) {
             log.error("AMQP {} Fatal Error: {}", amqpMsgId, e.getMessage());

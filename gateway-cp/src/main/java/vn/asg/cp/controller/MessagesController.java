@@ -11,6 +11,8 @@ import vn.asg.cp.dto.ApiResponse;
 import vn.asg.cp.dto.PageData;
 import vn.asg.cp.entity.Gwin;
 import vn.asg.cp.entity.Gwout;
+import vn.asg.cp.entity.InboundStatus;
+import vn.asg.cp.entity.OutboundStatus;
 import vn.asg.cp.entity.MessageStatus;
 import vn.asg.cp.exception.ResourceNotFoundException;
 import vn.asg.cp.repository.GwinDispatchRepository;
@@ -38,18 +40,34 @@ public class MessagesController {
             @RequestParam(name = "source", required = false) String source,
             @RequestParam(name = "fromTime", required = false) String fromTime,
             @RequestParam(name = "toTime", required = false) String toTime,
+            @RequestParam(name = "query", required = false) String query,
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "50") int size) {
 
         Specification<Gwin> spec = Specification.where(null);
         if (status != null)
             spec = spec.and((r, q, cb) -> cb.equal(r.get("status"), status));
-        if (source != null)
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("source"), source));
-        if (fromTime != null)
-            spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("time"), LocalDateTime.parse(fromTime)));
-        if (toTime != null)
-            spec = spec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("time"), LocalDateTime.parse(toTime)));
+        if (source != null && !source.trim().isEmpty())
+            spec = spec.and((r, q, cb) -> cb.equal(r.get("source"), source.trim()));
+        if (fromTime != null && !fromTime.trim().isEmpty()) {
+            LocalDateTime from = parseDateTime(fromTime);
+            if (from != null) spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("time"), from));
+        }
+        if (toTime != null && !toTime.trim().isEmpty()) {
+            LocalDateTime to = parseDateTime(toTime);
+            if (to != null) spec = spec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("time"), to));
+        }
+        if (query != null && !query.trim().isEmpty()) {
+            String kw = "%" + query.trim().toLowerCase() + "%";
+            spec = spec.and((r, q, cb) -> cb.or(
+                    cb.like(cb.lower(r.get("origin")), kw),
+                    cb.like(cb.lower(r.get("address")), kw),
+                    cb.like(cb.lower(r.get("amhsRecipients")), kw),
+                    cb.like(cb.lower(r.get("messageId")), kw),
+                    cb.like(cb.lower(r.get("subject")), kw),
+                    cb.like(cb.lower(r.get("payloadContent")), kw)
+            ));
+        }
 
         Page<Gwin> result = gwinRepository.findAll(spec, PageRequest.of(page, size, Sort.by("time").descending()));
         return ResponseEntity.ok(ApiResponse.ok(PageData.from(result)));
@@ -72,19 +90,38 @@ public class MessagesController {
             @RequestParam(name = "status", required = false) Integer status,
             @RequestParam(name = "fromTime", required = false) String fromTime,
             @RequestParam(name = "toTime", required = false) String toTime,
+            @RequestParam(name = "query", required = false) String query,
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "50") int size) {
 
         Specification<Gwout> spec = Specification.where(null);
         if (status != null)
             spec = spec.and((r, q, cb) -> cb.equal(r.get("status"), status));
-        if (fromTime != null)
-            spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("time"), LocalDateTime.parse(fromTime)));
-        if (toTime != null)
-            spec = spec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("time"), LocalDateTime.parse(toTime)));
+        if (fromTime != null && !fromTime.trim().isEmpty()) {
+            LocalDateTime from = parseDateTime(fromTime);
+            if (from != null) spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("time"), from));
+        }
+        if (toTime != null && !toTime.trim().isEmpty()) {
+            LocalDateTime to = parseDateTime(toTime);
+            if (to != null) spec = spec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("time"), to));
+        }
+        if (query != null && !query.trim().isEmpty()) {
+            String kw = "%" + query.trim().toLowerCase() + "%";
+            spec = spec.and((r, q, cb) -> cb.or(
+                    cb.like(cb.lower(r.get("origin")), kw),
+                    cb.like(cb.lower(r.get("address")), kw),
+                    cb.like(cb.lower(r.get("amhsid")), kw),
+                    cb.like(cb.lower(r.get("ipmId")), kw),
+                    cb.like(cb.lower(r.get("amqpMessageId")), kw),
+                    cb.like(cb.lower(r.get("subject")), kw),
+                    cb.like(cb.lower(r.get("text")), kw)
+            ));
+        }
 
         Page<Gwout> result = gwoutRepository.findAll(spec, PageRequest.of(page, size, Sort.by("time").descending()));
-        
+
+
+
         List<Map<String, Object>> contentList = new java.util.ArrayList<>();
         for (Gwout g : result.getContent()) {
             try {
@@ -128,6 +165,7 @@ public class MessagesController {
         return ResponseEntity.ok(ApiResponse.ok(pageData));
     }
 
+
     @GetMapping("/outbound/{msgid}")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getOutboundMessage(@PathVariable("msgid") Long msgid) {
         Gwout msg = gwoutRepository.findById(msgid)
@@ -145,7 +183,7 @@ public class MessagesController {
         Gwin msg = gwinRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Inbound message", msgid));
 
-        msg.setStatus(MessageStatus.IN_PENDING.getValue());
+        msg.setStatus(InboundStatus.PENDING.getValue());
         gwinRepository.save(msg);
 
         return ResponseEntity.ok(ApiResponse.ok("Queued for retry", Map.of("success", true, "msgid", msgid, "message", "Queued for retry")));
@@ -156,7 +194,7 @@ public class MessagesController {
         Gwin msg = gwinRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Inbound message", msgid));
 
-        msg.setStatus(MessageStatus.IN_RESOLVED.getValue());
+        msg.setStatus(InboundStatus.RESOLVED.getValue());
         gwinRepository.save(msg);
 
         gwinDispatchRepository.findByGwinId(msgid).forEach(d -> {
@@ -172,7 +210,7 @@ public class MessagesController {
         Gwin msg = gwinRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Inbound message", msgid));
 
-        msg.setStatus(MessageStatus.IN_CANCELLED.getValue());
+        msg.setStatus(InboundStatus.CANCELLED.getValue());
         gwinRepository.save(msg);
 
         gwinDispatchRepository.findByGwinId(msgid).forEach(d -> {
@@ -188,7 +226,7 @@ public class MessagesController {
         Gwout msg = gwoutRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Outbound message", msgid));
 
-        msg.setStatus(MessageStatus.OUT_PENDING.getValue());
+        msg.setStatus(OutboundStatus.PENDING.getValue());
         gwoutRepository.save(msg);
 
         return ResponseEntity.ok(ApiResponse.ok("Queued for retry", Map.of("success", true, "msgid", msgid, "message", "Queued for retry")));
@@ -199,7 +237,7 @@ public class MessagesController {
         Gwout msg = gwoutRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Outbound message", msgid));
 
-        msg.setStatus(MessageStatus.OUT_RESOLVED.getValue());
+        msg.setStatus(OutboundStatus.RESOLVED.getValue());
         gwoutRepository.save(msg);
 
         gwoutDispatchRepository.findByGwoutId(msgid).forEach(d -> {
@@ -215,7 +253,7 @@ public class MessagesController {
         Gwout msg = gwoutRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Outbound message", msgid));
 
-        msg.setStatus(MessageStatus.OUT_CANCELLED.getValue());
+        msg.setStatus(OutboundStatus.CANCELLED.getValue());
         gwoutRepository.save(msg);
 
         gwoutDispatchRepository.findByGwoutId(msgid).forEach(d -> {
@@ -243,5 +281,20 @@ public class MessagesController {
         gwoutRepository.deleteById(msgid);
         return ResponseEntity.ok(ApiResponse.ok("Outbound message deleted", null));
     }
+
+    private LocalDateTime parseDateTime(String value) {
+        try {
+            if (value.contains("T")) {
+                return LocalDateTime.parse(value);
+            } else if (value.contains(" ")) {
+                return LocalDateTime.parse(value, java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            } else {
+                return LocalDateTime.parse(value + "T00:00:00");
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }
+
 
