@@ -312,8 +312,7 @@ class AMQPSubscriberServiceTest {
 
         // Then: Should reject but still persist the failed message for audit
         verify(gwinRepository).save(argThat(gwin ->
-            gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue()) &&
-            gwin.getText().contains("ATSMHS_VALIDATION_FAILED")
+            gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue())
         ));
         verify(alertService).create(
             eq(GwAlert.TYPE_VALIDATION_ERROR),
@@ -381,8 +380,8 @@ class AMQPSubscriberServiceTest {
             assertEquals("VVHHZPZX", gwin.getOrigin());
             assertEquals("VVHHZTZX VVTSZDYX", gwin.getAddress());
             assertEquals(ResolvedAddressing.SOURCE_ROUTING_RULE, gwin.getAddressingSource());
-            assertTrue(gwin.getText().contains("\"messageType\": \"METAR\""));
-            assertTrue(gwin.getText().contains("\"stationIcao\": \"VVTS\""));
+            assertTrue(gwin.getPayloadContent().contains("\"messageType\": \"METAR\""));
+            assertTrue(gwin.getPayloadContent().contains("\"stationIcao\": \"VVTS\""));
             return true;
         }));
     }
@@ -492,7 +491,7 @@ class AMQPSubscriberServiceTest {
         service.handleMessage(amqpMessage, "ats/fpl/flightplan");
 
         // Content must pass through unconverted (ICAO Doc 047: keep original content regardless of direction)
-        verify(gwinRepository).save(argThat(gwin -> gwin.getText().equals(jsonFpl)));
+        verify(gwinRepository).save(argThat(gwin -> gwin.getPayloadContent().equals(jsonFpl)));
     }
 
     @Test
@@ -504,6 +503,6 @@ class AMQPSubscriberServiceTest {
 
         service.handleMessage(amqpMessage, "ats/fpl/flightplan");
 
-        verify(gwinRepository).save(argThat(gwin -> !gwin.getText().contains("ATSMHS_VALIDATION_FAILED")));
+        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus() != MessageStatus.IN_FAILED.getValue()));
     }
 }

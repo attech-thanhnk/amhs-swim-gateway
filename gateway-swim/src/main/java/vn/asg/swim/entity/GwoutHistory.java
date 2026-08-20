@@ -67,9 +67,6 @@ public class GwoutHistory {
     @Column(name = "status")
     private Integer status = MessageStatus.OUT_PENDING.getValue();
 
-    @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
-    private String payloadContent;
-
     @Column(name = "body_part_type", length = 50)
     private String bodyPartType;
 
@@ -88,8 +85,14 @@ public class GwoutHistory {
     @Column(name = "rejection_reason", length = 64)
     private String rejectionReason;
 
-    @Column(name = "error_type")
-    private Integer errorType = ErrorType.UNDEFINED.getValue();
+    @Column(name = "rejection_diagnostic", length = 64)
+    private String rejectionDiagnostic;
+
+    @Column(name = "amqp_message_id", length = 256)
+    private String amqpMessageId;
+
+    @Column(name = "message_signed", length = 20)
+    private String messageSigned;
 
     public Long getMsgid() { return msgid; }
     public void setMsgid(Long msgid) { this.msgid = msgid; }
@@ -127,8 +130,6 @@ public class GwoutHistory {
     public void setContentType(String contentType) { this.contentType = contentType; }
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }
-    public String getPayloadContent() { return payloadContent; }
-    public void setPayloadContent(String payloadContent) { this.payloadContent = payloadContent; }
     public String getBodyPartType() { return bodyPartType; }
     public void setBodyPartType(String bodyPartType) { this.bodyPartType = bodyPartType; }
     public String getBodyPartCharset() { return bodyPartCharset; }
@@ -141,6 +142,10 @@ public class GwoutHistory {
     public void setFtbpLastMod(String ftbpLastMod) { this.ftbpLastMod = ftbpLastMod; }
     public String getRejectionReason() { return rejectionReason; }
     public void setRejectionReason(String rejectionReason) { this.rejectionReason = rejectionReason; }
-    public Integer getErrorType() { return errorType; }
-    public void setErrorType(Integer errorType) { this.errorType = errorType; }
+    public String getRejectionDiagnostic() { return rejectionDiagnostic; }
+    public void setRejectionDiagnostic(String rejectionDiagnostic) { this.rejectionDiagnostic = rejectionDiagnostic; }
+    public String getAmqpMessageId() { return amqpMessageId; }
+    public void setAmqpMessageId(String amqpMessageId) { this.amqpMessageId = amqpMessageId; }
+    public String getMessageSigned() { return messageSigned; }
+    public void setMessageSigned(String messageSigned) { this.messageSigned = messageSigned; }
 }

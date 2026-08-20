@@ -3,6 +3,7 @@ package vn.asg.cp.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import vn.asg.cp.dto.ApiResponse;
 import vn.asg.cp.entity.Routing;
 import vn.asg.cp.repository.AccountRepository;
 import vn.asg.cp.repository.MessageConversionLogRepository;
@@ -28,39 +29,38 @@ public class AdminController {
     private final RoutingRepository routingRepository;
 
     @DeleteMapping("/data/old")
-    public ResponseEntity<?> deleteOldData(@RequestBody Map<String, Object> body) {
-        return ResponseEntity
-                .ok(Map.of("deletedCount", 0, "message", "Periodic background task for log cleanup completed."));
+    public ResponseEntity<ApiResponse<Map<String, Object>>> deleteOldData(@RequestBody(required = false) Map<String, Object> body) {
+        return ResponseEntity.ok(ApiResponse.ok("Periodic background task for log cleanup completed.",
+                Map.of("deletedCount", 0, "message", "Periodic background task for log cleanup completed.")));
     }
 
     @PostMapping("/maintenance")
-    public ResponseEntity<?> runMaintenance() {
-        return ResponseEntity
-                .ok(Map.of("result", "success", "message", "Database cleanup (Vacuum) operation completed."));
+    public ResponseEntity<ApiResponse<Map<String, Object>>> runMaintenance() {
+        return ResponseEntity.ok(ApiResponse.ok("Database cleanup (Vacuum) operation completed.",
+                Map.of("result", "success", "message", "Database cleanup (Vacuum) operation completed.")));
     }
 
     @PostMapping("/address/convert")
-    public ResponseEntity<?> convertAddress(@RequestBody Map<String, String> body) {
+    public ResponseEntity<ApiResponse<Map<String, String>>> convertAddress(@RequestBody Map<String, String> body) {
         String address = body.get("address");
         List<Routing> routings = routingRepository.findAll();
 
         Optional<Routing> match = routings.stream()
-                .filter(r -> "OUT".equals(r.getDirection()) && address.equalsIgnoreCase(r.getMessageType()))
+                .filter(r -> "OUT".equals(r.getDirection()) && address != null && address.equalsIgnoreCase(r.getMessageType()))
                 .findFirst();
 
         if (match.isPresent()) {
-            return ResponseEntity.ok(Map.of(
+            return ResponseEntity.ok(ApiResponse.ok(Map.of(
                     "input", address,
                     "output", match.get().getSendTopic() != null ? match.get().getSendTopic() : "NO_TOPIC",
-                    "method", "DB_ROUTING_TABLE_LIVE"));
+                    "method", "DB_ROUTING_TABLE_LIVE")));
         }
-        return ResponseEntity.ok(
-                Map.of("input", address, "output", "No routing rule found for this message type", "method",
-                        "FAILED"));
+        return ResponseEntity.ok(ApiResponse.ok(
+                Map.of("input", address != null ? address : "", "output", "No routing rule found for this message type", "method", "FAILED")));
     }
 
     @PostMapping("/diagnostic")
-    public ResponseEntity<?> diagnostic() {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> diagnostic() {
         boolean dbOk = true;
         long logCount = 0;
         try {
@@ -84,11 +84,12 @@ public class AdminController {
                         a.getBindStatus() != null ? a.getBindStatus() : "DISCONNECTED"))
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(Map.of(
+        return ResponseEntity.ok(ApiResponse.ok(Map.of(
                 "dbConnection", dbOk ? "OK" : "ERROR",
                 "amqpConnections", amqpConnections,
                 "diskSpace",
                 Map.of("freeGb", Math.round(freeGb * 10.0) / 10.0, "totalGb", Math.round(totalGb * 10.0) / 10.0),
-                "logRetention", Map.of("count", logCount)));
+                "logRetention", Map.of("count", logCount))));
     }
 }
+

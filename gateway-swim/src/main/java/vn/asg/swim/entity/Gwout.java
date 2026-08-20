@@ -86,14 +86,10 @@ public class Gwout {
 
     /**
      * Overall Status:
-     * 0=PENDING, 1=PROCESSING, 2=TRANSFORMED, 3=PUBLISHING, 4=PUBLISHED, 5=FAILED, 6=RESOLVED, 7=CANCELLED
+     * 0=PENDING, 2=TRANSFORMED, 4=PUBLISHED, 5=FAILED, 6=RESOLVED, 7=CANCELLED
      */
     @Column(name = "status")
     private Integer status = MessageStatus.OUT_PENDING.getValue();
-
-    /** Original AMHS body forwarded to SWIM unchanged */
-    @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
-    private String payloadContent;
 
     @Column(name = "body_part_type", length = 50)
     private String bodyPartType;
@@ -117,8 +113,17 @@ public class Gwout {
     @Column(name = "rejection_reason", length = 64)
     private String rejectionReason;
 
-    @Column(name = "error_type")
-    private Integer errorType = ErrorType.UNDEFINED.getValue();
+    /** NDR diagnostic-code — EUR Doc 047 §4.3.1.2(d)/§4.4.8, mirrors message_conversion_log.diagnostic_code */
+    @Column(name = "rejection_diagnostic", length = 64)
+    private String rejectionDiagnostic;
+
+    /** AMQP broker-assigned message-id, captured after a successful publish */
+    @Column(name = "amqp_message_id", length = 256)
+    private String amqpMessageId;
+
+    /** Mirrors the amhs_message_signed AMQP property actually sent (currently always "unsigned") */
+    @Column(name = "message_signed", length = 20)
+    private String messageSigned;
 
     public Long getMsgid() {
         return msgid;
@@ -256,22 +261,6 @@ public class Gwout {
         this.status = status;
     }
 
-    public String getPayloadContent() {
-        return payloadContent;
-    }
-
-    public void setPayloadContent(String payloadContent) {
-        this.payloadContent = payloadContent;
-    }
-
-    public Integer getErrorType() {
-        return errorType;
-    }
-
-    public void setErrorType(Integer errorType) {
-        this.errorType = errorType;
-    }
-
     public String getBodyPartType() {
         return bodyPartType;
     }
@@ -318,6 +307,30 @@ public class Gwout {
 
     public void setRejectionReason(String rejectionReason) {
         this.rejectionReason = rejectionReason;
+    }
+
+    public String getRejectionDiagnostic() {
+        return rejectionDiagnostic;
+    }
+
+    public void setRejectionDiagnostic(String rejectionDiagnostic) {
+        this.rejectionDiagnostic = rejectionDiagnostic;
+    }
+
+    public String getAmqpMessageId() {
+        return amqpMessageId;
+    }
+
+    public void setAmqpMessageId(String amqpMessageId) {
+        this.amqpMessageId = amqpMessageId;
+    }
+
+    public String getMessageSigned() {
+        return messageSigned;
+    }
+
+    public void setMessageSigned(String messageSigned) {
+        this.messageSigned = messageSigned;
     }
 
     public String getSubject() {

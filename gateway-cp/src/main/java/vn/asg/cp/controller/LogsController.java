@@ -4,15 +4,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import vn.asg.cp.dto.ApiResponse;
+import vn.asg.cp.dto.PageData;
 import vn.asg.cp.entity.SystemLog;
 import vn.asg.cp.repository.SystemLogRepository;
 
 import java.time.LocalDateTime;
-import java.util.Map;
 
 /**
  * Controller quản lý System Logs với khả năng lọc linh hoạt (Specification).
@@ -25,7 +24,7 @@ public class LogsController {
     private final SystemLogRepository logRepository;
 
     @GetMapping
-    public ResponseEntity<?> list(
+    public ResponseEntity<ApiResponse<PageData<SystemLog>>> list(
             @RequestParam(name = "level", defaultValue = "ALL") String level,
             @RequestParam(name = "module", defaultValue = "ALL") String module,
             @RequestParam(name = "after", required = false) String after,
@@ -53,15 +52,7 @@ public class LogsController {
             }
         }
 
-        LocalDateTime latestTs = result.getContent().stream()
-                .map(SystemLog::getTimestamp)
-                .filter(ts -> ts != null)
-                .max(LocalDateTime::compareTo)
-                .orElse(LocalDateTime.now());
-
-        return ResponseEntity.ok(Map.of(
-                "content", result.getContent(),
-                "latestTimestamp", latestTs.toString(),
-                "totalElements", result.getTotalElements()));
+        return ResponseEntity.ok(ApiResponse.ok(PageData.from(result)));
     }
 }
+

@@ -47,7 +47,8 @@ public class OutboundDispatchService {
             log.warn("gwout#{} rejected: origin '{}' is invalid (must be 8 uppercase alphabetic characters, no digits, no spaces)",
                     gwout.getMsgid(), origin);
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-            gwout.setPayloadContent("Rejected: Originator must be exactly 8 uppercase alphabetic characters (no digits, no spaces)");
+            gwout.setRejectionReason("invalid-origin-format");
+            gwout.setRejectionDiagnostic("invalid-arguments");
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwimRejected(gwout, "invalid_origin_format", "invalid-arguments",
                     "unable to convert to AMQP due to unrecognized originator O/R address");
@@ -71,7 +72,8 @@ public class OutboundDispatchService {
                     "gwout#" + gwout.getMsgid() + " rejected: " + dirResult.getErrorMessage(),
                     "gwout", gwout.getMsgid());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-            gwout.setPayloadContent("Validation failed: " + dirResult.getErrorMessage());
+            gwout.setRejectionReason("validation-failed");
+            gwout.setRejectionDiagnostic(ndrDiagnosticFor(dirResult.getErrorMessage()));
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwimRejected(gwout, "validation_failed: " + dirResult.getErrorMessage(),
                     ndrDiagnosticFor(dirResult.getErrorMessage()), null);
@@ -86,7 +88,7 @@ public class OutboundDispatchService {
                             + " (gwout#" + gwout.getMsgid() + ")",
                     "gwout", gwout.getMsgid());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-            gwout.setPayloadContent("Authorization failed: Originator '" + gwout.getOrigin() + "' not authorized");
+            gwout.setRejectionReason("unauthorized-originator");
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "REJECTED", "unauthorized_originator: " + gwout.getOrigin());
             return;
@@ -112,7 +114,8 @@ public class OutboundDispatchService {
                         "gwout#" + gwout.getMsgid() + " rejected: " + eitResult.getErrorMessage(),
                         "gwout", gwout.getMsgid());
                 gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-                gwout.setPayloadContent("EIT validation failed: " + eitResult.getErrorMessage());
+                gwout.setRejectionReason("unsupported-eit");
+                gwout.setRejectionDiagnostic("content-syntax-error");
                 gwoutRepository.save(gwout);
                 conversionService.logAmhsToSwimRejected(gwout, "unsupported_eit: " + eitResult.getErrorMessage(),
                         "content-syntax-error", "unable to convert to AMQP due to unsupported body part type");
@@ -135,7 +138,6 @@ public class OutboundDispatchService {
         } catch (Exception e) {
             log.error("gwout#{} failed to detect message type: {}", gwout.getMsgid(), e.getMessage());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-            gwout.setPayloadContent("Type detection failed: " + e.getMessage());
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "ERROR", "type_detection_failed: " + e.getMessage());
             return;
@@ -148,7 +150,6 @@ public class OutboundDispatchService {
         } catch (Exception e) {
             log.error("gwout#{} failed to find routing rule: {}", gwout.getMsgid(), e.getMessage());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-            gwout.setPayloadContent("Routing failed: " + e.getMessage());
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "ERROR", "routing_failed: " + e.getMessage());
             return;
@@ -156,7 +157,6 @@ public class OutboundDispatchService {
 
         // Giữ nguyên nội dung bản tin gốc, không convert theo chiều nào (theo ICAO Doc 047)
         try {
-            gwout.setPayloadContent(body);
             gwout.setStatus(MessageStatus.OUT_TRANSFORMED.getValue()); // Thành công -> TRANSFORMED
             if (gwout.getAmhsPriority() != null) {
                 gwout.setSwimPriority(vn.asg.swim.model.AmqpProperties.mapAtsPriorityToAmqp(gwout.getAmhsPriority()));
@@ -167,7 +167,6 @@ public class OutboundDispatchService {
         } catch (Exception e) {
             log.error("gwout#{} processing failed: {}", gwout.getMsgid(), e.getMessage());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-            gwout.setPayloadContent("Processing failed: " + e.getMessage());
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "ERROR", "processing_failed: " + e.getMessage());
         }
@@ -186,11 +185,11 @@ public class OutboundDispatchService {
             return;
         }
 
-        // Đọc nội dung bản tin gốc đã lưu ở bước trước
-        String payloadContent = gwout.getPayloadContent();
+        // Đọc nội dung bản tin gốc (không convert theo chiều nào, theo ICAO Doc 047)
+        String payloadContent = gwout.getText();
         if (payloadContent == null || payloadContent.isBlank()) {
             handleFailure(dispatch, GwoutDispatch.STEP_PUBLISH,
-                    new RuntimeException("payload_content is empty for gwout#" + gwout.getMsgid()));
+                    new RuntimeException("text is empty for gwout#" + gwout.getMsgid()));
             return;
         }
 
@@ -229,7 +228,10 @@ public class OutboundDispatchService {
         }
 
         try {
-            publish(gwout, dispatch.getTopic(), combinedRecipients, payloadContent, gwout.getContentType());
+            String amqpMessageId = publish(gwout, dispatch.getTopic(), combinedRecipients, payloadContent, gwout.getContentType());
+            gwout.setAmqpMessageId(amqpMessageId);
+            gwout.setMessageSigned("unsigned");
+            gwoutRepository.save(gwout);
 
             LocalDateTime sentAt = LocalDateTime.now();
             for (GwoutDispatch d : group) {
@@ -252,8 +254,9 @@ public class OutboundDispatchService {
 
     /**
      * Gửi bản tin lên AMQP broker và giải phóng tài nguyên khi hoàn tất.
+     * Trả về AMQP message-id do broker/SWIM component sinh ra (§4.4.3.3.1).
      */
-    private void publish(Gwout gwout, String topic, String recipient,
+    private String publish(Gwout gwout, String topic, String recipient,
             String body, String contentType) throws JMSException {
         Session session = null;
         MessageProducer producer = null;
@@ -335,6 +338,7 @@ public class OutboundDispatchService {
             message.setJMSTimestamp(System.currentTimeMillis());
 
             producer.send(message);
+            return message.getJMSMessageID();
 
         } finally {
             // Giải phóng tài nguyên theo thứ tự ngược lại để tránh rò rỉ
@@ -466,7 +470,6 @@ public class OutboundDispatchService {
         } catch (Exception e) {
             log.error("gwout#{} failed to detect type in dispatch creation: {}", gwout.getMsgid(), e.getMessage());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-            gwout.setPayloadContent("Type detection failed: " + e.getMessage());
             gwoutRepository.save(gwout);
             return;
         }
@@ -475,7 +478,6 @@ public class OutboundDispatchService {
         if (ruleOpt.isEmpty()) {
             log.warn("gwout#{} has no routing rule matching type '{}'", gwout.getMsgid(), messageType);
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-            gwout.setPayloadContent("Routing failed: No active routing rule found for type '" + messageType + "'");
             gwoutRepository.save(gwout);
             return;
         }
@@ -484,7 +486,6 @@ public class OutboundDispatchService {
         if (topic == null || topic.isBlank()) {
             log.error("gwout#{} matching routing rule has null/empty send_topic", gwout.getMsgid());
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-            gwout.setPayloadContent("Routing failed: send_topic is empty in matching routing rule");
             gwoutRepository.save(gwout);
             return;
         }
@@ -528,7 +529,6 @@ public class OutboundDispatchService {
                     "gwout", gwout.getMsgid());
 
             gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-            gwout.setPayloadContent("NDR: Unknown originator '" + originator + "'");
             gwout.setRejectionReason("unknown-originator");
             gwoutRepository.save(gwout);
 
@@ -562,7 +562,6 @@ public class OutboundDispatchService {
         // 3. CTSW011: Hợp lệ -> Phát sinh Delivery Report (DR)
         log.info("Probe gwout#{} validated successfully. Generating Delivery Report (DR).", gwout.getMsgid());
         gwout.setStatus(MessageStatus.OUT_PUBLISHED.getValue()); // Coi như đã xử lý thành công
-        gwout.setPayloadContent("DR: Probe verified successfully. Delivery Report generated.");
         gwoutRepository.save(gwout);
 
         conversionService.logAmhsToSwim(gwout, null, "OK", "dr_generated_probe");
@@ -571,8 +570,8 @@ public class OutboundDispatchService {
     private void rejectProbe(Gwout gwout, String reason, String rejectionCode, String ndrDiagnostic) {
         log.warn("Probe gwout#{} REJECTED: {}", gwout.getMsgid(), reason);
         gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
-        gwout.setPayloadContent("NDR: " + reason);
         gwout.setRejectionReason(rejectionCode);
+        gwout.setRejectionDiagnostic(ndrDiagnostic);
         gwoutRepository.save(gwout);
         conversionService.logAmhsToSwimRejected(gwout, "ndr_" + rejectionCode + ": " + reason, ndrDiagnostic, null);
     }

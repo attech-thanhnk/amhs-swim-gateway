@@ -48,21 +48,10 @@ public class GwoutDispatch {
     private String messageType;
 
     /**
-     * Phạm vi địa lý được phân tích. Ví dụ: vvhh (Sân bay), vvhf (Vùng thông báo
-     * bay)
-     */
-    @Column(name = "scope", length = 10)
-    private String scope;
-
-    /**
      * Topic AMQP tương ứng sau khi phân giải. NULL nếu lỗi định tuyến.
      */
     @Column(name = "topic", length = 100)
     private String topic;
-
-    /** Tài khoản AMQP dùng để gửi tin. Ví dụ: LOCAL_BROKER */
-    @Column(name = "amqp_account", length = 50)
-    private String amqpAccount;
 
     /**
      * Trạng thái xử lý: PENDING → PROCESSING → SENT hoặc FAILED → DEAD
@@ -146,28 +135,12 @@ public class GwoutDispatch {
         this.messageType = messageType;
     }
 
-    public String getScope() {
-        return scope;
-    }
-
-    public void setScope(String scope) {
-        this.scope = scope;
-    }
-
     public String getTopic() {
         return topic;
     }
 
     public void setTopic(String topic) {
         this.topic = topic;
-    }
-
-    public String getAmqpAccount() {
-        return amqpAccount;
-    }
-
-    public void setAmqpAccount(String amqpAccount) {
-        this.amqpAccount = amqpAccount;
     }
 
     public String getStatus() {

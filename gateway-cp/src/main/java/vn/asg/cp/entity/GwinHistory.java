@@ -18,9 +18,6 @@ public class GwinHistory {
     @Id
     private Long msgid;
 
-    @Column(name = "cpa", length = 1)
-    private String cpa = "N";
-
     @Column(name = "message_id", length = 255)
     private String messageId;
 
@@ -42,9 +39,6 @@ public class GwinHistory {
     @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
     private String payloadContent;
 
-    @Column(name = "TEXT", columnDefinition = "MEDIUMTEXT")
-    private String text;
-
     @Column(name = "body_type", length = 10)
     private String bodyType = "text";
 
@@ -62,7 +56,4 @@ public class GwinHistory {
 
     @Column(name = "status")
     private Integer status = MessageStatus.IN_PENDING.getValue();
-
-    @Column(name = "error_type")
-    private Integer errorType = ErrorType.UNDEFINED.getValue();
 }

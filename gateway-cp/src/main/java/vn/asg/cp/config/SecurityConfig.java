@@ -36,16 +36,16 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(authEntryPoint))
                 .authorizeHttpRequests(auth -> auth
-                //         .requestMatchers("/api/auth/**", "/error").permitAll()
-                //         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
-                //         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                //         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                //         .anyRequest().authenticated())
-                // .addFilterBefore(new JwtAuthFilter(tokenProvider),
-                //         UsernamePasswordAuthenticationFilter.class);
-                            .anyRequest().permitAll()   // 🔥 cho phép toàn bộ  
-                );
+                        .requestMatchers("/api/auth/**", "/error").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers("/api/admin/**").hasAuthority("ROLE_admin")
+                        .anyRequest().authenticated())
+                .addFilterBefore(new JwtAuthFilter(tokenProvider),
+                        UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

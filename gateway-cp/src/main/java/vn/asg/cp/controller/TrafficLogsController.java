@@ -7,12 +7,13 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import vn.asg.cp.dto.ApiResponse;
+import vn.asg.cp.dto.PageData;
 import vn.asg.cp.entity.MessageConversionLog;
 import vn.asg.cp.exception.ResourceNotFoundException;
 import vn.asg.cp.repository.MessageConversionLogRepository;
 
 import java.time.LocalDateTime;
-import java.util.Map;
 
 /**
  * GET /api/traffic-logs — tra cứu lịch sử điện văn
@@ -25,7 +26,7 @@ public class TrafficLogsController {
     private final MessageConversionLogRepository logRepository;
 
     @GetMapping
-    public ResponseEntity<?> list(
+    public ResponseEntity<ApiResponse<PageData<MessageConversionLog>>> list(
             @RequestParam(name = "from", required = false) String from,
             @RequestParam(name = "to", required = false) String to,
             @RequestParam(name = "direction", defaultValue = "ALL") String direction,
@@ -44,8 +45,6 @@ public class TrafficLogsController {
             spec = spec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("convertedTime"), toDt));
         }
         if (!"ALL".equals(direction)) {
-            // direction = AMHS_TO_SWIM → type=AMHS,category=OUT; SWIM_TO_AMHS →
-            // type=SWIM,category=IN
             if ("AMHS_TO_SWIM".equals(direction)) {
                 spec = spec.and((r, q, cb) -> cb.and(
                         cb.equal(r.get("type"), "AMHS"),
@@ -63,17 +62,14 @@ public class TrafficLogsController {
         Page<MessageConversionLog> result = logRepository.findAll(spec,
                 PageRequest.of(page, size, Sort.by("convertedTime").descending()));
 
-        return ResponseEntity.ok(Map.of(
-                "content", result.getContent(),
-                "totalElements", result.getTotalElements(),
-                "totalPages", result.getTotalPages(),
-                "page", page));
+        return ResponseEntity.ok(ApiResponse.ok(PageData.from(result)));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<MessageConversionLog> getOne(@PathVariable("id") Long id) {
+    public ResponseEntity<ApiResponse<MessageConversionLog>> getOne(@PathVariable("id") Long id) {
         MessageConversionLog log = logRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Traffic log", id));
-        return ResponseEntity.ok(log);
+        return ResponseEntity.ok(ApiResponse.ok(log));
     }
 }
+

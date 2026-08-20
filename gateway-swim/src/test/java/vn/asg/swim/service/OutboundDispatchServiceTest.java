@@ -78,7 +78,6 @@ class OutboundDispatchServiceTest {
         when(configService.getInt("RETRY_DELAY_2ND_SECONDS")).thenReturn(120);
         when(configService.getInt("RETRY_DELAY_3RD_SECONDS")).thenReturn(300);
         when(configService.getGatewayId()).thenReturn("ASG-GW-01");
-        when(routingService.existsOriginatorOut(anyString())).thenReturn(true);
     }
 
     // ==================== ISSUE #1: VALIDATION FAILURE LOGIC ====================
@@ -170,32 +169,16 @@ class OutboundDispatchServiceTest {
     // ==================== CONTENT FORWARDED UNCHANGED (ICAO Doc 047) ====================
 
     @Test
-    void testForwardsOriginalBody_OverwritesStaleCache() throws Exception {
-        // Given: gwout has a stale/pre-existing payload
-        gwout.setPayloadContent("{\"stationIcao\":\"VVTS\",\"messageType\":\"METAR\"}");
+    void testForwardsOriginalBody_ShouldTransformSuccessfully() throws Exception {
         when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
         setupValidScenario();
 
         // When
         service.processOutboundMessage(gwout);
 
-        // Then: payloadContent is replaced with the original AMHS body, unconverted
-        assertEquals(gwout.getText(), gwout.getPayloadContent());
-        verify(conversionService).logAmhsToSwim(eq(gwout), isNull(), eq("OK"), eq("forwarded_unchanged"));
-    }
-
-    @Test
-    void testForwardsOriginalBody_NoPriorPayload() throws Exception {
-        setupValidScenario();
-        gwout.setPayloadContent(null);
-        when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
-
-        // When
-        service.processOutboundMessage(gwout);
-
-        // Then: original body is forwarded as-is
-        assertEquals(gwout.getText(), gwout.getPayloadContent());
+        // Then: original AMHS body (gwout.text) is left untouched, no conversion applied
         assertEquals(MessageStatus.OUT_TRANSFORMED.getValue(), gwout.getStatus());
+        verify(conversionService).logAmhsToSwim(eq(gwout), isNull(), eq("OK"), eq("forwarded_unchanged"));
     }
 
     // ==================== ROUTING LOGIC ====================
@@ -343,7 +326,6 @@ class OutboundDispatchServiceTest {
 
         // Then: Should mark as OUT_PUBLISHED and log DR
         assertEquals(MessageStatus.OUT_PUBLISHED.getValue(), probe.getStatus());
-        assertTrue(probe.getPayloadContent().contains("DR:"));
         verify(gwoutRepository).save(probe);
         verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("OK"), eq("dr_generated_probe"));
     }
@@ -364,7 +346,7 @@ class OutboundDispatchServiceTest {
 
         // Then: Should mark as OUT_FAILED, log REJECTED and ndr_unknown_originator
         assertEquals(MessageStatus.OUT_FAILED.getValue(), probe.getStatus());
-        assertTrue(probe.getPayloadContent().contains("NDR:"));
+        assertEquals("unknown-originator", probe.getRejectionReason());
         verify(gwoutRepository).save(probe);
         verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("REJECTED"), eq("ndr_unknown_originator: UNKNOWNX"));
     }
@@ -391,7 +373,7 @@ class OutboundDispatchServiceTest {
 
         // Then: Should mark as OUT_FAILED and generate NDR
         assertEquals(MessageStatus.OUT_FAILED.getValue(), probe.getStatus());
-        assertTrue(probe.getPayloadContent().contains("NDR: Unknown recipient:"));
+        assertEquals("unknown-recipient", probe.getRejectionReason());
         verify(gwoutRepository).save(probe);
     }
 
@@ -412,7 +394,8 @@ class OutboundDispatchServiceTest {
 
         // Then: Should mark as OUT_FAILED and log conversion log
         assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
-        assertTrue(gwout.getPayloadContent().contains("EIT validation failed:"));
+        assertEquals("unsupported-eit", gwout.getRejectionReason());
+        assertEquals("content-syntax-error", gwout.getRejectionDiagnostic());
         verify(gwoutRepository).save(gwout);
         verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("unsupported_eit"),
                 eq("content-syntax-error"), anyString());
@@ -430,7 +413,8 @@ class OutboundDispatchServiceTest {
 
         // Then: Should fail immediately
         assertEquals(MessageStatus.OUT_FAILED.getValue(), badGwout.getStatus());
-        assertTrue(badGwout.getPayloadContent().contains("Rejected: Originator must be"));
+        assertEquals("invalid-origin-format", badGwout.getRejectionReason());
+        assertEquals("invalid-arguments", badGwout.getRejectionDiagnostic());
         verify(gwoutRepository).save(badGwout);
         verify(conversionService).logAmhsToSwimRejected(eq(badGwout), eq("invalid_origin_format"),
                 eq("invalid-arguments"), anyString());
@@ -464,8 +448,7 @@ class OutboundDispatchServiceTest {
         when(detectService.detect(anyString())).thenReturn("METAR");
         when(routingService.findBestMatchOut("METAR")).thenReturn(Optional.of(routing));
 
-        // Set payload content and topic on test entities to bypass empty check in processDispatch
-        gwout.setPayloadContent("{\"stationIcao\":\"VVTS\",\"observationTime\":\"121200Z\"}");
+        // gwout.text đã set sẵn ở setUp() để bypass empty check trong processDispatch
         dispatch.setTopic("ats.met.metar");
         when(gwoutDispatchRepository.findByGwoutId(1L)).thenReturn(List.of(dispatch));
 

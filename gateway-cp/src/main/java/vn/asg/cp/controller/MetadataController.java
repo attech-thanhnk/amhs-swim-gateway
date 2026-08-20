@@ -5,7 +5,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import vn.asg.cp.dto.ApiResponse;
+import vn.asg.cp.entity.Routing;
 import vn.asg.cp.repository.RoutingRepository;
+
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/metadata")
@@ -19,17 +24,19 @@ public class MetadataController {
      * direction=OUT có detect_pattern (thay cho bảng message_type_registry cũ).
      */
     @GetMapping("/message-types")
-    public ResponseEntity<?> getMessageTypes() {
-        return ResponseEntity.ok(routingRepository.findByDirection("OUT").stream()
+    public ResponseEntity<ApiResponse<List<Routing>>> getMessageTypes() {
+        List<Routing> types = routingRepository.findByDirection("OUT").stream()
                 .filter(r -> r.getMessageType() != null)
-                .toList());
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(types));
     }
 
     @GetMapping("/roles")
-    public ResponseEntity<?> getRoles() {
-        return ResponseEntity.ok(java.util.List.of(
-                java.util.Map.of("code", "ADMIN", "name", "Quản trị viên"),
-                java.util.Map.of("code", "OPERATOR", "name", "Nhân viên vận hành"),
-                java.util.Map.of("code", "USER", "name", "Người dùng xem tin")));
+    public ResponseEntity<ApiResponse<List<Map<String, String>>>> getRoles() {
+        List<Map<String, String>> roles = List.of(
+                Map.of("code", vn.asg.cp.entity.UserRole.admin.name(), "name", "Quản trị viên"),
+                Map.of("code", vn.asg.cp.entity.UserRole.viewer.name(), "name", "Người dùng xem tin"));
+        return ResponseEntity.ok(ApiResponse.ok(roles));
     }
 }
+

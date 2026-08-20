@@ -7,6 +7,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import vn.asg.cp.dto.ApiResponse;
+import vn.asg.cp.dto.PageData;
 import vn.asg.cp.entity.Gwin;
 import vn.asg.cp.entity.Gwout;
 import vn.asg.cp.entity.MessageStatus;
@@ -31,7 +33,7 @@ public class MessagesController {
     private final GwoutDispatchRepository gwoutDispatchRepository;
 
     @GetMapping("/inbound")
-    public ResponseEntity<?> getInboundMessages(
+    public ResponseEntity<ApiResponse<PageData<Gwin>>> getInboundMessages(
             @RequestParam(name = "status", required = false) Integer status,
             @RequestParam(name = "source", required = false) String source,
             @RequestParam(name = "fromTime", required = false) String fromTime,
@@ -50,15 +52,11 @@ public class MessagesController {
             spec = spec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("time"), LocalDateTime.parse(toTime)));
 
         Page<Gwin> result = gwinRepository.findAll(spec, PageRequest.of(page, size, Sort.by("time").descending()));
-        return ResponseEntity.ok(Map.of(
-                "content", result.getContent(),
-                "totalElements", result.getTotalElements(),
-                "totalPages", result.getTotalPages(),
-                "page", page));
+        return ResponseEntity.ok(ApiResponse.ok(PageData.from(result)));
     }
 
     @GetMapping("/inbound/{msgid}")
-    public ResponseEntity<Map<String, Object>> getInboundMessage(@PathVariable("msgid") Long msgid) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getInboundMessage(@PathVariable("msgid") Long msgid) {
         Gwin msg = gwinRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Inbound message", msgid));
 
@@ -66,11 +64,11 @@ public class MessagesController {
                 "message", msg,
                 "dispatches", gwinDispatchRepository.findByGwinId(msgid));
 
-        return ResponseEntity.ok(result);
+        return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
     @GetMapping("/outbound")
-    public ResponseEntity<?> getOutboundMessages(
+    public ResponseEntity<ApiResponse<PageData<Map<String, Object>>>> getOutboundMessages(
             @RequestParam(name = "status", required = false) Integer status,
             @RequestParam(name = "fromTime", required = false) String fromTime,
             @RequestParam(name = "toTime", required = false) String toTime,
@@ -118,8 +116,6 @@ public class MessagesController {
                 m.put("amhsDeliveryReport", g.getAmhsDeliveryReport());
                 m.put("contentType", g.getContentType());
                 m.put("status", g.getStatus());
-                m.put("errorType", g.getErrorType());
-                m.put("payloadContent", g.getPayloadContent());
                 contentList.add(m);
             } catch (Exception e) {
                 org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(MessagesController.class);
@@ -128,15 +124,12 @@ public class MessagesController {
             }
         }
 
-        return ResponseEntity.ok(Map.of(
-                "content", contentList,
-                "totalElements", result.getTotalElements(),
-                "totalPages", result.getTotalPages(),
-                "page", page));
+        PageData<Map<String, Object>> pageData = PageData.of(contentList, page, size, result.getTotalElements(), result.getTotalPages());
+        return ResponseEntity.ok(ApiResponse.ok(pageData));
     }
 
     @GetMapping("/outbound/{msgid}")
-    public ResponseEntity<Map<String, Object>> getOutboundMessage(@PathVariable("msgid") Long msgid) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getOutboundMessage(@PathVariable("msgid") Long msgid) {
         Gwout msg = gwoutRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Outbound message", msgid));
 
@@ -144,22 +137,22 @@ public class MessagesController {
                 "message", msg,
                 "dispatches", gwoutDispatchRepository.findByGwoutId(msgid));
 
-        return ResponseEntity.ok(result);
+        return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
     @PostMapping("/inbound/{msgid}/retry")
-    public ResponseEntity<Map<String, Object>> retryInbound(@PathVariable("msgid") Long msgid) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> retryInbound(@PathVariable("msgid") Long msgid) {
         Gwin msg = gwinRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Inbound message", msgid));
 
         msg.setStatus(MessageStatus.IN_PENDING.getValue());
         gwinRepository.save(msg);
 
-        return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Queued for retry"));
+        return ResponseEntity.ok(ApiResponse.ok("Queued for retry", Map.of("success", true, "msgid", msgid, "message", "Queued for retry")));
     }
 
     @PostMapping("/inbound/{msgid}/resolve")
-    public ResponseEntity<Map<String, Object>> resolveInbound(@PathVariable("msgid") Long msgid) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> resolveInbound(@PathVariable("msgid") Long msgid) {
         Gwin msg = gwinRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Inbound message", msgid));
 
@@ -171,11 +164,11 @@ public class MessagesController {
             gwinDispatchRepository.save(d);
         });
 
-        return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Marked as resolved"));
+        return ResponseEntity.ok(ApiResponse.ok("Marked as resolved", Map.of("success", true, "msgid", msgid, "message", "Marked as resolved")));
     }
 
     @PostMapping("/inbound/{msgid}/cancel")
-    public ResponseEntity<Map<String, Object>> cancelInbound(@PathVariable("msgid") Long msgid) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> cancelInbound(@PathVariable("msgid") Long msgid) {
         Gwin msg = gwinRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Inbound message", msgid));
 
@@ -187,22 +180,22 @@ public class MessagesController {
             gwinDispatchRepository.save(d);
         });
 
-        return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Marked as cancelled"));
+        return ResponseEntity.ok(ApiResponse.ok("Marked as cancelled", Map.of("success", true, "msgid", msgid, "message", "Marked as cancelled")));
     }
 
     @PostMapping("/outbound/{msgid}/retry")
-    public ResponseEntity<Map<String, Object>> retryOutbound(@PathVariable("msgid") Long msgid) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> retryOutbound(@PathVariable("msgid") Long msgid) {
         Gwout msg = gwoutRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Outbound message", msgid));
 
         msg.setStatus(MessageStatus.OUT_PENDING.getValue());
         gwoutRepository.save(msg);
 
-        return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Queued for retry"));
+        return ResponseEntity.ok(ApiResponse.ok("Queued for retry", Map.of("success", true, "msgid", msgid, "message", "Queued for retry")));
     }
 
     @PostMapping("/outbound/{msgid}/resolve")
-    public ResponseEntity<Map<String, Object>> resolveOutbound(@PathVariable("msgid") Long msgid) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> resolveOutbound(@PathVariable("msgid") Long msgid) {
         Gwout msg = gwoutRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Outbound message", msgid));
 
@@ -214,11 +207,11 @@ public class MessagesController {
             gwoutDispatchRepository.save(d);
         });
 
-        return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Marked as resolved"));
+        return ResponseEntity.ok(ApiResponse.ok("Marked as resolved", Map.of("success", true, "msgid", msgid, "message", "Marked as resolved")));
     }
 
     @PostMapping("/outbound/{msgid}/cancel")
-    public ResponseEntity<Map<String, Object>> cancelOutbound(@PathVariable("msgid") Long msgid) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> cancelOutbound(@PathVariable("msgid") Long msgid) {
         Gwout msg = gwoutRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Outbound message", msgid));
 
@@ -230,24 +223,25 @@ public class MessagesController {
             gwoutDispatchRepository.save(d);
         });
 
-        return ResponseEntity.ok(Map.of("success", true, "msgid", msgid, "message", "Marked as cancelled"));
+        return ResponseEntity.ok(ApiResponse.ok("Marked as cancelled", Map.of("success", true, "msgid", msgid, "message", "Marked as cancelled")));
     }
 
     @DeleteMapping("/inbound/{msgid}")
-    public ResponseEntity<Void> deleteInbound(@PathVariable("msgid") Long msgid) {
+    public ResponseEntity<ApiResponse<Void>> deleteInbound(@PathVariable("msgid") Long msgid) {
         if (!gwinRepository.existsById(msgid)) {
             throw new ResourceNotFoundException("Inbound message", msgid);
         }
         gwinRepository.deleteById(msgid);
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok(ApiResponse.ok("Inbound message deleted", null));
     }
 
     @DeleteMapping("/outbound/{msgid}")
-    public ResponseEntity<Void> deleteOutbound(@PathVariable("msgid") Long msgid) {
+    public ResponseEntity<ApiResponse<Void>> deleteOutbound(@PathVariable("msgid") Long msgid) {
         if (!gwoutRepository.existsById(msgid)) {
             throw new ResourceNotFoundException("Outbound message", msgid);
         }
         gwoutRepository.deleteById(msgid);
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok(ApiResponse.ok("Outbound message deleted", null));
     }
 }
+

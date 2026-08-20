@@ -15,9 +15,6 @@ public class GwinHistory {
     @Id
     private Long msgid;
 
-    @Column(name = "cpa", length = 1)
-    private String cpa = "N";
-
     @Column(name = "message_id", length = 255)
     private String messageId;
 
@@ -39,9 +36,6 @@ public class GwinHistory {
     @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
     private String payloadContent;
 
-    @Column(name = "TEXT", columnDefinition = "MEDIUMTEXT")
-    private String text;
-
     @Column(name = "body_type", length = 10)
     private String bodyType = "text";
 
@@ -60,13 +54,8 @@ public class GwinHistory {
     @Column(name = "status")
     private Integer status = MessageStatus.IN_PENDING.getValue();
 
-    @Column(name = "error_type")
-    private Integer errorType = ErrorType.UNDEFINED.getValue();
-
     public Long getMsgid() { return msgid; }
     public void setMsgid(Long msgid) { this.msgid = msgid; }
-    public String getCpa() { return cpa; }
-    public void setCpa(String cpa) { this.cpa = cpa; }
     public String getMessageId() { return messageId; }
     public void setMessageId(String messageId) { this.messageId = messageId; }
     public String getSource() { return source; }
@@ -81,8 +70,6 @@ public class GwinHistory {
     public void setTime(LocalDateTime time) { this.time = time; }
     public String getPayloadContent() { return payloadContent; }
     public void setPayloadContent(String payloadContent) { this.payloadContent = payloadContent; }
-    public String getText() { return text; }
-    public void setText(String text) { this.text = text; }
     public String getBodyType() { return bodyType; }
     public void setBodyType(String bodyType) { this.bodyType = bodyType; }
     public String getContentType() { return contentType; }
@@ -95,6 +82,4 @@ public class GwinHistory {
     public void setAddressingSource(String addressingSource) { this.addressingSource = addressingSource; }
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }
-    public Integer getErrorType() { return errorType; }
-    public void setErrorType(Integer errorType) { this.errorType = errorType; }
 }

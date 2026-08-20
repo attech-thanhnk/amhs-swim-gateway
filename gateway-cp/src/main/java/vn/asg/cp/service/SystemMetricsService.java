@@ -183,34 +183,9 @@ public class SystemMetricsService {
             
         } catch (Exception e) {
             log.error("Failed to get system load, returning fallback response", e);
-            // return getFallbackResponse();
             return null;
         }
     }
-    
-    /**
-     * Fallback response khi OSHI không hoạt động
-     */
-    // private SystemLoadResponse getFallbackResponse() {
-    //     return new SystemLoadResponse(
-    //         0.0,    // processCpuLoad
-    //         0.0,    // systemCpuLoad
-    //         "Unknown",  // cpuName
-    //         0,      // physicalCores
-    //         0,      // logicalCores
-    //         0L,     // cpuMaxFreqHz
-    //         0L,     // totalRamBytes
-    //         0L,     // availableRamBytes
-    //         0.0,    // ramUsedPercent
-    //         new ArrayList<>(),  // physicalMemoryModules
-    //         0L,     // usedPhysicalMemoryMb
-    //         0L,     // totalPhysicalMemoryMb
-    //         new ArrayList<>(),  // disks
-    //         0L,     // heapUsedMb
-    //         0L,     // jvmUptimeSeconds
-    //         new Date().toString()  // serviceStartTime
-    //     );
-    // }
 
     public MySqlLoadResponse getMySqlLoad() {
         try {

@@ -108,15 +108,8 @@ public class Gwout {
 
     /**
      * Trạng thái tổng. Phản ánh tình trạng của tất cả gwout_dispatch con.
-     * 0=PENDING, 1=PROCESSING, 2=TRANSFORMED, 3=PUBLISHED, 4=FAILED
+     * 0=PENDING, 2=TRANSFORMED, 4=PUBLISHED, 5=FAILED, 6=RESOLVED, 7=CANCELLED
      */
     @Column(name = "status")
     private Integer status = MessageStatus.OUT_PENDING.getValue();
-
-    // Dạng lỗi
-    @Column(name = "error_type")
-    private Integer errorType = ErrorType.UNDEFINED.getValue();
-
-    @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
-    private String payloadContent;
 }

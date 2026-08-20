@@ -49,13 +49,13 @@ public class GwoutPollerScheduler {
             return;
         }
 
-        // Step 1: Forward raw messages unchanged (status = 0 -> 2)
+        // Step 1: Forward raw messages unchanged (gwout.status: PENDING=0 -> TRANSFORMED=1)
         pollGwoutAndForward();
 
-        // Step 2: Create dispatches (status = 2 -> 1)
+        // Step 2: Create gwout_dispatch rows for each recipient (gwout.status stays TRANSFORMED=1)
         pollGwoutAndCreateDispatches();
 
-        // Step 3: Publish dispatches to Solace (status = 1 -> 3/4)
+        // Step 3: Publish dispatches to Solace (gwout.status becomes PUBLISHED=2 or FAILED=3 once all dispatches finish)
         pollDispatchesAndProcess();
     }
 

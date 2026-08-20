@@ -7,23 +7,8 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import vn.asg.swim.entity.Gwin;
 
-import java.util.List;
-
 @Repository
 public interface GwinRepository extends JpaRepository<Gwin, Long> {
-
-    /**
-     * Poll batch gwin PENDING, ORDER BY priority ASC, time ASC.
-     * FOR UPDATE is used to prevent race conditions during polling.
-     */
-    @Query(value = """
-            SELECT * FROM gwin
-            WHERE status = 0
-            ORDER BY priority ASC, time ASC
-            LIMIT :batchSize
-            FOR UPDATE
-            """, nativeQuery = true)
-    List<Gwin> findPendingBatch(@Param("batchSize") int batchSize);
 
     /** Check for duplicate AMQP message-id */
     boolean existsByMessageId(String messageId);
@@ -38,7 +23,7 @@ public interface GwinRepository extends JpaRepository<Gwin, Long> {
             SELECT 
                 msgid, cpa, message_id, source, subject, amqp_properties, priority, time, payload_content, text, body_type, content_type, origin, address, addressing_source, status, error_type
             FROM gwin
-            WHERE status IN (3, 6, 7) AND time <= :threshold
+            WHERE status IN (3, 4) AND time <= :threshold
             """, nativeQuery = true)
     int archiveOldRecords(@Param("threshold") java.time.LocalDateTime threshold);
 

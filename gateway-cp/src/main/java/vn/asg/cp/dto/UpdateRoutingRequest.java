@@ -16,10 +16,6 @@ public class UpdateRoutingRequest {
             example = "ats/met/metar")
     private String receiveTopic;
 
-    @Schema(description = "Optional content filter (for IN direction)",
-            example = "METAR")
-    private String messageFilter;
-
     @Schema(description = "Space-separated AFTN addresses (for IN direction)",
             example = "VVHHZTZX VVTSZDYX")
     private String recipients;

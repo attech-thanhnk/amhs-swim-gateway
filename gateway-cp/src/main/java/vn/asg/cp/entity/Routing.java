@@ -34,11 +34,6 @@ public class Routing {
             example = "ats/met/metar")
     private String receiveTopic;
 
-    @Column(name = "message_filter", length = 100)
-    @Schema(description = "Optional content filter (for IN direction)",
-            example = "METAR")
-    private String messageFilter;
-
     @Column(name = "recipients", length = 500)
     @Schema(description = "Space-separated AFTN addresses (for IN direction)",
             example = "VVHHZTZX VVTSZDYX")

@@ -7,6 +7,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import vn.asg.cp.dto.ApiResponse;
+import vn.asg.cp.dto.PageData;
 import vn.asg.cp.entity.GwinHistory;
 import vn.asg.cp.entity.GwoutHistory;
 import vn.asg.cp.exception.ResourceNotFoundException;
@@ -31,7 +33,7 @@ public class HistoryController {
     private final GwoutDispatchHistoryRepository gwoutDispatchHistoryRepository;
 
     @GetMapping("/inbound")
-    public ResponseEntity<?> getInboundHistory(
+    public ResponseEntity<ApiResponse<PageData<GwinHistory>>> getInboundHistory(
             @RequestParam(name = "status", required = false) Integer status,
             @RequestParam(name = "origin", required = false) String origin,
             @RequestParam(name = "source", required = false) String source,
@@ -60,22 +62,18 @@ public class HistoryController {
         }
 
         Page<GwinHistory> result = gwinHistoryRepository.findAll(spec, PageRequest.of(page, size, Sort.by("time").descending()));
-        return ResponseEntity.ok(Map.of(
-                "content", result.getContent(),
-                "totalElements", result.getTotalElements(),
-                "totalPages", result.getTotalPages(),
-                "page", page));
+        return ResponseEntity.ok(ApiResponse.ok(PageData.from(result)));
     }
 
     @GetMapping("/inbound/{msgid}")
-    public ResponseEntity<?> getInboundHistoryDetails(@PathVariable("msgid") Long msgid) {
+    public ResponseEntity<ApiResponse<GwinHistory>> getInboundHistoryDetails(@PathVariable("msgid") Long msgid) {
         GwinHistory msg = gwinHistoryRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Inbound history message", msgid));
-        return ResponseEntity.ok(msg);
+        return ResponseEntity.ok(ApiResponse.ok(msg));
     }
 
     @GetMapping("/outbound")
-    public ResponseEntity<?> getOutboundHistory(
+    public ResponseEntity<ApiResponse<PageData<GwoutHistory>>> getOutboundHistory(
             @RequestParam(name = "status", required = false) Integer status,
             @RequestParam(name = "origin", required = false) String origin,
             @RequestParam(name = "recipient", required = false) String recipient,
@@ -104,20 +102,16 @@ public class HistoryController {
         }
 
         Page<GwoutHistory> result = gwoutHistoryRepository.findAll(spec, PageRequest.of(page, size, Sort.by("time").descending()));
-        return ResponseEntity.ok(Map.of(
-                "content", result.getContent(),
-                "totalElements", result.getTotalElements(),
-                "totalPages", result.getTotalPages(),
-                "page", page));
+        return ResponseEntity.ok(ApiResponse.ok(PageData.from(result)));
     }
 
     @GetMapping("/outbound/{msgid}")
-    public ResponseEntity<?> getOutboundHistoryDetails(@PathVariable("msgid") Long msgid) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getOutboundHistoryDetails(@PathVariable("msgid") Long msgid) {
         GwoutHistory msg = gwoutHistoryRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Outbound history message", msgid));
-        return ResponseEntity.ok(Map.of(
+        return ResponseEntity.ok(ApiResponse.ok(Map.of(
                 "message", msg,
-                "dispatches", gwoutDispatchHistoryRepository.findByGwoutId(msgid)));
+                "dispatches", gwoutDispatchHistoryRepository.findByGwoutId(msgid))));
     }
 
     private LocalDateTime parseDateTime(String value) {
@@ -134,3 +128,4 @@ public class HistoryController {
         }
     }
 }
+

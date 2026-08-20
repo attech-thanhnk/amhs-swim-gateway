@@ -27,13 +27,6 @@ public interface GwinRepository extends JpaRepository<Gwin, Long>, JpaSpecificat
         """)
         Long countAll();
 
-        @Query("""
-        SELECT COUNT(msgid) FROM Gwin g
-        WHERE g.errorType = :errorType
-        ORDER BY g.time DESC
-        """)
-        Long countByErrorType(@Param("errorType") int errorType);
-
         /** Get latest messages */
         List<Gwin> findTop100ByOrderByTimeDesc();
 

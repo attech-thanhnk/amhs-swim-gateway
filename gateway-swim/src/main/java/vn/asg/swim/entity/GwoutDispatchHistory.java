@@ -25,14 +25,8 @@ public class GwoutDispatchHistory {
     @Column(name = "message_type", length = 50)
     private String messageType;
 
-    @Column(name = "scope", length = 10)
-    private String scope;
-
     @Column(name = "topic", length = 100)
     private String topic;
-
-    @Column(name = "amqp_account", length = 50)
-    private String amqpAccount;
 
     @Column(name = "status", nullable = false, length = 20)
     private String status = GwoutDispatch.STATUS_PENDING;
@@ -66,12 +60,8 @@ public class GwoutDispatchHistory {
     public void setRecipient(String recipient) { this.recipient = recipient; }
     public String getMessageType() { return messageType; }
     public void setMessageType(String messageType) { this.messageType = messageType; }
-    public String getScope() { return scope; }
-    public void setScope(String scope) { this.scope = scope; }
     public String getTopic() { return topic; }
     public void setTopic(String topic) { this.topic = topic; }
-    public String getAmqpAccount() { return amqpAccount; }
-    public void setAmqpAccount(String amqpAccount) { this.amqpAccount = amqpAccount; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public Integer getRetryCount() { return retryCount; }

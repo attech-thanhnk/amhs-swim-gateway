@@ -3,6 +3,7 @@ package vn.asg.cp.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import vn.asg.cp.dto.ApiResponse;
 import vn.asg.cp.dto.UpdateConfigRequest;
 import vn.asg.cp.entity.GatewayConfig;
 import vn.asg.cp.exception.ResourceNotFoundException;
@@ -23,19 +24,19 @@ public class GatewayConfigController {
     private final GatewayConfigRepository configRepository;
 
     @GetMapping
-    public ResponseEntity<List<GatewayConfig>> list() {
-        return ResponseEntity.ok(configRepository.findAll());
+    public ResponseEntity<ApiResponse<List<GatewayConfig>>> list() {
+        return ResponseEntity.ok(ApiResponse.ok(configRepository.findAll()));
     }
 
     @GetMapping("/{key}")
-    public ResponseEntity<GatewayConfig> getOne(@PathVariable("key") String key) {
+    public ResponseEntity<ApiResponse<GatewayConfig>> getOne(@PathVariable("key") String key) {
         GatewayConfig config = configRepository.findById(key)
                 .orElseThrow(() -> new ResourceNotFoundException("Config", key));
-        return ResponseEntity.ok(config);
+        return ResponseEntity.ok(ApiResponse.ok(config));
     }
 
     @PutMapping("/{key}")
-    public ResponseEntity<GatewayConfig> update(@PathVariable("key") String key, @RequestBody UpdateConfigRequest request) {
+    public ResponseEntity<ApiResponse<GatewayConfig>> update(@PathVariable("key") String key, @RequestBody UpdateConfigRequest request) {
         if (request.getValue() == null) {
             throw new ValidationException("value is required");
         }
@@ -46,6 +47,7 @@ public class GatewayConfigController {
         existing.setConfigValue(request.getValue());
         existing.setUpdatedAt(LocalDateTime.now());
 
-        return ResponseEntity.ok(configRepository.save(existing));
+        return ResponseEntity.ok(ApiResponse.ok("Configuration updated successfully", configRepository.save(existing)));
     }
 }
+

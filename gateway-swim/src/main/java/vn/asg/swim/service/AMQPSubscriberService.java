@@ -549,8 +549,7 @@ public class AMQPSubscriberService {
             failedGwin.setOrigin(resolved.originator());
             failedGwin.setAddress(resolved.recipients());
             failedGwin.setAddressingSource(resolved.source());
-            failedGwin.setText("VALIDATION_FAILED: " + errorMessage);
-            failedGwin.setStatus(MessageStatus.IN_FAILED.getValue()); // status = 4
+            failedGwin.setStatus(MessageStatus.IN_FAILED.getValue()); // status = 1
 
             try {
                 gwinRepository.save(failedGwin);
@@ -596,8 +595,7 @@ public class AMQPSubscriberService {
                 failedGwin.setOrigin(resolved.originator());
                 failedGwin.setAddress(resolved.recipients());
                 failedGwin.setAddressingSource(resolved.source());
-                failedGwin.setText("ATSMHS_VALIDATION_FAILED: Binary content not supported in BASIC mode");
-                failedGwin.setStatus(MessageStatus.IN_FAILED.getValue()); // status = 4
+                failedGwin.setStatus(MessageStatus.IN_FAILED.getValue()); // status = 1
 
                 try {
                     gwinRepository.save(failedGwin);
@@ -630,7 +628,6 @@ public class AMQPSubscriberService {
 
         try {
             // Giữ nguyên nội dung bản tin gốc, không convert theo chiều nào (theo ICAO Doc 047)
-            gwin.setText(finalContent);
             gwin.setStatus(resolved != null && resolved.isResolved() ? MessageStatus.IN_PENDING.getValue() : MessageStatus.IN_UNROUTED.getValue());
 
             try {

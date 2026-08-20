@@ -27,14 +27,8 @@ public class GwoutDispatchHistory {
     @Column(name = "message_type", length = 50)
     private String messageType;
 
-    @Column(name = "scope", length = 10)
-    private String scope;
-
     @Column(name = "topic", length = 100)
     private String topic;
-
-    @Column(name = "amqp_account", length = 50)
-    private String amqpAccount;
 
     @Column(name = "status", nullable = false, length = 20)
     private String status = GwoutDispatch.STATUS_PENDING;

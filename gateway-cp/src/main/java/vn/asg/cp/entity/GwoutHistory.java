@@ -88,9 +88,12 @@ public class GwoutHistory {
     @Column(name = "rejection_reason", length = 64)
     private String rejectionReason;
 
-    @Column(name = "error_type")
-    private Integer errorType = ErrorType.UNDEFINED.getValue();
+    @Column(name = "rejection_diagnostic", length = 64)
+    private String rejectionDiagnostic;
 
-    @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
-    private String payloadContent;
+    @Column(name = "amqp_message_id", length = 256)
+    private String amqpMessageId;
+
+    @Column(name = "message_signed", length = 20)
+    private String messageSigned;
 }

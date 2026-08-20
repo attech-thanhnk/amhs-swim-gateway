@@ -44,20 +44,12 @@ public class GwoutDispatch {
     @Column(name = "message_type", length = 50)
     private String messageType;
 
-    /** Scope địa lý đã parse. Ví dụ: vvhh (sân bay), vvhf (FIR) */
-    @Column(name = "scope", length = 10)
-    private String scope;
-
     /**
      * Topic AMQP đã xác định. Ví dụ: metar.vvhh, fpl.vvhf. NULL nếu routing thất
      * bại
      */
     @Column(name = "topic", length = 100)
     private String topic;
-
-    /** Account AMQP dùng để publish. Ví dụ: LOCAL_BROKER */
-    @Column(name = "amqp_account", length = 50)
-    private String amqpAccount;
 
     /**
      * Trạng thái xử lý: PENDING → PROCESSING → SENT hoặc FAILED → DEAD

@@ -20,10 +20,6 @@ public class Gwin {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long msgid;
 
-    /** AMHS CPA Character. N=Normal, U=Urgent */
-    @Column(name = "cpa", length = 1)
-    private String cpa = "N";
-
     /**
      * AMQP message-id to prevent duplicate processing. Example:
      * nm-b2b-fum-20240101-12345
@@ -61,10 +57,6 @@ public class Gwin {
     @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
     private String payloadContent;
 
-    /** Converted plain text payload for AMHS */
-    @Column(name = "TEXT", columnDefinition = "MEDIUMTEXT")
-    private String text;
-
     /** Body type: text or ftbp */
     @Column(name = "body_type", length = 10)
     private String bodyType = "text";
@@ -94,12 +86,8 @@ public class Gwin {
 
     /**
      * Global Status.
-     * 0=PENDING, 1=PROCESSING, 2=TRANSFORMED, 3=SENT, 4=FAILED, 5=UNROUTED
+     * 0=PENDING, 4=FAILED, 5=UNROUTED, 6=RESOLVED, 7=CANCELLED
      */
     @Column(name = "status")
     private Integer status = MessageStatus.IN_PENDING.getValue();
-
-    // Dạng lỗi
-    @Column(name = "error_type")
-    private Integer errorType = ErrorType.UNDEFINED.getValue();
 }

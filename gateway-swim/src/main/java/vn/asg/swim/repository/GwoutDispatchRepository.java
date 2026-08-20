@@ -40,7 +40,7 @@ public interface GwoutDispatchRepository extends JpaRepository<GwoutDispatch, Lo
           gd.id, gd.gwout_id, gd.recipient, gd.message_type, gd.scope, gd.topic, gd.amqp_account, gd.status, gd.retry_count, gd.next_retry_at, gd.last_error, gd.failed_step, gd.created_at, gd.updated_at, gd.sent_at
       FROM gwout_dispatch gd 
       INNER JOIN gwout g ON gd.gwout_id = g.msgid 
-      WHERE g.status IN (4, 6, 7) AND g.time <= :threshold
+      WHERE g.status IN (2, 4, 5) AND g.time <= :threshold
       """, nativeQuery = true)
   int archiveOldDispatches(@Param("threshold") java.time.LocalDateTime threshold);
 

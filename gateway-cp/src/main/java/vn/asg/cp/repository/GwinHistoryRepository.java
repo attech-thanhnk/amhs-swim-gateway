@@ -8,5 +8,4 @@ import vn.asg.cp.entity.GwinHistory;
 @Repository
 public interface GwinHistoryRepository extends JpaRepository<GwinHistory, Long>, JpaSpecificationExecutor<GwinHistory> {
     long countByStatus(int status);
-    long countByErrorType(int errorType);
 }

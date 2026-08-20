@@ -8,5 +8,4 @@ import vn.asg.cp.entity.GwoutHistory;
 @Repository
 public interface GwoutHistoryRepository extends JpaRepository<GwoutHistory, Long>, JpaSpecificationExecutor<GwoutHistory> {
     long countByStatus(int status);
-    long countByErrorType(int errorType);
 }

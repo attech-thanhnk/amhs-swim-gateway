@@ -3,6 +3,7 @@ package vn.asg.cp.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import vn.asg.cp.dto.ApiResponse;
 import vn.asg.cp.dto.AddressingStatsResponse;
 import vn.asg.cp.repository.GwinRepository;
 import vn.asg.cp.service.UnroutedMessageService;
@@ -24,7 +25,7 @@ public class AddressingStatsController {
     private final UnroutedMessageService unroutedMessageService;
 
     @GetMapping("/distribution")
-    public ResponseEntity<AddressingStatsResponse> getDistribution(
+    public ResponseEntity<ApiResponse<AddressingStatsResponse>> getDistribution(
             @RequestParam(defaultValue = "last_24h") String period) {
 
         LocalDateTime toTime = LocalDateTime.now();
@@ -57,11 +58,11 @@ public class AddressingStatsController {
         response.setTotalMessages(totalMessages);
         response.setDistribution(distribution);
 
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
     @GetMapping("/success-rate")
-    public ResponseEntity<Map<String, Object>> getSuccessRate(
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getSuccessRate(
             @RequestParam(defaultValue = "last_7d") String period) {
 
         LocalDateTime toTime = LocalDateTime.now();
@@ -72,7 +73,7 @@ public class AddressingStatsController {
         long resolvedCount = totalMessages - unresolvedCount;
         double successRate = totalMessages > 0 ? (resolvedCount * 100.0 / totalMessages) : 0.0;
 
-        return ResponseEntity.ok(Map.of(
+        return ResponseEntity.ok(ApiResponse.ok(Map.of(
                 "period", period,
                 "fromTime", fromTime,
                 "toTime", toTime,
@@ -80,6 +81,7 @@ public class AddressingStatsController {
                 "resolved", resolvedCount,
                 "unrouted", unresolvedCount,
                 "successRate", Math.round(successRate * 100.0) / 100.0,
-                "unresolvedRate", Math.round((100.0 - successRate) * 100.0) / 100.0));
+                "unresolvedRate", Math.round((100.0 - successRate) * 100.0) / 100.0)));
     }
 }
+

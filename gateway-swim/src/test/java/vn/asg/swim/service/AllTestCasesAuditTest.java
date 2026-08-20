@@ -108,7 +108,7 @@ public class AllTestCasesAuditTest {
         runFullOutboundPipeline(gwout);
 
         assertEquals(MessageStatus.OUT_PUBLISHED.getValue(), gwout.getStatus());
-        assertNotNull(gwout.getPayloadContent());
+        assertNotNull(gwout.getText());
     }
 
     @Test
@@ -133,7 +133,7 @@ public class AllTestCasesAuditTest {
         service.processOutboundMessage(gwout);
 
         assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
-        assertTrue(gwout.getPayloadContent().contains("Validation failed"));
+        assertEquals("validation-failed", gwout.getRejectionReason());
     }
 
     @Test
@@ -147,7 +147,7 @@ public class AllTestCasesAuditTest {
         service.processOutboundMessage(gwout);
 
         assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
-        assertTrue(gwout.getPayloadContent().contains("exceeds maximum"));
+        assertEquals("content-too-long", gwout.getRejectionDiagnostic());
     }
 
     @Test

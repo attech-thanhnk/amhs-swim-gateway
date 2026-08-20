@@ -6,7 +6,6 @@ import java.time.LocalDateTime;
 /**
  * Gwin Table — Represents INBOUND messages received from SWIM AMQP, waiting to
  * be sent to the AMHS MTA.
- * One Gwin record maps to multiple GwinDispatch records (one per recipient).
  */
 @Entity
 @Table(name = "gwin")
@@ -17,10 +16,6 @@ public class Gwin {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long msgid;
-
-    /** AMHS CPA Character. N=Normal, U=Urgent */
-    @Column(name = "cpa", length = 1)
-    private String cpa = "N";
 
     /**
      * AMQP message-id to prevent duplicate processing. Example:
@@ -59,10 +54,6 @@ public class Gwin {
     @Column(name = "payload_content", columnDefinition = "MEDIUMTEXT")
     private String payloadContent;
 
-    /** Plain text payload forwarded to AMHS unchanged */
-    @Column(name = "TEXT", columnDefinition = "MEDIUMTEXT")
-    private String text;
-
     /** Body type: text or ftbp */
     @Column(name = "body_type", length = 10)
     private String bodyType = "text";
@@ -92,18 +83,13 @@ public class Gwin {
 
     /**
      * Global Status:
-     * 0=PENDING, 1=PROCESSING, 2=TRANSFORMED, 3=SENT, 4=FAILED, 5=UNROUTED, 6=RESOLVED, 7=CANCELLED
+     * 0=PENDING, 4=FAILED, 5=UNROUTED, 6=RESOLVED, 7=CANCELLED
      */
     @Column(name = "status")
     private Integer status = MessageStatus.IN_PENDING.getValue();
 
-    @Column(name = "error_type")
-    private Integer errorType = ErrorType.UNDEFINED.getValue();
-
     public Long getMsgid() { return msgid; }
     public void setMsgid(Long msgid) { this.msgid = msgid; }
-    public String getCpa() { return cpa; }
-    public void setCpa(String cpa) { this.cpa = cpa; }
     public String getMessageId() { return messageId; }
     public void setMessageId(String messageId) { this.messageId = messageId; }
     public String getSource() { return source; }
@@ -120,8 +106,6 @@ public class Gwin {
     public void setTime(LocalDateTime time) { this.time = time; }
     public String getPayloadContent() { return payloadContent; }
     public void setPayloadContent(String payloadContent) { this.payloadContent = payloadContent; }
-    public String getText() { return text; }
-    public void setText(String text) { this.text = text; }
     public String getBodyType() { return bodyType; }
     public void setBodyType(String bodyType) { this.bodyType = bodyType; }
     public String getContentType() { return contentType; }
@@ -134,6 +118,4 @@ public class Gwin {
     public void setAddressingSource(String addressingSource) { this.addressingSource = addressingSource; }
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }
-    public Integer getErrorType() { return errorType; }
-    public void setErrorType(Integer errorType) { this.errorType = errorType; }
 }

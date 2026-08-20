@@ -94,16 +94,6 @@ public class RoutingService {
         return false;
     }
 
-    /**
-     * Kiểm tra xem originator có tồn tại trong các rule OUT (AMHS -> SWIM) đang hoạt động hay không.
-     */
-    public boolean existsOriginatorOut(String originator) {
-        if (originator == null || originator.isBlank()) {
-            return false;
-        }
-        return routingRepository.existsByOriginatorIgnoreCaseAndDirectionAndActiveTrue(originator, "OUT");
-    }
-
     private boolean containsExact(String configValue, String target) {
         if (configValue == null || configValue.isBlank() || target == null || target.isBlank()) {
             return false;
