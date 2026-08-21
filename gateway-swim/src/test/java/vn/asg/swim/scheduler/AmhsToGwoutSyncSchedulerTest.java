@@ -101,6 +101,49 @@ class AmhsToGwoutSyncSchedulerTest {
     }
 
     @Test
+    void testSyncAmhsToGwout_MultipleRecipients_ShouldJoinRealRecipientsExcludingGateway() {
+        // Given: 1 IPM (mtcu_tmp.id=59296) có 3 dòng mtcu_to: gateway (VVTSSWIM) + 2 recipient thật
+        List<Object[]> mockRows = new ArrayList<>();
+
+        Object[] rowGateway = new Object[14];
+        rowGateway[0] = 59296L;
+        rowGateway[1] = "METAR VVCI 070130Z 21005KT 150V250 9999 BKN019 31/26 Q1002 NOSIG=";
+        rowGateway[2] = "070130";
+        rowGateway[3] = "FF";
+        rowGateway[4] = null;
+        rowGateway[5] = "401";
+        rowGateway[6] = "IPM-126";
+        rowGateway[7] = "MSG-126";
+        rowGateway[8] = "/CN=VVCIYMYX/OU=VVCI/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
+        rowGateway[9] = "/CN=VVTSSWIM/OU=VVTS/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
+        rowGateway[10] = "ISO-8859-1";
+        mockRows.add(rowGateway);
+
+        Object[] rowRecipient1 = rowGateway.clone();
+        rowRecipient1[9] = "/CN=VVCIZTZX/OU=VVCI/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
+        mockRows.add(rowRecipient1);
+
+        Object[] rowRecipient2 = rowGateway.clone();
+        rowRecipient2[9] = "/CN=VVHHZTZX/OU=VVHH/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
+        mockRows.add(rowRecipient2);
+
+        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(entityManager.createNativeQuery(anyString())).thenReturn(query);
+        when(query.setParameter(anyString(), any())).thenReturn(query);
+        when(query.getResultList()).thenReturn(mockRows);
+
+        // When
+        scheduler.syncAmhsToGwout();
+
+        // Then: chỉ 1 gwout được tạo (gộp theo mtcu_tmp.id), amhs_recipients gồm 2 recipient thật, không có VVTSSWIM
+        verify(gwoutRepository, times(1)).saveAndFlush(argThat(gwout -> {
+            assertEquals("MSG-126", gwout.getAmhsid());
+            assertEquals("VVCIZTZX,VVHHZTZX", gwout.getAddress());
+            return true;
+        }));
+    }
+
+    @Test
     void testSyncAmhsToGwout_GeneralTextBodyPart_ShouldMapCharset() {
         // Given: bodyPartType=402 (general-text) với bodyPartCharacterSet=ISO-8859-1
         List<Object[]> mockRows = new ArrayList<>();

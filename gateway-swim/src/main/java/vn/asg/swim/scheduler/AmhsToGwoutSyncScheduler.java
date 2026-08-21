@@ -102,12 +102,16 @@ public class AmhsToGwoutSyncScheduler {
                     LIMIT 200
                 ) t
                 JOIN mtcu_to o ON t.id = o.receiveMessage_id
-                WHERE (o.address LIKE :gatewayAddress OR o.address LIKE :vvtsswimPattern)
-                  AND t.messageId IS NOT NULL
+                WHERE t.messageId IS NOT NULL
                   AND NOT EXISTS (
                       SELECT 1 FROM gwout g WHERE g.amhsid = t.messageId
                   )
-                ORDER BY t.id ASC
+                  AND EXISTS (
+                      SELECT 1 FROM mtcu_to gw
+                      WHERE gw.receiveMessage_id = t.id
+                        AND (gw.address LIKE :gatewayAddress OR gw.address LIKE :vvtsswimPattern)
+                  )
+                ORDER BY t.id ASC, o.id ASC
             """;
 
             @SuppressWarnings("unchecked")
@@ -122,9 +126,20 @@ public class AmhsToGwoutSyncScheduler {
                 return;
             }
 
-            log.info("Found {} new AMHS messages to sync to gwout", rows.size());
-
+            // Gộp các dòng mtcu_to theo message: 1 IPM có thể có nhiều recipient,
+            // câu SQL ở trên trả về 1 dòng cho MỖI recipient (bao gồm cả chính gateway).
+            java.util.LinkedHashMap<Long, List<Object[]>> groupedByMessage = new java.util.LinkedHashMap<>();
             for (Object[] row : rows) {
+                Long msgTmpId = ((Number) row[0]).longValue();
+                groupedByMessage.computeIfAbsent(msgTmpId, k -> new java.util.ArrayList<>()).add(row);
+            }
+
+            final String gatewayShortAddress = localAddress;
+
+            log.info("Found {} new AMHS messages to sync to gwout", groupedByMessage.size());
+
+            for (List<Object[]> msgRows : groupedByMessage.values()) {
+                Object[] row = msgRows.get(0);
                 try {
                     String content = asString(row[1]);
                     String atsFilingTime = asString(row[2]);
@@ -134,11 +149,19 @@ public class AmhsToGwoutSyncScheduler {
                     String ipmId = asString(row[6]);
                     String messageId = asString(row[7]);
                     String orAddress = asString(row[8]);
-                    String recipientAddress = asString(row[9]);
                     String bodyPartCharacterSet = asString(row[10]);
                     String ftbpFileName = asString(row[11]);
                     String ftbpObjectSize = asString(row[12]);
                     String ftbpLastMod = asString(row[13]);
+
+                    // ICAO Doc 047: amhs_recipients phải liệt kê các recipient THẬT của IPM
+                    // (không phải chính địa chỉ gateway VVTSSWIM dùng để nhận tin).
+                    List<String> realRecipients = msgRows.stream()
+                            .map(r -> AddressUtil.getShort(asString(r[9])))
+                            .filter(java.util.Objects::nonNull)
+                            .filter(a -> !a.equalsIgnoreCase(gatewayShortAddress))
+                            .distinct()
+                            .toList();
 
                     Gwout gwout = new Gwout();
                     if (messageId != null && messageId.length() > 200) messageId = messageId.substring(0, 200);
@@ -192,9 +215,16 @@ public class AmhsToGwoutSyncScheduler {
                     if (finalOrigin != null && finalOrigin.length() > 200) finalOrigin = finalOrigin.substring(0, 200);
                     gwout.setOrigin(finalOrigin);
                     
-                    // Convert recipient to short format
-                    String shortRecipient = AddressUtil.getShort(recipientAddress);
-                    String finalRecipient = shortRecipient != null ? shortRecipient : recipientAddress;
+                    // amhs_recipients = danh sách recipient THẬT (không phải chính gateway), phân cách dấu phẩy.
+                    // Trường hợp hiếm khi IPM chỉ addressed tới mỗi gateway (không có recipient thật nào khác),
+                    // fallback về địa chỉ gateway để không làm mất bản tin.
+                    String finalRecipient = !realRecipients.isEmpty()
+                            ? String.join(",", realRecipients)
+                            : gatewayShortAddress;
+                    if (realRecipients.isEmpty()) {
+                        log.warn("gwout sync: messageId={} has no real recipient other than the gateway ({}), falling back to gateway address",
+                                messageId, gatewayShortAddress);
+                    }
                     if (finalRecipient != null && finalRecipient.length() > 1000) finalRecipient = finalRecipient.substring(0, 1000);
                     gwout.setAddress(finalRecipient);
                     

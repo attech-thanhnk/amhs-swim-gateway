@@ -202,7 +202,7 @@ public class AMQPSubscriberService {
         // 1. Trích xuất messageId — chỉ từ header/properties tầng AMQP, không bao giờ lấy từ payload nghiệp vụ
         String rawMsgId = amqpMsg.getJMSMessageID();
         if (rawMsgId == null || rawMsgId.isBlank()) {
-            String[] properties = { "message_id", "messageId", "amhs_message_id", "message-id" };
+            String[] properties = { "message_id", "messageId", "amhs_message_id" };
             for (String property : properties) {
                 rawMsgId = amqpMsg.getStringProperty(property);
                 if (rawMsgId != null && !rawMsgId.isBlank()) {
@@ -352,8 +352,11 @@ public class AMQPSubscriberService {
             } catch (Exception ignored) {}
         }
 
+        // CTSW102: creation-time là trường bắt buộc — nếu không có property lẫn JMSTimestamp
+        // hợp lệ, phải từ chối bản tin, không được tự bịa giờ hiện tại rồi coi là hợp lệ.
         if (!creationTimeFieldFound) {
-            amhsAtsFt = LocalDateTime.now(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ofPattern("ddHHmm"));
+            creationTimeValid = false;
+            log.warn("AMQP {}: Mandatory creation-time field is missing", amqpMsgId);
         }
 
         // 4. Trích xuất các thuộc tính tiêu chuẩn khác
@@ -537,7 +540,7 @@ public class AMQPSubscriberService {
             List<String> errors = new ArrayList<>();
             if (!hasMessageId) errors.add("Missing messageId");
             if (!priorityValid) errors.add("Invalid priority: " + rawPriority + " (must be 0-9)");
-            if (!creationTimeValid) errors.add("Invalid creation-time (must be != 0)");
+            if (!creationTimeValid) errors.add("Mandatory field 'creation-time' is missing or invalid");
             if (!dataValid) errors.add("Mandatory field 'data/amqp-value' is missing or empty");
             if (!recipientsValid) errors.add("Mandatory field 'amhs_recipients' is missing or empty (or count exceeds max)");
             if (!contentTypeSupported) errors.add("Unsupported content-type: " + contentType);

@@ -134,7 +134,7 @@ class OutboundDispatchServiceTest {
     // ==================== TTL LOGIC ====================
 
     @Test
-    void testTTLExpired_ShouldSkipPublish() throws Exception {
+    void testTTLExpired_ShouldRejectMessage() throws Exception {
         // Given: TTL expired
         gwout.setAmhsTtl(LocalDateTime.now().minusHours(1));
         when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
@@ -147,8 +147,9 @@ class OutboundDispatchServiceTest {
         // When
         service.processOutboundMessage(gwout);
 
-        // Then: Should mark as OUT_PUBLISHED (accepted skip)
-        assertEquals(OutboundStatus.PUBLISHED.getValue(), gwout.getStatus());
+        // Then (CTSW005): TTL hết hạn -> reject để sinh NDR, không publish
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        assertEquals("ttl-expired", gwout.getRejectionReason());
         verify(gwoutRepository, atLeastOnce()).save(gwout);
     }
 

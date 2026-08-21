@@ -6,6 +6,7 @@ import jakarta.jms.TextMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -82,6 +83,7 @@ class AMQPSubscriberServiceTest {
         when(amqpMessage.getJMSMessageID()).thenReturn("test-msg-123");
         when(textMessage.getText()).thenReturn(jsonPayload);
         when(amqpMessage.getJMSPriority()).thenReturn(2);
+        when(amqpMessage.getJMSTimestamp()).thenReturn(System.currentTimeMillis());
         when(amqpMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("text/plain; charset=\"utf-8\"");
         when(amqpMessage.getStringProperty("amhs_subject")).thenReturn("METAR");
         when(amqpMessage.getStringProperty("amhs_gateway_id")).thenReturn(null); // Default: no loopback
@@ -300,6 +302,7 @@ class AMQPSubscriberServiceTest {
         when(bytesMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE"))
             .thenReturn("application/octet-stream");
         when(bytesMessage.getJMSPriority()).thenReturn(2);
+        when(bytesMessage.getJMSTimestamp()).thenReturn(System.currentTimeMillis());
         when(authorizationService.isSwimUserAuthorized(any())).thenReturn(true);
 
         MessageValidationService.ValidationResult validResult =
@@ -341,6 +344,62 @@ class AMQPSubscriberServiceTest {
         ));
     }
 
+    @Test
+    void testPriorityMapping_RawAmqpPrioritySweep_ShouldMapPerTable9() throws JMSException {
+        // CTSW104: 10 bản tin, priority AMQP 0..9, không có amhs_ats_pri -> map theo Table 9
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+        String[] expectedCodes = {"KK", "KK", "KK", "GG", "FF", "DD", "SS", "SS", "SS", "SS"};
+
+        ArgumentCaptor<Gwin> captor = ArgumentCaptor.forClass(Gwin.class);
+        for (int p = 0; p <= 9; p++) {
+            when(amqpMessage.getJMSPriority()).thenReturn(p);
+            service.handleMessage(amqpMessage, "swim.test.queue");
+        }
+        verify(gwinRepository, times(10)).save(captor.capture());
+
+        List<Gwin> saved = captor.getAllValues();
+        for (int p = 0; p <= 9; p++) {
+            Gwin gwin = saved.get(p);
+            assertEquals(p, gwin.getPriority().intValue(), "priority echo mismatch at p=" + p);
+            String props = gwin.getAmqpProperties();
+            assertTrue(props.contains("ats_priority") && props.contains(expectedCodes[p]),
+                    "expected ats_priority=" + expectedCodes[p] + " at raw priority=" + p + " but got " + props);
+        }
+    }
+
+    @Test
+    void testPriorityMapping_AmhsAtsPriProperty_AlwaysOverridesRawPriority() throws JMSException {
+        // CTSW104: amhs_ats_pri luôn được ưu tiên hơn priority AMQP thô, bất kể priority thô là gì
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        record Case(int rawPriority, String atsCode, int expectedAmqpPriority) {}
+        List<Case> cases = List.of(
+                new Case(4, "SS", 6), new Case(4, "DD", 5), new Case(4, "FF", 4), new Case(4, "GG", 3), new Case(4, "KK", 2),
+                new Case(1, "SS", 6), new Case(1, "DD", 5), new Case(1, "FF", 4), new Case(1, "GG", 3),
+                new Case(9, "KK", 2)
+        );
+
+        ArgumentCaptor<Gwin> captor = ArgumentCaptor.forClass(Gwin.class);
+        for (Case c : cases) {
+            when(amqpMessage.getJMSPriority()).thenReturn(c.rawPriority());
+            when(amqpMessage.getStringProperty("amhs_ats_pri")).thenReturn(c.atsCode());
+            service.handleMessage(amqpMessage, "swim.test.queue");
+        }
+        verify(gwinRepository, times(cases.size())).save(captor.capture());
+
+        List<Gwin> saved = captor.getAllValues();
+        for (int i = 0; i < cases.size(); i++) {
+            Case c = cases.get(i);
+            Gwin gwin = saved.get(i);
+            assertEquals(c.expectedAmqpPriority(), gwin.getPriority().intValue(),
+                    "amhs_ats_pri=" + c.atsCode() + " with raw priority=" + c.rawPriority()
+                            + " should map to AMQP priority " + c.expectedAmqpPriority());
+            String props = gwin.getAmqpProperties();
+            assertTrue(props.contains("ats_priority") && props.contains(c.atsCode()),
+                    "expected ats_priority=" + c.atsCode() + " in props but got " + props);
+        }
+    }
+
     // ==================== AMQP PROPERTIES PRESERVATION ====================
 
     @Test
@@ -378,6 +437,29 @@ class AMQPSubscriberServiceTest {
             String props = gwin.getAmqpProperties();
             return props.contains("amhs_ats_ft") && props.contains("210414");
         }));
+    }
+
+    @Test
+    void testCreationTime_Missing_ShouldRejectMessage() throws JMSException {
+        // Given (CTSW102): không có amhs_ats_ft/creation_time/creation-time property
+        // và JMSTimestamp cũng <= 0 -> creation-time coi như thiếu, phải bị từ chối
+        when(amqpMessage.getJMSTimestamp()).thenReturn(0L);
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        // When
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        // Then: bị từ chối (status FAILED), báo cáo Control Position
+        verify(gwinRepository).save(argThat(gwin ->
+            gwin.getStatus().equals(InboundStatus.FAILED.getValue())
+        ));
+        verify(alertService).create(
+            eq(GwAlert.TYPE_VALIDATION_ERROR),
+            eq(GwAlert.SEV_ERROR),
+            contains("creation-time"),
+            eq("gwin"),
+            isNull()
+        );
     }
 
     // ==================== SUCCESSFUL PROCESSING ====================
