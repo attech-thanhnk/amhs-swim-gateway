@@ -137,6 +137,19 @@ public class AllTestCasesAuditTest {
     }
 
     @Test
+    @DisplayName("CTSW005: Generate NDR for Expired TTL (latest-delivery-time)")
+    void testCTSW005() {
+        Gwout gwout = createGwout("TC-CTSW005", "VVNBZTZX", "VVHHZTZX", "text/plain", "METAR VVNB...");
+        gwout.setAmhsTtl(java.time.LocalDateTime.now().minusDays(1));
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
+        assertEquals("ttl-expired", gwout.getRejectionReason());
+        assertEquals("maximum-time-expired", gwout.getRejectionDiagnostic());
+    }
+
+    @Test
     @DisplayName("CTSW006: Reject IPM Exceeding Max Size")
     void testCTSW006() {
         Gwout gwout = createGwout("TC-CTSW006", "VVNBZTZX", "VVHHZTZX", "text/plain", "A".repeat(200));

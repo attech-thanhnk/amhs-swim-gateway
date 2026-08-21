@@ -174,11 +174,20 @@ public class AMQPSubscriberService {
 
         // EUR Doc 047 v3.0 §4.4.3.3.3 / §4.5.1.6-1.7: chỉ 2 content-type hợp lệ
         boolean contentTypeSupported = true;
-        if (contentType != null && !contentType.isBlank()) {
+        if (contentType == null || contentType.isBlank()) {
+            // CTSW102: Content-type is mandatory for AMHS-unaware service level
+            contentTypeSupported = false;
+            log.warn("AMQP: Mandatory content-type property is missing");
+        } else {
             String ct = contentType.toLowerCase();
             if (!ct.contains("text/plain") && !ct.contains("application/octet-stream")) {
                 contentTypeSupported = false;
                 log.warn("AMQP: Unsupported content-type '{}'", contentType);
+            }
+            if (ct.contains("utf-16")) {
+                // CTSW110: utf-16 is unsupported
+                contentTypeSupported = false;
+                log.warn("AMQP: Unsupported charset utf-16 in content-type '{}'", contentType);
             }
             if (ct.contains("text/")) {
                 binaryPayload = null;
@@ -314,8 +323,20 @@ public class AMQPSubscriberService {
                 if ("0".equals(trimmed) || "000000".equals(trimmed) || "null".equalsIgnoreCase(trimmed)) {
                     creationTimeValid = false;
                     log.warn("AMQP {}: creationTime field found but invalid (null or zero)", amqpMsgId);
-                } else {
+                } else if (trimmed.matches("^\\d{6}$")) {
                     amhsAtsFt = trimmed;
+                } else {
+                    try {
+                        long epochMs = Long.parseLong(trimmed);
+                        if (epochMs > 0) {
+                            LocalDateTime dt = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(epochMs), java.time.ZoneOffset.UTC);
+                            amhsAtsFt = dt.format(java.time.format.DateTimeFormatter.ofPattern("ddHHmm"));
+                        } else {
+                            creationTimeValid = false;
+                        }
+                    } catch (NumberFormatException nfe) {
+                        amhsAtsFt = trimmed;
+                    }
                 }
             }
         }

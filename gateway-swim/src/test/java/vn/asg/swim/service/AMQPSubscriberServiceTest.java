@@ -364,6 +364,22 @@ class AMQPSubscriberServiceTest {
         }));
     }
 
+    @Test
+    void testCreationTime_EpochMillis_ShouldBeConvertedToDDhhmm() throws JMSException {
+        // Given: creation-time as epoch millis (1787285680974 -> 2026-08-21 04:14:40 UTC -> 210414)
+        when(amqpMessage.getStringProperty("creation-time")).thenReturn("1787285680974");
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        // When
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        // Then: Should convert epoch millis to DDhhmm UTC format
+        verify(gwinRepository).save(argThat(gwin -> {
+            String props = gwin.getAmqpProperties();
+            return props.contains("amhs_ats_ft") && props.contains("210414");
+        }));
+    }
+
     // ==================== SUCCESSFUL PROCESSING ====================
 
     @Test

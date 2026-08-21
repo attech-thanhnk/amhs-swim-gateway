@@ -123,11 +123,14 @@ public class OutboundDispatchService {
             }
         }
 
+        // CTSW005: Generate NDR if current time exceeds latest delivery time (amhsTtl)
         if (gwout.getAmhsTtl() != null && gwout.getAmhsTtl().isBefore(LocalDateTime.now())) {
-            log.info("gwout#{} TTL expired, marking as published", gwout.getMsgid());
-            gwout.setStatus(MessageStatus.OUT_PUBLISHED.getValue()); // coi như thành công nhưng skip
+            log.warn("gwout#{} TTL expired (latest-delivery-time exceeded)", gwout.getMsgid());
+            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setRejectionReason("ttl-expired");
+            gwout.setRejectionDiagnostic("maximum-time-expired");
             gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwim(gwout, null, "SKIP", "ttl_expired");
+            conversionService.logAmhsToSwimRejected(gwout, "ttl_expired", "maximum-time-expired", "unable-to-transfer");
             return;
         }
 
