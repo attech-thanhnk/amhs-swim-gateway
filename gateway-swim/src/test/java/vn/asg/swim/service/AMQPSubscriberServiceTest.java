@@ -1,4 +1,4 @@
-package vn.asg.swim.service;
+﻿package vn.asg.swim.service;
 
 import jakarta.jms.JMSException;
 import jakarta.jms.Message;
@@ -14,7 +14,7 @@ import org.mockito.quality.Strictness;
 import org.springframework.dao.DataIntegrityViolationException;
 import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.Gwin;
-import vn.asg.swim.entity.MessageStatus;
+import vn.asg.swim.entity.InboundStatus;
 import vn.asg.swim.model.ResolvedAddressing;
 import vn.asg.swim.repository.GwinRepository;
 
@@ -229,7 +229,7 @@ class AMQPSubscriberServiceTest {
         service.handleMessage(amqpMessage, "swim.test.queue");
 
         // Then: Should reject but still persist the failed message for audit
-        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue())));
+        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus().equals(InboundStatus.FAILED.getValue())));
         verify(alertService).create(
             eq(GwAlert.TYPE_VALIDATION_ERROR),
             eq(GwAlert.SEV_ERROR),
@@ -251,7 +251,7 @@ class AMQPSubscriberServiceTest {
         service.handleMessage(amqpMessage, "swim.test.queue");
 
         // Then: Should reject but still persist the failed message for audit
-        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue())));
+        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus().equals(InboundStatus.FAILED.getValue())));
         verify(alertService).create(
             eq("VALIDATION_ERROR"),
             eq("ERROR"),
@@ -273,7 +273,7 @@ class AMQPSubscriberServiceTest {
         service.handleMessage(amqpMessage, "swim.test.queue");
 
         // Then: Rejected but still persisted for audit, same as strict mode
-        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue())));
+        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus().equals(InboundStatus.FAILED.getValue())));
     }
 
     // ==================== ATSMHS SERVICE LEVEL ====================
@@ -312,7 +312,7 @@ class AMQPSubscriberServiceTest {
 
         // Then: Should reject but still persist the failed message for audit
         verify(gwinRepository).save(argThat(gwin ->
-            gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue())
+            gwin.getStatus().equals(InboundStatus.FAILED.getValue())
         ));
         verify(alertService).create(
             eq(GwAlert.TYPE_VALIDATION_ERROR),
@@ -392,7 +392,7 @@ class AMQPSubscriberServiceTest {
 
         // Then: Should save with PENDING status
         verify(gwinRepository).save(argThat(gwin -> {
-            assertEquals(MessageStatus.IN_PENDING.getValue(), gwin.getStatus());
+            assertEquals(InboundStatus.PENDING.getValue(), gwin.getStatus());
             assertEquals("VVHHZPZX", gwin.getOrigin());
             assertEquals("VVHHZTZX VVTSZDYX", gwin.getAddress());
             assertEquals(ResolvedAddressing.SOURCE_ROUTING_RULE, gwin.getAddressingSource());
@@ -433,7 +433,7 @@ class AMQPSubscriberServiceTest {
 
         // Then: bản tin KHÔNG bị từ chối cả gói, chỉ loại recipient sai, và báo Control Position
         verify(gwinRepository).save(argThat(gwin -> {
-            assertEquals(MessageStatus.IN_PENDING.getValue(), gwin.getStatus());
+            assertEquals(InboundStatus.PENDING.getValue(), gwin.getStatus());
             assertEquals("VVHHZTZX", gwin.getAddress());
             return true;
         }));
@@ -456,7 +456,7 @@ class AMQPSubscriberServiceTest {
 
         // Then
         verify(gwinRepository).save(argThat(gwin ->
-            gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue())
+            gwin.getStatus().equals(InboundStatus.FAILED.getValue())
         ));
     }
 
@@ -475,7 +475,7 @@ class AMQPSubscriberServiceTest {
 
         // Then: EUR Doc 047 treats amhs_recipients as mandatory -> rejected (still persisted for audit)
         verify(gwinRepository).save(argThat(gwin ->
-            gwin.getStatus().equals(MessageStatus.IN_FAILED.getValue())
+            gwin.getStatus().equals(InboundStatus.FAILED.getValue())
         ));
     }
 
@@ -519,6 +519,6 @@ class AMQPSubscriberServiceTest {
 
         service.handleMessage(amqpMessage, "ats/fpl/flightplan");
 
-        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus() != MessageStatus.IN_FAILED.getValue()));
+        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus() != InboundStatus.FAILED.getValue()));
     }
 }

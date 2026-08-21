@@ -1,4 +1,4 @@
-package vn.asg.swim.entity;
+﻿package vn.asg.swim.entity;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
@@ -89,7 +89,7 @@ public class Gwout {
      * 0=PENDING, 2=TRANSFORMED, 4=PUBLISHED, 5=FAILED, 6=RESOLVED, 7=CANCELLED
      */
     @Column(name = "status")
-    private Integer status = MessageStatus.OUT_PENDING.getValue();
+    private Integer status = OutboundStatus.PENDING.getValue();
 
     @Column(name = "body_part_type", length = 50)
     private String bodyPartType;

@@ -13,7 +13,6 @@ import vn.asg.cp.entity.Gwin;
 import vn.asg.cp.entity.Gwout;
 import vn.asg.cp.entity.InboundStatus;
 import vn.asg.cp.entity.OutboundStatus;
-import vn.asg.cp.entity.MessageStatus;
 import vn.asg.cp.exception.ResourceNotFoundException;
 import vn.asg.cp.repository.GwinDispatchRepository;
 import vn.asg.cp.repository.GwinRepository;

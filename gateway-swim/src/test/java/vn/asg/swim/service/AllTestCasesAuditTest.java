@@ -1,4 +1,4 @@
-package vn.asg.swim.service;
+﻿package vn.asg.swim.service;
 
 import jakarta.jms.MessageProducer;
 import jakarta.jms.Session;
@@ -15,7 +15,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.GwoutDispatch;
-import vn.asg.swim.entity.MessageStatus;
+import vn.asg.swim.entity.OutboundStatus;
 import vn.asg.swim.entity.Routing;
 import vn.asg.swim.repository.GwoutDispatchRepository;
 import vn.asg.swim.repository.GwoutRepository;
@@ -84,7 +84,7 @@ public class AllTestCasesAuditTest {
         when(gwoutRepository.findById(gwout.getMsgid())).thenReturn(Optional.of(gwout));
 
         service.processOutboundMessage(gwout);
-        if (gwout.getStatus() == null || !gwout.getStatus().equals(MessageStatus.OUT_TRANSFORMED.getValue())) {
+        if (gwout.getStatus() == null || !gwout.getStatus().equals(OutboundStatus.TRANSFORMED.getValue())) {
             return; // transform step failed; nothing left to dispatch/publish
         }
 
@@ -107,7 +107,7 @@ public class AllTestCasesAuditTest {
 
         runFullOutboundPipeline(gwout);
 
-        assertEquals(MessageStatus.OUT_PUBLISHED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.PUBLISHED.getValue(), gwout.getStatus());
         assertNotNull(gwout.getText());
     }
 
@@ -120,7 +120,7 @@ public class AllTestCasesAuditTest {
 
         runFullOutboundPipeline(gwout);
 
-        assertEquals(MessageStatus.OUT_PUBLISHED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.PUBLISHED.getValue(), gwout.getStatus());
     }
 
     @Test
@@ -132,7 +132,7 @@ public class AllTestCasesAuditTest {
 
         service.processOutboundMessage(gwout);
 
-        assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
         assertEquals("validation-failed", gwout.getRejectionReason());
     }
 
@@ -144,7 +144,7 @@ public class AllTestCasesAuditTest {
 
         service.processOutboundMessage(gwout);
 
-        assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
         assertEquals("ttl-expired", gwout.getRejectionReason());
         assertEquals("maximum-time-expired", gwout.getRejectionDiagnostic());
     }
@@ -159,7 +159,7 @@ public class AllTestCasesAuditTest {
 
         service.processOutboundMessage(gwout);
 
-        assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
         assertEquals("content-too-long", gwout.getRejectionDiagnostic());
     }
 
@@ -172,7 +172,7 @@ public class AllTestCasesAuditTest {
 
         runFullOutboundPipeline(gwout);
 
-        assertEquals(MessageStatus.OUT_PUBLISHED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.PUBLISHED.getValue(), gwout.getStatus());
     }
 
     @Test
@@ -184,7 +184,7 @@ public class AllTestCasesAuditTest {
         runFullOutboundPipeline(gwout);
 
         assertEquals("ia5-text-body-part", gwout.getBodyPartType());
-        assertEquals(MessageStatus.OUT_PUBLISHED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.PUBLISHED.getValue(), gwout.getStatus());
     }
 
     @Test
@@ -195,7 +195,7 @@ public class AllTestCasesAuditTest {
 
         runFullOutboundPipeline(gwout);
 
-        assertEquals(MessageStatus.OUT_PUBLISHED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.PUBLISHED.getValue(), gwout.getStatus());
     }
 
     private Gwout createGwout(String amhsid, String origin, String address, String contentType, String text) {

@@ -1,4 +1,4 @@
-package vn.asg.swim.entity;
+﻿package vn.asg.swim.entity;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
@@ -86,7 +86,7 @@ public class Gwin {
      * 0=PENDING, 4=FAILED, 5=UNROUTED, 6=RESOLVED, 7=CANCELLED
      */
     @Column(name = "status")
-    private Integer status = MessageStatus.IN_PENDING.getValue();
+    private Integer status = InboundStatus.PENDING.getValue();
 
     public Long getMsgid() { return msgid; }
     public void setMsgid(Long msgid) { this.msgid = msgid; }

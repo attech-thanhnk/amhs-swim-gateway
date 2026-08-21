@@ -10,8 +10,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import vn.asg.swim.entity.Gwin;
-import vn.asg.swim.entity.GwAlert;
-import vn.asg.swim.entity.MessageStatus;
+import vn.asg.swim.entity.InboundStatus;
 import vn.asg.swim.model.ResolvedAddressing;
 import vn.asg.swim.repository.GwinRepository;
 
@@ -570,7 +569,7 @@ public class AMQPSubscriberService {
             failedGwin.setOrigin(resolved.originator());
             failedGwin.setAddress(resolved.recipients());
             failedGwin.setAddressingSource(resolved.source());
-            failedGwin.setStatus(MessageStatus.IN_FAILED.getValue()); // status = 1
+            failedGwin.setStatus(InboundStatus.FAILED.getValue()); // status = 1
 
             try {
                 gwinRepository.save(failedGwin);
@@ -616,7 +615,7 @@ public class AMQPSubscriberService {
                 failedGwin.setOrigin(resolved.originator());
                 failedGwin.setAddress(resolved.recipients());
                 failedGwin.setAddressingSource(resolved.source());
-                failedGwin.setStatus(MessageStatus.IN_FAILED.getValue()); // status = 1
+                failedGwin.setStatus(InboundStatus.FAILED.getValue()); // status = 1
 
                 try {
                     gwinRepository.save(failedGwin);
@@ -649,7 +648,7 @@ public class AMQPSubscriberService {
 
         try {
             // Giữ nguyên nội dung bản tin gốc, không convert theo chiều nào (theo ICAO Doc 047)
-            gwin.setStatus(resolved != null && resolved.isResolved() ? MessageStatus.IN_PENDING.getValue() : MessageStatus.IN_UNROUTED.getValue());
+            gwin.setStatus(resolved != null && resolved.isResolved() ? InboundStatus.PENDING.getValue() : InboundStatus.UNROUTED.getValue());
 
             try {
                 gwinRepository.save(gwin);
@@ -660,7 +659,7 @@ public class AMQPSubscriberService {
 
             String actionTag = "received-" + (resolved != null ? resolved.source().toLowerCase().replaceAll("[^a-z0-9]", "_") : "unresolved");
             conversionService.logSwimToAmhs(amqpMsgId, resolved != null ? resolved.originator() : null,
-                    gwin.getStatus().equals(MessageStatus.IN_PENDING.getValue()) ? "OK" : "UNROUTED",
+                    gwin.getStatus().equals(InboundStatus.PENDING.getValue()) ? "OK" : "UNROUTED",
                     actionTag,
                     (resolved != null && resolved.isResolved()) ? null : "MISSING_AMHS_RECIPIENTS",
                     amhsIpmId,

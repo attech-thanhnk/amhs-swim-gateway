@@ -1,11 +1,12 @@
-package vn.asg.cp.controller;
+﻿package vn.asg.cp.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import vn.asg.cp.dto.ApiResponse;
 import vn.asg.cp.entity.Account;
-import vn.asg.cp.entity.MessageStatus;
+import vn.asg.cp.entity.OutboundStatus;
+import vn.asg.cp.entity.InboundStatus;
 import vn.asg.cp.entity.PerformanceMetrics;
 import vn.asg.cp.repository.AccountRepository;
 import vn.asg.cp.repository.GwinRepository;
@@ -79,9 +80,9 @@ public class MonitorController {
                 long activeGwoutTotal = gwoutRepository.countAll();
                 long dispatchGwoutCount = gwoutDispatchRepository.count();
                 long gwoutTotal = Math.max(Math.max(activeGwoutTotal, dispatchGwoutCount), msgOutTotal);
-                long gwoutPending = gwoutRepository.countByStatus(MessageStatus.OUT_PENDING.getValue());
-                long gwoutPublished = gwoutRepository.countByStatus(MessageStatus.OUT_PUBLISHED.getValue());
-                long gwoutFailed = gwoutRepository.countByStatus(MessageStatus.OUT_FAILED.getValue());
+                long gwoutPending = gwoutRepository.countByStatus(OutboundStatus.PENDING.getValue());
+                long gwoutPublished = gwoutRepository.countByStatus(OutboundStatus.PUBLISHED.getValue());
+                long gwoutFailed = gwoutRepository.countByStatus(OutboundStatus.FAILED.getValue());
                 long gwoutSent = (gwoutPublished > 0) ? gwoutPublished : Math.max(0L, gwoutTotal - gwoutPending - gwoutFailed);
 
                 Map<String, Object> gwoutStats = Map.of(
@@ -93,10 +94,10 @@ public class MonitorController {
 
                 long activeGwinTotal = gwinRepository.countAll();
                 long gwinTotal = Math.max(activeGwinTotal, msgInTotal);
-                long gwinPending = gwinRepository.countByStatus(MessageStatus.IN_PENDING.getValue());
-                long gwinFailed = gwinRepository.countByStatus(MessageStatus.IN_FAILED.getValue());
-                long gwinUnrouted = gwinRepository.countByStatus(MessageStatus.IN_UNROUTED.getValue());
-                long gwinDelivered = gwinRepository.countByStatus(MessageStatus.IN_DELIVERED.getValue());
+                long gwinPending = gwinRepository.countByStatus(InboundStatus.PENDING.getValue());
+                long gwinFailed = gwinRepository.countByStatus(InboundStatus.FAILED.getValue());
+                long gwinUnrouted = gwinRepository.countByStatus(InboundStatus.UNROUTED.getValue());
+                long gwinDelivered = gwinRepository.countByStatus(InboundStatus.DELIVERED.getValue());
                 long gwinSent = (gwinDelivered > 0) ? gwinDelivered : Math.max(0L, gwinTotal - gwinPending - gwinFailed - gwinUnrouted);
 
                 Map<String, Object> gwinStats = Map.of(
@@ -156,4 +157,3 @@ public class MonitorController {
                 return ResponseEntity.ok(ApiResponse.ok(response));
         }
 }
-

@@ -1,11 +1,11 @@
-package vn.asg.swim;
+﻿package vn.asg.swim;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import vn.asg.swim.entity.Gwout;
-import vn.asg.swim.entity.MessageStatus;
+import vn.asg.swim.entity.OutboundStatus;
 import vn.asg.swim.repository.GwoutRepository;
 import vn.asg.swim.service.ConnectionManagerService;
 
@@ -57,7 +57,7 @@ public class ManualOutboundSimulationTest {
         gwout.setAddress("VVNBZTZX VVHHZPZX"); 
         gwout.setAmhsPriority("GG");
         gwout.setText(fullAftnFpl);
-        gwout.setStatus(MessageStatus.OUT_PENDING.getValue());
+        gwout.setStatus(OutboundStatus.PENDING.getValue());
         gwout.setTime(LocalDateTime.now());
         gwout.setBodyType("text");
         gwout.setContentType("application/json");
@@ -79,7 +79,7 @@ public class ManualOutboundSimulationTest {
         metarOut.setAddress("VVTSZTZX");
         metarOut.setAmhsPriority("GG");
         metarOut.setText(fullAftnMetar);
-        metarOut.setStatus(MessageStatus.OUT_PENDING.getValue());
+        metarOut.setStatus(OutboundStatus.PENDING.getValue());
         metarOut.setTime(LocalDateTime.now());
         metarOut.setBodyType("text");
         metarOut.setContentType("application/json");

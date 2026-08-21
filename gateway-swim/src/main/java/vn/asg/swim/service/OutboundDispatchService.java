@@ -1,4 +1,4 @@
-package vn.asg.swim.service;
+﻿package vn.asg.swim.service;
 
 import jakarta.jms.*;
 import lombok.RequiredArgsConstructor;
@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.GwoutDispatch;
-import vn.asg.swim.entity.MessageStatus;
+import vn.asg.swim.entity.OutboundStatus;
 import vn.asg.swim.repository.GwoutDispatchRepository;
 import vn.asg.swim.repository.GwoutRepository;
 
@@ -46,7 +46,7 @@ public class OutboundDispatchService {
         if (origin == null || !origin.matches("^[A-Z]{8}$")) {
             log.warn("gwout#{} rejected: origin '{}' is invalid (must be 8 uppercase alphabetic characters, no digits, no spaces)",
                     gwout.getMsgid(), origin);
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
             gwout.setRejectionReason("invalid-origin-format");
             gwout.setRejectionDiagnostic("invalid-arguments");
             gwoutRepository.save(gwout);
@@ -71,7 +71,7 @@ public class OutboundDispatchService {
                     GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
                     "gwout#" + gwout.getMsgid() + " rejected: " + dirResult.getErrorMessage(),
                     "gwout", gwout.getMsgid());
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
             gwout.setRejectionReason("validation-failed");
             gwout.setRejectionDiagnostic(ndrDiagnosticFor(dirResult.getErrorMessage()));
             gwoutRepository.save(gwout);
@@ -87,7 +87,7 @@ public class OutboundDispatchService {
                     "Unauthorized AMHS originator: " + gwout.getOrigin()
                             + " (gwout#" + gwout.getMsgid() + ")",
                     "gwout", gwout.getMsgid());
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
             gwout.setRejectionReason("unauthorized-originator");
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "REJECTED", "unauthorized_originator: " + gwout.getOrigin());
@@ -113,7 +113,7 @@ public class OutboundDispatchService {
                         GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
                         "gwout#" + gwout.getMsgid() + " rejected: " + eitResult.getErrorMessage(),
                         "gwout", gwout.getMsgid());
-                gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+                gwout.setStatus(OutboundStatus.FAILED.getValue());
                 gwout.setRejectionReason("unsupported-eit");
                 gwout.setRejectionDiagnostic("content-syntax-error");
                 gwoutRepository.save(gwout);
@@ -126,7 +126,7 @@ public class OutboundDispatchService {
         // CTSW005: Generate NDR if current time exceeds latest delivery time (amhsTtl)
         if (gwout.getAmhsTtl() != null && gwout.getAmhsTtl().isBefore(LocalDateTime.now())) {
             log.warn("gwout#{} TTL expired (latest-delivery-time exceeded)", gwout.getMsgid());
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
             gwout.setRejectionReason("ttl-expired");
             gwout.setRejectionDiagnostic("maximum-time-expired");
             gwoutRepository.save(gwout);
@@ -140,7 +140,7 @@ public class OutboundDispatchService {
             messageType = detectService.detect(body);
         } catch (Exception e) {
             log.error("gwout#{} failed to detect message type: {}", gwout.getMsgid(), e.getMessage());
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
             gwout.setRejectionReason("type-detection-failed");
             gwout.setRejectionDiagnostic("content-syntax-error");
             gwoutRepository.save(gwout);
@@ -154,7 +154,7 @@ public class OutboundDispatchService {
             }
         } catch (Exception e) {
             log.error("gwout#{} failed to find routing rule: {}", gwout.getMsgid(), e.getMessage());
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
             gwout.setRejectionReason("no-routing-rule");
             gwout.setRejectionDiagnostic("unrecognised-OR-name");
             gwoutRepository.save(gwout);
@@ -164,7 +164,7 @@ public class OutboundDispatchService {
 
         // Giữ nguyên nội dung bản tin gốc, không convert theo chiều nào (theo ICAO Doc 047)
         try {
-            gwout.setStatus(MessageStatus.OUT_TRANSFORMED.getValue());
+            gwout.setStatus(OutboundStatus.TRANSFORMED.getValue());
             if (gwout.getAmhsPriority() != null) {
                 gwout.setSwimPriority(vn.asg.swim.model.AmqpProperties.mapAtsPriorityToAmqp(gwout.getAmhsPriority()));
             }
@@ -173,7 +173,7 @@ public class OutboundDispatchService {
             log.info("gwout#{} forwarded unchanged -> status=OUT_TRANSFORMED", gwout.getMsgid());
         } catch (Exception e) {
             log.error("gwout#{} processing failed: {}", gwout.getMsgid(), e.getMessage());
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
             gwout.setRejectionReason("processing-failed");
             gwout.setRejectionDiagnostic("system-failure");
             gwoutRepository.save(gwout);
@@ -408,7 +408,7 @@ public class OutboundDispatchService {
 
         boolean hasDead = all.stream().anyMatch(d -> GwoutDispatch.STATUS_DEAD.equals(d.getStatus()));
         gwoutRepository.findById(gwoutId).ifPresent(gwout -> {
-            gwout.setStatus(hasDead ? MessageStatus.OUT_FAILED.getValue() : MessageStatus.OUT_PUBLISHED.getValue());
+            gwout.setStatus(hasDead ? OutboundStatus.FAILED.getValue() : OutboundStatus.PUBLISHED.getValue());
             gwoutRepository.save(gwout);
         });
     }
@@ -445,7 +445,7 @@ public class OutboundDispatchService {
                     GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
                     "gwout#" + gwout.getMsgid() + " has no recipients",
                     "gwout", gwout.getMsgid());
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
             gwoutRepository.save(gwout);
             return;
         }
@@ -468,7 +468,7 @@ public class OutboundDispatchService {
                     GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
                     "gwout#" + gwout.getMsgid() + " has no valid AFTN recipients",
                     "gwout", gwout.getMsgid());
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
             gwout.setRejectionReason("invalid-recipients");
             gwout.setRejectionDiagnostic("unrecognised-OR-name");
             gwoutRepository.save(gwout);
@@ -480,7 +480,7 @@ public class OutboundDispatchService {
             messageType = detectService.detect(gwout.getText());
         } catch (Exception e) {
             log.error("gwout#{} failed to detect type in dispatch creation: {}", gwout.getMsgid(), e.getMessage());
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
             gwout.setRejectionReason("type-detection-failed");
             gwout.setRejectionDiagnostic("content-syntax-error");
             gwoutRepository.save(gwout);
@@ -490,7 +490,7 @@ public class OutboundDispatchService {
         var ruleOpt = routingService.findBestMatchOut(messageType);
         if (ruleOpt.isEmpty()) {
             log.warn("gwout#{} has no routing rule matching type '{}'", gwout.getMsgid(), messageType);
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
             gwout.setRejectionReason("no-routing-rule");
             gwout.setRejectionDiagnostic("unrecognised-OR-name");
             gwoutRepository.save(gwout);
@@ -500,7 +500,7 @@ public class OutboundDispatchService {
         String topic = ruleOpt.get().getSendTopic();
         if (topic == null || topic.isBlank()) {
             log.error("gwout#{} matching routing rule has null/empty send_topic", gwout.getMsgid());
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
             gwout.setRejectionReason("empty-send-topic");
             gwout.setRejectionDiagnostic("system-failure");
             gwoutRepository.save(gwout);
@@ -545,7 +545,7 @@ public class OutboundDispatchService {
                     "Unauthorized AMHS originator for Probe: " + originator,
                     "gwout", gwout.getMsgid());
 
-            gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
             gwout.setRejectionReason("unknown-originator");
             gwoutRepository.save(gwout);
 
@@ -578,7 +578,7 @@ public class OutboundDispatchService {
 
         // 3. CTSW011: Hợp lệ -> Phát sinh Delivery Report (DR)
         log.info("Probe gwout#{} validated successfully. Generating Delivery Report (DR).", gwout.getMsgid());
-        gwout.setStatus(MessageStatus.OUT_PUBLISHED.getValue()); // Coi như đã xử lý thành công
+        gwout.setStatus(OutboundStatus.PUBLISHED.getValue()); // Coi như đã xử lý thành công
         gwoutRepository.save(gwout);
 
         conversionService.logAmhsToSwim(gwout, null, "OK", "dr_generated_probe");
@@ -586,7 +586,7 @@ public class OutboundDispatchService {
 
     private void rejectProbe(Gwout gwout, String reason, String rejectionCode, String ndrDiagnostic) {
         log.warn("Probe gwout#{} REJECTED: {}", gwout.getMsgid(), reason);
-        gwout.setStatus(MessageStatus.OUT_FAILED.getValue());
+        gwout.setStatus(OutboundStatus.FAILED.getValue());
         gwout.setRejectionReason(rejectionCode);
         gwout.setRejectionDiagnostic(ndrDiagnostic);
         gwoutRepository.save(gwout);

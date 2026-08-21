@@ -1,4 +1,4 @@
-package vn.asg.cp.service;
+﻿package vn.asg.cp.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,7 +11,7 @@ import vn.asg.cp.dto.BatchRouteRequest;
 import vn.asg.cp.dto.ManualRouteRequest;
 import vn.asg.cp.dto.RejectMessageRequest;
 import vn.asg.cp.entity.Gwin;
-import vn.asg.cp.entity.MessageStatus;
+import vn.asg.cp.entity.InboundStatus;
 import vn.asg.cp.exception.ResourceNotFoundException;
 import vn.asg.cp.repository.GwinRepository;
 
@@ -36,19 +36,19 @@ public class UnroutedMessageService {
         // Custom query with filtering
         if (fromTime != null && toTime != null && source != null) {
             return gwinRepository.findByStatusAndTimeBetweenAndSource(
-                    MessageStatus.IN_UNROUTED.getValue(), fromTime, toTime, source, pageable);
+                    InboundStatus.UNROUTED.getValue(), fromTime, toTime, source, pageable);
         }
 
         if (fromTime != null && toTime != null) {
             return gwinRepository.findByStatusAndTimeBetween(
-                    MessageStatus.IN_UNROUTED.getValue(), fromTime, toTime, pageable);
+                    InboundStatus.UNROUTED.getValue(), fromTime, toTime, pageable);
         }
 
         if (source != null) {
-            return gwinRepository.findByStatusAndSource(MessageStatus.IN_UNROUTED.getValue(), source, pageable);
+            return gwinRepository.findByStatusAndSource(InboundStatus.UNROUTED.getValue(), source, pageable);
         }
 
-        return gwinRepository.findByStatus(MessageStatus.IN_UNROUTED.getValue(), pageable);
+        return gwinRepository.findByStatus(InboundStatus.UNROUTED.getValue(), pageable);
     }
 
     /**
@@ -56,7 +56,7 @@ public class UnroutedMessageService {
      */
     public Optional<Gwin> getUnroutedMessageById(Long msgid) {
         return gwinRepository.findById(msgid)
-                .filter(gwin -> gwin.getStatus() == MessageStatus.IN_UNROUTED.getValue());
+                .filter(gwin -> gwin.getStatus() == InboundStatus.UNROUTED.getValue());
     }
 
     /**
@@ -67,7 +67,7 @@ public class UnroutedMessageService {
         Gwin gwin = gwinRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Message", msgid));
 
-        if (gwin.getStatus() != MessageStatus.IN_UNROUTED.getValue()) {
+        if (gwin.getStatus() != InboundStatus.UNROUTED.getValue()) {
             throw new IllegalStateException("Message is not UNROUTED: status=" + gwin.getStatus());
         }
 
@@ -75,7 +75,7 @@ public class UnroutedMessageService {
         gwin.setOrigin(request.getOriginator());
         gwin.setAddress(request.getRecipients());
         gwin.setAddressingSource("MANUAL_ROUTE");
-        gwin.setStatus(MessageStatus.IN_PENDING.getValue());
+        gwin.setStatus(InboundStatus.PENDING.getValue());
 
         log.info("Manually routed message #{}: {} → {}", msgid, request.getOriginator(), request.getRecipients());
         return gwinRepository.save(gwin);
@@ -89,12 +89,12 @@ public class UnroutedMessageService {
         Gwin gwin = gwinRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Message", msgid));
 
-        if (gwin.getStatus() != MessageStatus.IN_UNROUTED.getValue()) {
+        if (gwin.getStatus() != InboundStatus.UNROUTED.getValue()) {
             throw new IllegalStateException("Message is not UNROUTED: status=" + gwin.getStatus());
         }
 
         // Update status to FAILED
-        gwin.setStatus(MessageStatus.IN_FAILED.getValue());
+        gwin.setStatus(InboundStatus.FAILED.getValue());
         // Store rejection reason in amqpProperties (temporary solution)
         String rejectionInfo = String.format("{\"rejection_reason\":\"%s\",\"rejection_note\":\"%s\"}",
                 request.getReason(), request.getNote() != null ? request.getNote() : "");
@@ -125,7 +125,7 @@ public class UnroutedMessageService {
                 }
 
                 Gwin gwin = gwinOpt.get();
-                if (gwin.getStatus() != MessageStatus.IN_UNROUTED.getValue()) {
+                if (gwin.getStatus() != InboundStatus.UNROUTED.getValue()) {
                     response.addError(msgid, "Message is not UNROUTED");
                     failed++;
                     continue;
@@ -135,7 +135,7 @@ public class UnroutedMessageService {
                 gwin.setOrigin(request.getOriginator());
                 gwin.setAddress(request.getRecipients());
                 gwin.setAddressingSource("MANUAL_ROUTE_BATCH");
-                gwin.setStatus(MessageStatus.IN_PENDING.getValue());
+                gwin.setStatus(InboundStatus.PENDING.getValue());
                 gwinRepository.save(gwin);
 
                 succeeded++;
@@ -161,13 +161,13 @@ public class UnroutedMessageService {
      * Lấy tổng số lượng bản tin UNROUTED.
      */
     public long getUnroutedCount() {
-        return gwinRepository.countByStatus(MessageStatus.IN_UNROUTED.getValue());
+        return gwinRepository.countByStatus(InboundStatus.UNROUTED.getValue());
     }
 
     /**
      * Lấy số lượng bản tin UNROUTED trong khoảng thời gian chỉ định.
      */
     public long getUnroutedCountInRange(LocalDateTime fromTime, LocalDateTime toTime) {
-        return gwinRepository.countByStatusAndTimeBetween(MessageStatus.IN_UNROUTED.getValue(), fromTime, toTime);
+        return gwinRepository.countByStatusAndTimeBetween(InboundStatus.UNROUTED.getValue(), fromTime, toTime);
     }
 }

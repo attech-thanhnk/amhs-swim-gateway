@@ -1,4 +1,4 @@
-package vn.asg.swim.scheduler;
+﻿package vn.asg.swim.scheduler;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
@@ -8,7 +8,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import vn.asg.swim.entity.Gwout;
-import vn.asg.swim.entity.MessageStatus;
+import vn.asg.swim.entity.OutboundStatus;
 import vn.asg.swim.repository.GwoutRepository;
 import vn.asg.swim.service.ConfigService;
 
@@ -94,7 +94,7 @@ class AmhsToGwoutSyncSchedulerTest {
             assertEquals("OHI-123", gwout.getOptionalHeading());
             assertEquals("FF", gwout.getAmhsPriority());
             assertEquals(4, gwout.getSwimPriority()); // FF -> AMQP priority 4 (EUR Doc 047 v3.0 Table 3)
-            assertEquals(MessageStatus.OUT_PENDING.getValue(), gwout.getStatus());
+            assertEquals(OutboundStatus.PENDING.getValue(), gwout.getStatus());
             assertEquals("text", gwout.getBodyType());
             return true;
         }));

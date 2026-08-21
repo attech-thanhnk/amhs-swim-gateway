@@ -1,4 +1,4 @@
-package vn.asg.swim.scheduler;
+﻿package vn.asg.swim.scheduler;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -11,7 +11,7 @@ import org.mockito.quality.Strictness;
 import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.GwoutDispatch;
-import vn.asg.swim.entity.MessageStatus;
+import vn.asg.swim.entity.OutboundStatus;
 import vn.asg.swim.repository.GwoutDispatchRepository;
 import vn.asg.swim.repository.GwoutRepository;
 import vn.asg.swim.service.AlertService;
@@ -53,7 +53,7 @@ class GwoutPollerSchedulerTest {
         gwout = new Gwout();
         gwout.setMsgid(1L);
         gwout.setText("METAR VVTS 121200Z 09008KT 9999 FEW020 32/25 Q1010=");
-        gwout.setStatus(MessageStatus.OUT_TRANSFORMED.getValue());
+        gwout.setStatus(OutboundStatus.TRANSFORMED.getValue());
 
         connected = new AtomicBoolean(true);
         when(connectionManager.getConnected()).thenReturn(connected);
@@ -66,7 +66,7 @@ class GwoutPollerSchedulerTest {
             String address = g.getAddress();
             if (address == null || address.isBlank()) {
                 alertService.create(GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING, "gwout#" + g.getMsgid() + " has no recipients", "gwout", g.getMsgid());
-                g.setStatus(MessageStatus.OUT_FAILED.getValue());
+                g.setStatus(OutboundStatus.FAILED.getValue());
                 gwoutRepository.save(g);
                 return null;
             }
@@ -78,7 +78,7 @@ class GwoutPollerSchedulerTest {
                     .toList();
             if (recipients.isEmpty()) {
                 alertService.create(GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING, "gwout#" + g.getMsgid() + " has no valid AFTN recipients", "gwout", g.getMsgid());
-                g.setStatus(MessageStatus.OUT_FAILED.getValue());
+                g.setStatus(OutboundStatus.FAILED.getValue());
                 gwoutRepository.save(g);
                 return null;
             }
@@ -89,7 +89,7 @@ class GwoutPollerSchedulerTest {
                 d.setStatus(GwoutDispatch.STATUS_PENDING);
                 gwoutDispatchRepository.save(d);
             }
-            g.setStatus(MessageStatus.OUT_PUBLISHED.getValue());
+            g.setStatus(OutboundStatus.PUBLISHED.getValue());
             gwoutRepository.save(g);
             return null;
         }).when(outboundDispatchService).createDispatches(any(Gwout.class));
@@ -134,7 +134,7 @@ class GwoutPollerSchedulerTest {
 
         // Then: Should set DEAD status
         verify(gwoutRepository).save(argThat(g ->
-            g.getStatus().equals(MessageStatus.OUT_FAILED.getValue())
+            g.getStatus().equals(OutboundStatus.FAILED.getValue())
         ));
 
         // Verify alert created (Issue #7 fix)
@@ -158,7 +158,7 @@ class GwoutPollerSchedulerTest {
 
         // Then: Should set DEAD and alert
         verify(gwoutRepository).save(argThat(g ->
-            g.getStatus().equals(MessageStatus.OUT_FAILED.getValue())
+            g.getStatus().equals(OutboundStatus.FAILED.getValue())
         ));
         verify(alertService).create(
             eq(GwAlert.TYPE_VALIDATION_ERROR),
@@ -183,7 +183,7 @@ class GwoutPollerSchedulerTest {
         // Then: Should create 3 dispatches
         verify(gwoutDispatchRepository, times(3)).save(any(GwoutDispatch.class));
         verify(gwoutRepository).save(argThat(g ->
-            g.getStatus().equals(MessageStatus.OUT_PUBLISHED.getValue())
+            g.getStatus().equals(OutboundStatus.PUBLISHED.getValue())
         ));
     }
 
@@ -213,7 +213,7 @@ class GwoutPollerSchedulerTest {
 
         // Then: Should set DEAD with alert
         verify(gwoutRepository).save(argThat(g ->
-            g.getStatus().equals(MessageStatus.OUT_FAILED.getValue())
+            g.getStatus().equals(OutboundStatus.FAILED.getValue())
         ));
         verify(alertService).create(
             eq(GwAlert.TYPE_VALIDATION_ERROR),
@@ -289,7 +289,7 @@ class GwoutPollerSchedulerTest {
 
         // Gwout status should be updated to PUBLISHING
         verify(gwoutRepository).save(argThat(g ->
-            g.getStatus().equals(MessageStatus.OUT_PUBLISHED.getValue())
+            g.getStatus().equals(OutboundStatus.PUBLISHED.getValue())
         ));
     }
 
@@ -301,12 +301,12 @@ class GwoutPollerSchedulerTest {
         Gwout gwout1 = new Gwout();
         gwout1.setMsgid(1L);
         gwout1.setAddress("VVHHZTZX");
-        gwout1.setStatus(MessageStatus.OUT_TRANSFORMED.getValue());
+        gwout1.setStatus(OutboundStatus.TRANSFORMED.getValue());
 
         Gwout gwout2 = new Gwout();
         gwout2.setMsgid(2L);
         gwout2.setAddress("VVTSZDYX VVNBZYYX");
-        gwout2.setStatus(MessageStatus.OUT_TRANSFORMED.getValue());
+        gwout2.setStatus(OutboundStatus.TRANSFORMED.getValue());
 
         when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(Arrays.asList(gwout1, gwout2));
 
@@ -326,12 +326,12 @@ class GwoutPollerSchedulerTest {
         Gwout gwout1 = new Gwout();
         gwout1.setMsgid(1L);
         gwout1.setAddress("VVHHZTZX");
-        gwout1.setStatus(MessageStatus.OUT_TRANSFORMED.getValue());
+        gwout1.setStatus(OutboundStatus.TRANSFORMED.getValue());
 
         Gwout gwout2 = new Gwout();
         gwout2.setMsgid(2L);
         gwout2.setAddress("VVTSZDYX");
-        gwout2.setStatus(MessageStatus.OUT_TRANSFORMED.getValue());
+        gwout2.setStatus(OutboundStatus.TRANSFORMED.getValue());
 
         when(gwoutRepository.findPendingPublishBatch(10)).thenReturn(Arrays.asList(gwout1, gwout2));
         doThrow(new RuntimeException("Database error"))

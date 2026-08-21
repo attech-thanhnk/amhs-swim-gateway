@@ -1,4 +1,4 @@
-package vn.asg.swim.service;
+﻿package vn.asg.swim.service;
 
 import jakarta.jms.MessageProducer;
 import jakarta.jms.Session;
@@ -95,7 +95,7 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(gwout);
 
         // Then: Status should be FAILED
-        assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
 
         // Verify alert was created
         verify(alertService).create(
@@ -121,7 +121,7 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(gwout);
 
         // Then: Should fail gwout status
-        assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
 
         verify(alertService).create(
             eq(GwAlert.TYPE_VALIDATION_ERROR),
@@ -148,7 +148,7 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(gwout);
 
         // Then: Should mark as OUT_PUBLISHED (accepted skip)
-        assertEquals(MessageStatus.OUT_PUBLISHED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.PUBLISHED.getValue(), gwout.getStatus());
         verify(gwoutRepository, atLeastOnce()).save(gwout);
     }
 
@@ -177,7 +177,7 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(gwout);
 
         // Then: original AMHS body (gwout.text) is left untouched, no conversion applied
-        assertEquals(MessageStatus.OUT_TRANSFORMED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
         verify(conversionService).logAmhsToSwim(eq(gwout), isNull(), eq("OK"), eq("forwarded_unchanged"));
     }
 
@@ -199,7 +199,7 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(gwout);
 
         // Then: Should fail at routing step
-        assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
         verify(conversionService).logAmhsToSwim(eq(gwout), any(), eq("ERROR"), contains("routing_failed"));
     }
 
@@ -325,7 +325,7 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(probe);
 
         // Then: Should mark as OUT_PUBLISHED and log DR
-        assertEquals(MessageStatus.OUT_PUBLISHED.getValue(), probe.getStatus());
+        assertEquals(OutboundStatus.PUBLISHED.getValue(), probe.getStatus());
         verify(gwoutRepository).save(probe);
         verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("OK"), eq("dr_generated_probe"));
     }
@@ -345,7 +345,7 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(probe);
 
         // Then: Should mark as OUT_FAILED, log REJECTED and ndr_unknown_originator
-        assertEquals(MessageStatus.OUT_FAILED.getValue(), probe.getStatus());
+        assertEquals(OutboundStatus.FAILED.getValue(), probe.getStatus());
         assertEquals("unknown-originator", probe.getRejectionReason());
         verify(gwoutRepository).save(probe);
         verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("REJECTED"), eq("ndr_unknown_originator: UNKNOWNX"));
@@ -372,7 +372,7 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(probe);
 
         // Then: Should mark as OUT_FAILED and generate NDR
-        assertEquals(MessageStatus.OUT_FAILED.getValue(), probe.getStatus());
+        assertEquals(OutboundStatus.FAILED.getValue(), probe.getStatus());
         assertEquals("unknown-recipient", probe.getRejectionReason());
         verify(gwoutRepository).save(probe);
     }
@@ -393,7 +393,7 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(gwout);
 
         // Then: Should mark as OUT_FAILED and log conversion log
-        assertEquals(MessageStatus.OUT_FAILED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
         assertEquals("unsupported-eit", gwout.getRejectionReason());
         assertEquals("content-syntax-error", gwout.getRejectionDiagnostic());
         verify(gwoutRepository).save(gwout);
@@ -412,7 +412,7 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(badGwout);
 
         // Then: Should fail immediately
-        assertEquals(MessageStatus.OUT_FAILED.getValue(), badGwout.getStatus());
+        assertEquals(OutboundStatus.FAILED.getValue(), badGwout.getStatus());
         assertEquals("invalid-origin-format", badGwout.getRejectionReason());
         assertEquals("invalid-arguments", badGwout.getRejectionDiagnostic());
         verify(gwoutRepository).save(badGwout);
@@ -433,7 +433,7 @@ class OutboundDispatchServiceTest {
 
         // Then: Should convert bodyPartType to ia5-text-body-part and pass validation
         assertEquals("ia5-text-body-part", gwout.getBodyPartType());
-        assertEquals(MessageStatus.OUT_TRANSFORMED.getValue(), gwout.getStatus());
+        assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
         verify(gwoutRepository, atLeastOnce()).save(gwout);
     }
 

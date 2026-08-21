@@ -1,4 +1,4 @@
-package vn.asg.swim.scheduler;
+﻿package vn.asg.swim.scheduler;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -8,7 +8,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import vn.asg.swim.entity.Gwout;
-import vn.asg.swim.entity.MessageStatus;
+import vn.asg.swim.entity.OutboundStatus;
 import vn.asg.swim.repository.GwoutRepository;
 import vn.asg.swim.util.AddressUtil;
 import vn.asg.swim.model.AmqpProperties;
@@ -204,7 +204,7 @@ public class AmhsToGwoutSyncScheduler {
                     }
                     gwout.setSwimPriority(numericPriority);
 
-                    gwout.setStatus(MessageStatus.OUT_PENDING.getValue());
+                    gwout.setStatus(OutboundStatus.PENDING.getValue());
 
                     gwoutRepository.saveAndFlush(gwout);
                     log.info("Synced AMHS message ID {} -> gwout#{}", messageId, gwout.getMsgid());
