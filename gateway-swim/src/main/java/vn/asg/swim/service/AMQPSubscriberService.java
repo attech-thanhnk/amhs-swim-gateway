@@ -200,19 +200,19 @@ public class AMQPSubscriberService {
         boolean dataValid = (finalContent != null && !finalContent.isBlank());
 
         // 1. Trích xuất messageId — chỉ từ header/properties tầng AMQP, không bao giờ lấy từ payload nghiệp vụ
-        String rawMsgId = amqpMsg.getJMSMessageID();
-        if (rawMsgId == null || rawMsgId.isBlank()) {
+        String rawMsgId = cleanAmqpMessageId(amqpMsg.getJMSMessageID());
+        if (rawMsgId == null) {
             String[] properties = { "message_id", "messageId", "amhs_message_id" };
             for (String property : properties) {
-                rawMsgId = amqpMsg.getStringProperty(property);
-                if (rawMsgId != null && !rawMsgId.isBlank()) {
+                rawMsgId = cleanAmqpMessageId(safeGetStringProperty(amqpMsg, property));
+                if (rawMsgId != null) {
                     break;
                 }
             }
         }
 
-        boolean hasMessageId = (rawMsgId != null && !rawMsgId.isBlank());
-        String amqpMsgId = hasMessageId ? rawMsgId : null;
+        boolean hasMessageId = (rawMsgId != null);
+        String amqpMsgId = rawMsgId;
         log.info("Received AMQP message: {} from topic: {}", amqpMsgId, queue);
 
         // Chống lặp bản tin (Loopback prevention)
@@ -710,6 +710,30 @@ public class AMQPSubscriberService {
             return "ftbp";
         }
         return "text";
+    }
+    private String cleanAmqpMessageId(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String cleaned = raw.trim();
+        String[] qpidPrefixes = {
+            "ID:AMQP_NO_PREFIX:",
+            "ID:AMQP_STRING:",
+            "ID:AMQP_BINARY:",
+            "ID:AMQP_ULONG:",
+            "ID:AMQP_UUID:",
+            "ID:"
+        };
+        for (String prefix : qpidPrefixes) {
+            if (cleaned.startsWith(prefix)) {
+                cleaned = cleaned.substring(prefix.length()).trim();
+                break;
+            }
+        }
+        if (cleaned.isBlank() || "null".equalsIgnoreCase(cleaned)) {
+            return null;
+        }
+        return cleaned;
     }
 
     private String safeGetStringProperty(Message msg, String key) {
