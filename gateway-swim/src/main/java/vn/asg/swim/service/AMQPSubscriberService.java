@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import vn.asg.swim.entity.Gwin;
+import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.InboundStatus;
 import vn.asg.swim.model.ResolvedAddressing;
 import vn.asg.swim.repository.GwinRepository;
