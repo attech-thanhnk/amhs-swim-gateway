@@ -712,45 +712,46 @@ public class AMQPSubscriberService {
         return "text";
     }
 
+    private String safeGetStringProperty(Message msg, String key) {
+        if (key == null || key.isBlank()) return null;
+        if (!key.contains("-")) {
+            try {
+                String val = msg.getStringProperty(key);
+                if (val != null) return val;
+            } catch (Exception ignored) {}
+        }
+        String underscoreKey = key.replace("-", "_");
+        if (!underscoreKey.equals(key)) {
+            try {
+                return msg.getStringProperty(underscoreKey);
+            } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
     private String getMsgProperty(Message msg, String key) {
-        try {
-            if ("content-type".equals(key)) {
+        if ("content-type".equals(key) || "content_type".equals(key)) {
+            try {
                 String ct = msg.getStringProperty("JMS_AMQP_CONTENT_TYPE");
                 if (ct != null) return ct;
-            }
-            String val = msg.getStringProperty(key);
-            if (val == null) val = msg.getStringProperty(key.replace("-", "_"));
-            if (val == null) val = msg.getStringProperty(key.replace("_", "-"));
-            return val;
-        } catch (Exception e) {
-            return null;
+            } catch (Exception ignored) {}
         }
+        return safeGetStringProperty(msg, key);
     }
 
     private String getAppProperty(Message msg, String key) {
-        try {
-            String val = msg.getStringProperty(key);
-            if (val == null) val = msg.getStringProperty(key.replace("-", "_"));
-            if (val == null) val = msg.getStringProperty(key.replace("_", "-"));
-            return val;
-        } catch (Exception e) {
-            return null;
-        }
+        return safeGetStringProperty(msg, key);
     }
 
     private List<String> getAppPropertyAsList(Message msg, String key) {
         List<String> list = new ArrayList<>();
-        try {
-            String val = msg.getStringProperty(key);
-            if (val == null) val = msg.getStringProperty(key.replace("-", "_"));
-            if (val == null) val = msg.getStringProperty(key.replace("_", "-"));
-            if (val != null && !val.isBlank()) {
-                String[] parts = val.trim().split("[,\\s]+");
-                for (String part : parts) {
-                    if (!part.isBlank()) list.add(part);
-                }
+        String val = safeGetStringProperty(msg, key);
+        if (val != null && !val.isBlank()) {
+            String[] parts = val.trim().split("[,\\s]+");
+            for (String part : parts) {
+                if (!part.isBlank()) list.add(part);
             }
-        } catch (Exception ignored) {}
+        }
         return list;
     }
 
