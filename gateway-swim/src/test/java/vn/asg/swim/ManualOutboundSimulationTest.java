@@ -1,4 +1,4 @@
-﻿package vn.asg.swim;
+package vn.asg.swim;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

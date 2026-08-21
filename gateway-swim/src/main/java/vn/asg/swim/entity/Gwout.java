@@ -1,4 +1,4 @@
-﻿package vn.asg.swim.entity;
+package vn.asg.swim.entity;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;

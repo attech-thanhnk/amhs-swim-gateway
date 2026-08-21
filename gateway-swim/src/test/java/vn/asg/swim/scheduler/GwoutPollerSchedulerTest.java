@@ -1,4 +1,4 @@
-﻿package vn.asg.swim.scheduler;
+package vn.asg.swim.scheduler;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

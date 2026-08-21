@@ -1,4 +1,4 @@
-﻿package vn.asg.swim.scheduler;
+package vn.asg.swim.scheduler;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;

@@ -1,4 +1,4 @@
-﻿package vn.asg.swim.scheduler;
+package vn.asg.swim.scheduler;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

@@ -1,4 +1,4 @@
-﻿package vn.asg.swim.service;
+package vn.asg.swim.service;
 
 import jakarta.jms.JMSException;
 import jakarta.jms.Message;
