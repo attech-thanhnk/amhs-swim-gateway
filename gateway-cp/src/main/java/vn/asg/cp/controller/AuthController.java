@@ -69,7 +69,8 @@ public class AuthController {
      * Refresh token — cấp lại token mới dựa trên token cũ còn hiệu lực.
      */
     @PostMapping("/refresh")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> refresh(@RequestHeader("Authorization") String authHeader) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> refresh(
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             return ResponseEntity.status(401).body(ApiResponse.error("Authorization header missing or invalid"));
         }
@@ -95,8 +96,13 @@ public class AuthController {
      * Đổi mật khẩu cho người dùng hiện tại.
      */
     @PostMapping("/change-password")
-    public ResponseEntity<ApiResponse<Map<String, String>>> changePassword(@RequestHeader("Authorization") String authHeader,
+    public ResponseEntity<ApiResponse<Map<String, String>>> changePassword(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestBody Map<String, String> body) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authorization header missing or invalid"));
+        }
+
         String oldPassword = body.get("oldPassword");
         String newPassword = body.get("newPassword");
 

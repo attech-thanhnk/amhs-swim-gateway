@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import vn.asg.cp.dto.ApiResponse;
@@ -68,6 +69,19 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse("VALIDATION_ERROR", message);
         error.setDetails(errors);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(message, error));
+    }
+
+    /**
+     * Handle MissingRequestHeaderException (VD: Client thiếu header Authorization).
+     */
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ApiResponse<ErrorResponse>> handleMissingHeader(MissingRequestHeaderException ex) {
+        log.warn("Missing request header: {}", ex.getHeaderName());
+        HttpStatus status = "Authorization".equalsIgnoreCase(ex.getHeaderName())
+                ? HttpStatus.UNAUTHORIZED
+                : HttpStatus.BAD_REQUEST;
+        ErrorResponse error = new ErrorResponse("MISSING_HEADER", ex.getMessage());
+        return ResponseEntity.status(status).body(ApiResponse.error("Required header '" + ex.getHeaderName() + "' is missing", error));
     }
 
     /**
