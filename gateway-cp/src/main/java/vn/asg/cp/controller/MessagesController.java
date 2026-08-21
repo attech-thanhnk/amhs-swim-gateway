@@ -1,5 +1,6 @@
 package vn.asg.cp.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -32,9 +33,10 @@ public class MessagesController {
     private final GwoutRepository gwoutRepository;
     private final GwinDispatchRepository gwinDispatchRepository;
     private final GwoutDispatchRepository gwoutDispatchRepository;
+    private final ObjectMapper objectMapper;
 
     @GetMapping("/inbound")
-    public ResponseEntity<ApiResponse<PageData<Gwin>>> getInboundMessages(
+    public ResponseEntity<ApiResponse<PageData<Map<String, Object>>>> getInboundMessages(
             @RequestParam(name = "status", required = false) Integer status,
             @RequestParam(name = "source", required = false) String source,
             @RequestParam(name = "fromTime", required = false) String fromTime,
@@ -69,7 +71,14 @@ public class MessagesController {
         }
 
         Page<Gwin> result = gwinRepository.findAll(spec, PageRequest.of(page, size, Sort.by("time").descending()));
-        return ResponseEntity.ok(ApiResponse.ok(PageData.from(result)));
+
+        List<Map<String, Object>> contentList = new java.util.ArrayList<>();
+        for (Gwin g : result.getContent()) {
+            contentList.add(mapGwinToDetail(g));
+        }
+
+        PageData<Map<String, Object>> pageData = PageData.of(contentList, page, size, result.getTotalElements(), result.getTotalPages());
+        return ResponseEntity.ok(ApiResponse.ok(pageData));
     }
 
     @GetMapping("/inbound/{msgid}")
@@ -77,11 +86,71 @@ public class MessagesController {
         Gwin msg = gwinRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Inbound message", msgid));
 
+        Map<String, Object> msgDetail = mapGwinToDetail(msg);
+
         Map<String, Object> result = Map.of(
-                "message", msg,
+                "message", msgDetail,
                 "dispatches", gwinDispatchRepository.findByGwinId(msgid));
 
         return ResponseEntity.ok(ApiResponse.ok(result));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mapGwinToDetail(Gwin g) {
+        Map<String, Object> m = new java.util.HashMap<>();
+        m.put("msgid", g.getMsgid());
+        m.put("messageId", g.getMessageId());
+        m.put("source", g.getSource());
+        m.put("subject", g.getSubject());
+        m.put("priority", g.getPriority());
+        m.put("amhsRecipients", g.getAmhsRecipients());
+        m.put("time", g.getTime() != null ? g.getTime().toString() : null);
+        m.put("payloadContent", g.getPayloadContent());
+        m.put("bodyType", g.getBodyType());
+        m.put("contentType", g.getContentType());
+        m.put("origin", g.getOrigin());
+        m.put("address", g.getAddress());
+        m.put("addressingSource", g.getAddressingSource());
+        m.put("status", g.getStatus());
+
+        Map<String, Object> parsedProps = new java.util.HashMap<>();
+        if (g.getAmqpProperties() != null && !g.getAmqpProperties().isBlank()) {
+            try {
+                parsedProps = objectMapper.readValue(g.getAmqpProperties(), Map.class);
+            } catch (Exception ignored) {}
+        }
+        m.put("amqpProperties", g.getAmqpProperties());
+        m.put("parsedAmqpProperties", parsedProps);
+
+        String ft = (String) parsedProps.get("amhs_ats_ft");
+        if (ft == null || ft.isBlank()) {
+            ft = (String) parsedProps.get("creation-time");
+        }
+        if (ft == null || ft.isBlank()) {
+            ft = (String) parsedProps.get("creation_time");
+        }
+        m.put("filingTime", (ft != null && !ft.isBlank()) ? ft : "-");
+        m.put("amhs_ats_ft", ft);
+
+        String atsPri = (String) parsedProps.get("ats_priority");
+        if (atsPri == null || atsPri.isBlank()) {
+            atsPri = (String) parsedProps.get("amhs_ats_pri");
+        }
+        m.put("atsPriority", atsPri);
+        m.put("amhs_ats_pri", atsPri);
+
+        String ohi = (String) parsedProps.get("amhs_ats_ohi");
+        m.put("optionalHeading", ohi);
+        m.put("amhs_ats_ohi", ohi);
+
+        String ipmId = (String) parsedProps.get("amhs_ipm_id");
+        m.put("ipmId", ipmId);
+        m.put("amhs_ipm_id", ipmId);
+
+        String bodypartType = (String) parsedProps.get("amhs_bodypart_type");
+        m.put("bodyPartType", bodypartType != null ? bodypartType : g.getBodyType());
+
+        return m;
     }
 
     @GetMapping("/outbound")
@@ -119,62 +188,66 @@ public class MessagesController {
 
         Page<Gwout> result = gwoutRepository.findAll(spec, PageRequest.of(page, size, Sort.by("time").descending()));
 
-
-
         List<Map<String, Object>> contentList = new java.util.ArrayList<>();
         for (Gwout g : result.getContent()) {
-            try {
-                Map<String, Object> m = new java.util.HashMap<>();
-                m.put("msgid", g.getMsgid());
-                m.put("amhsid", g.getAmhsid());
-                m.put("amhsPriority", g.getAmhsPriority());
-                m.put("time", g.getTime() != null ? g.getTime().toString() : null);
-                m.put("filingTime", g.getFilingTime());
-                m.put("text", g.getText());
-                m.put("bodyType", g.getBodyType());
-                m.put("origin", g.getOrigin());
-                m.put("address", g.getAddress());
-                m.put("optionalHeading", g.getOptionalHeading());
-                m.put("subject", g.getSubject());
-                m.put("amhsTtl", g.getAmhsTtl() != null ? g.getAmhsTtl().toString() : null);
-                m.put("amhsRegisteredId", g.getAmhsRegisteredId());
-                m.put("ipmId", g.getIpmId());
-                m.put("swimPriority", g.getSwimPriority());
-                m.put("amqpMessageId", g.getAmqpMessageId());
-                m.put("bodyPartType", g.getBodyPartType());
-                m.put("bodyPartCharset", g.getBodyPartCharset());
-                m.put("ftbpFileName", g.getFtbpFileName());
-                m.put("ftbpObjectSize", g.getFtbpObjectSize());
-                m.put("ftbpLastMod", g.getFtbpLastMod());
-                m.put("messageSigned", g.getMessageSigned());
-                m.put("rejectionReason", g.getRejectionReason());
-                m.put("rejectionDiagnostic", g.getRejectionDiagnostic());
-                m.put("amhsDeliveryReport", g.getAmhsDeliveryReport());
-                m.put("contentType", g.getContentType());
-                m.put("status", g.getStatus());
-                contentList.add(m);
-            } catch (Exception e) {
-                org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(MessagesController.class);
-                logger.error("CRITICAL: Error mapping Gwout msgid: {}, error: {}", g.getMsgid(), e.getMessage(), e);
-                throw e;
-            }
+            contentList.add(mapGwoutToDetail(g));
         }
 
         PageData<Map<String, Object>> pageData = PageData.of(contentList, page, size, result.getTotalElements(), result.getTotalPages());
         return ResponseEntity.ok(ApiResponse.ok(pageData));
     }
 
-
     @GetMapping("/outbound/{msgid}")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getOutboundMessage(@PathVariable("msgid") Long msgid) {
         Gwout msg = gwoutRepository.findById(msgid)
                 .orElseThrow(() -> new ResourceNotFoundException("Outbound message", msgid));
 
+        Map<String, Object> msgDetail = mapGwoutToDetail(msg);
+
         Map<String, Object> result = Map.of(
-                "message", msg,
+                "message", msgDetail,
                 "dispatches", gwoutDispatchRepository.findByGwoutId(msgid));
 
         return ResponseEntity.ok(ApiResponse.ok(result));
+    }
+
+    private Map<String, Object> mapGwoutToDetail(Gwout g) {
+        Map<String, Object> m = new java.util.HashMap<>();
+        m.put("msgid", g.getMsgid());
+        m.put("amhsid", g.getAmhsid());
+        m.put("amhsPriority", g.getAmhsPriority());
+        m.put("atsPriority", g.getAmhsPriority());
+        m.put("amhs_ats_pri", g.getAmhsPriority());
+        m.put("time", g.getTime() != null ? g.getTime().toString() : null);
+        m.put("filingTime", g.getFilingTime() != null ? g.getFilingTime() : "-");
+        m.put("amhs_ats_ft", g.getFilingTime());
+        m.put("text", g.getText());
+        m.put("payloadContent", g.getText());
+        m.put("bodyType", g.getBodyType());
+        m.put("origin", g.getOrigin());
+        m.put("address", g.getAddress());
+        m.put("optionalHeading", g.getOptionalHeading());
+        m.put("amhs_ats_ohi", g.getOptionalHeading());
+        m.put("subject", g.getSubject());
+        m.put("amhsTtl", g.getAmhsTtl() != null ? g.getAmhsTtl().toString() : null);
+        m.put("amhsRegisteredId", g.getAmhsRegisteredId());
+        m.put("ipmId", g.getIpmId());
+        m.put("amhs_ipm_id", g.getIpmId());
+        m.put("swimPriority", g.getSwimPriority());
+        m.put("amqpMessageId", g.getAmqpMessageId());
+        m.put("messageId", g.getAmqpMessageId());
+        m.put("bodyPartType", g.getBodyPartType());
+        m.put("bodyPartCharset", g.getBodyPartCharset());
+        m.put("ftbpFileName", g.getFtbpFileName());
+        m.put("ftbpObjectSize", g.getFtbpObjectSize());
+        m.put("ftbpLastMod", g.getFtbpLastMod());
+        m.put("messageSigned", g.getMessageSigned());
+        m.put("rejectionReason", g.getRejectionReason());
+        m.put("rejectionDiagnostic", g.getRejectionDiagnostic());
+        m.put("amhsDeliveryReport", g.getAmhsDeliveryReport());
+        m.put("contentType", g.getContentType());
+        m.put("status", g.getStatus());
+        return m;
     }
 
     @PostMapping("/inbound/{msgid}/retry")
