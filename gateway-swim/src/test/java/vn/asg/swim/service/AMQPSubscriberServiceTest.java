@@ -674,6 +674,31 @@ class AMQPSubscriberServiceTest {
     }
 
     @Test
+    void testContentType_TextPlainDeclaredButBytesNotValidUtf8_ShouldReject() throws JMSException {
+        // Mismatch content-type/content THẬT: content-type=text/plain nhưng bytes không phải
+        // UTF-8 hợp lệ (0xC3 0x28 là chuỗi UTF-8 sai) -> phát hiện qua strict decode, reject.
+        jakarta.jms.BytesMessage bytesMessage = mock(jakarta.jms.BytesMessage.class);
+        when(bytesMessage.getJMSMessageID()).thenReturn("test-mismatch-invalid-utf8");
+        when(bytesMessage.getJMSPriority()).thenReturn(4);
+        when(bytesMessage.getJMSTimestamp()).thenReturn(System.currentTimeMillis());
+        byte[] invalidUtf8 = new byte[]{0x01, 0x02, 0x03, (byte) 0xC3, 0x28, 0x04, 0x05, 0x06};
+        when(bytesMessage.getBodyLength()).thenReturn((long) invalidUtf8.length);
+        when(bytesMessage.readBytes(any(byte[].class))).thenAnswer(inv -> {
+            byte[] buf = inv.getArgument(0);
+            System.arraycopy(invalidUtf8, 0, buf, 0, invalidUtf8.length);
+            return invalidUtf8.length;
+        });
+        when(bytesMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("text/plain; charset=\"utf-8\"");
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        service.handleMessage(bytesMessage, "swim.test.queue");
+
+        verify(gwinRepository).save(argThat(gwin ->
+                gwin.getStatus().equals(InboundStatus.FAILED.getValue())
+        ));
+    }
+
+    @Test
     void testContentType_OctetStreamWithRealBinaryData_ShouldAcceptAsFtbp() throws JMSException {
         // CTSW110 Case 3: content-type=application/octet-stream, payload thật sự binary (BytesMessage) -> accept
         jakarta.jms.BytesMessage bytesMessage = mock(jakarta.jms.BytesMessage.class);

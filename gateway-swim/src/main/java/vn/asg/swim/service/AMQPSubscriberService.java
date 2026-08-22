@@ -199,13 +199,22 @@ public class AMQPSubscriberService {
                 log.warn("AMQP: Unsupported charset utf-16 in content-type '{}'", contentType);
             }
             if (ct.contains("text/")) {
-                // content-type=text/* là tín hiệu quyết định: nếu heuristic isProbablyText đoán nhầm
-                // là binary (VD: client AMQP thật gửi text qua BytesMessage/data), phải decode lại
-                // đúng thành text từ binaryPayload thay vì giữ nguyên base64 đã tính trước đó.
+                // content-type=text/* la tin hieu quyet dinh: neu heuristic isProbablyText doan nham
+                // la binary (VD: client AMQP that gui text qua BytesMessage/data), phai decode lai
+                // dung thanh text tu binaryPayload thay vi giu nguyen base64 da tinh truoc do.
+                // Dung strict UTF-8 decode (bao loi thay vi am tham thay U+FFFD) de phan biet "text
+                // hop le gui qua data" (chap nhan) voi "content-type khai sai, bytes thuc su khong
+                // phai UTF-8 text" (mismatch that -> reject, khong dua vao loai goi tin JMS nua vi
+                // da xac nhan khong dang tin cay).
                 if (binaryPayload != null) {
-                    finalContent = new String(binaryPayload, StandardCharsets.UTF_8);
+                    try {
+                        finalContent = strictUtf8Decode(binaryPayload);
+                        binaryPayload = null;
+                    } catch (java.nio.charset.CharacterCodingException e) {
+                        contentTypeSupported = false;
+                        log.warn("AMQP: content-type declares text/plain but payload bytes are not valid UTF-8 (content-type/content mismatch)");
+                    }
                 }
-                binaryPayload = null;
                 if (finalContent != null) {
                     finalContent = finalContent.replace("\u0000", "");
                 }
@@ -829,6 +838,18 @@ public class AMQPSubscriberService {
     /**
      * Nhận biết dữ liệu văn bản.
      */
+    /**
+     * Decode UTF-8 nghiêm ngặt - báo lỗi CharacterCodingException nếu bytes chứa
+     * chuỗi byte không hợp lệ UTF-8, thay vì âm thầm thay bằng ký tự U+FFFD như
+     * {@code new String(bytes, UTF_8)}. Dùng để phát hiện content-type/content mismatch thật.
+     */
+    private String strictUtf8Decode(byte[] bytes) throws java.nio.charset.CharacterCodingException {
+        java.nio.charset.CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
+        return decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+    }
+
     private boolean isProbablyText(String s) {
         if (s == null || s.isEmpty())
             return false;
