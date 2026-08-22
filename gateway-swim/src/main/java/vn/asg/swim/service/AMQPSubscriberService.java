@@ -142,7 +142,9 @@ public class AMQPSubscriberService {
                 if (text.stripLeading().startsWith("<") || isProbablyText(text.stripLeading())) {
                     textPayload = text;
                 } else {
-                    textPayload = text.replace("\u0000", "");
+                    // Noi dung binary that (FTBP) - KHONG gan textPayload (UTF-8 decode se lam hong
+                    // byte khong hop le UTF-8 bang ky tu thay the U+FFFD, mat du lieu vinh vien).
+                    // finalContent phai lay tu nhanh base64(binaryPayload) ben duoi.
                     binaryPayload = buf;
                 }
             }
@@ -157,9 +159,10 @@ public class AMQPSubscriberService {
         }
 
         if ("gzip".equalsIgnoreCase(swimCompression) && binaryPayload != null && binaryPayload.length > 0) {
+            // CTSW116: nội dung sau khi giải nén vẫn là binary (FTBP file) - encode base64 để lưu an toàn,
+            // KHÔNG decode UTF-8 (sẽ làm hỏng dữ liệu nếu byte không hợp lệ UTF-8).
             binaryPayload = decompressGzip(binaryPayload);
-            textPayload = new String(binaryPayload, StandardCharsets.UTF_8);
-            finalContent = textPayload;
+            finalContent = Base64.getEncoder().encodeToString(binaryPayload);
         }
 
 
@@ -172,7 +175,10 @@ public class AMQPSubscriberService {
             contentType = getMsgProperty(amqpMsg, "content_type");
         }
 
-        // EUR Doc 047 v3.0 §4.4.3.3.3 / §4.5.1.6-1.7: chỉ 2 content-type hợp lệ
+        // EUR Doc 047 v3.0 §4.4.3.3.3 / §4.5.1.6: chỉ 2 content-type hợp lệ, và mỗi content-type
+        // bắt buộc phải đi kèm đúng body-section tương ứng (octet-stream <-> data/BytesMessage,
+        // text/plain <-> amqp-value/TextMessage) - lệch cặp nào cũng phải reject (§4.5.1.6.c).
+        boolean isBytesMessage = amqpMsg instanceof BytesMessage;
         boolean contentTypeSupported = true;
         if (contentType == null || contentType.isBlank()) {
             // CTSW102: Content-type is mandatory for AMHS-unaware service level
@@ -180,9 +186,19 @@ public class AMQPSubscriberService {
             log.warn("AMQP: Mandatory content-type property is missing");
         } else {
             String ct = contentType.toLowerCase();
-            if (!ct.contains("text/plain") && !ct.contains("application/octet-stream")) {
+            boolean isOctetStream = ct.contains("application/octet-stream");
+            boolean isTextPlain = ct.contains("text/plain");
+            if (!isTextPlain && !isOctetStream) {
                 contentTypeSupported = false;
                 log.warn("AMQP: Unsupported content-type '{}'", contentType);
+            } else if (isOctetStream && !isBytesMessage) {
+                // §4.5.1.6(a): octet-stream đòi hỏi payload nằm ở data (BytesMessage), không phải amqp-value
+                contentTypeSupported = false;
+                log.warn("AMQP: content-type declares octet-stream but payload did not arrive as data (binary) body");
+            } else if (isTextPlain && isBytesMessage) {
+                // §4.5.1.6(b): text/plain đòi hỏi payload nằm ở amqp-value (TextMessage), không phải data
+                contentTypeSupported = false;
+                log.warn("AMQP: content-type declares text/plain but payload arrived as data (binary) body, not amqp-value");
             }
             if (ct.contains("utf-16")) {
                 // CTSW110: utf-16 is unsupported
@@ -474,9 +490,20 @@ public class AMQPSubscriberService {
         if (amhsOriginator == null || amhsOriginator.isBlank()) {
             amhsOriginator = resolved != null ? resolved.originator() : null;
         }
-        if (amhsOriginator == null || amhsOriginator.isBlank() || "UNKNOWNX".equalsIgnoreCase(amhsOriginator)) {
+        // EUR Doc 047 §4.5.2.12: amhs_originator phải chứa đúng addressee indicator 8 ký tự;
+        // nếu không, dùng default originator, đồng thời logged VÀ reported to Control Position.
+        if (amhsOriginator == null || amhsOriginator.isBlank()
+                || !validationService.validateAftnAddress(amhsOriginator, "amhs_originator").isValid()) {
+            String invalidOriginator = amhsOriginator;
             amhsOriginator = configService.getDefaultOriginator();
-            log.warn("AMQP {}: Originator is unknown or invalid. Using default originator: {}", amqpMsgId, amhsOriginator);
+            log.warn("AMQP {}: Originator '{}' is unknown or invalid. Using default originator: {}",
+                    amqpMsgId, invalidOriginator, amhsOriginator);
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR,
+                    GwAlert.SEV_WARNING,
+                    "AMQP " + amqpMsgId + ": invalid/unknown amhs_originator '" + invalidOriginator
+                            + "', falling back to default originator " + amhsOriginator,
+                    "gwin", null);
         }
 
         // Cập nhật lại resolved với originator và recipients hoàn chỉnh
@@ -528,10 +555,16 @@ public class AMQPSubscriberService {
         final String amqpPropertiesJson = tempJson;
 
         // Kiểm tra tính hợp lệ bản tin theo EUR Doc 047
+        // CTSW111: đo kích thước payload AMQP gốc (raw bytes), không phải độ dài chuỗi base64
+        // đã encode cho nội dung binary.
+        int payloadByteSize = binaryPayload != null
+                ? binaryPayload.length
+                : (finalContent != null ? finalContent.getBytes(StandardCharsets.UTF_8).length : 0);
         MessageValidationService.ValidationResult validationResult = validationService.validateSwimToAmhs(
                 amqpMsgId != null ? amqpMsgId : "",
                 amqpMsg,
-                finalContent);
+                finalContent,
+                payloadByteSize);
 
         boolean isCompliant = hasMessageId && priorityValid && creationTimeValid && dataValid && recipientsValid && contentTypeSupported && validationResult.isValid();
 
@@ -589,7 +622,7 @@ public class AMQPSubscriberService {
             if (overrideMode == null || overrideMode.isBlank()) {
                 overrideMode = getAppProperty(amqpMsg, "atsmhs-service-level");
             }
-            
+
             String serviceLevel = atsmhsResolver.resolve(overrideMode, contentType, resolved.recipients());
             boolean hasBinaryContent = binaryPayload != null;
 
@@ -738,16 +771,15 @@ public class AMQPSubscriberService {
 
     private String safeGetStringProperty(Message msg, String key) {
         if (key == null || key.isBlank()) return null;
-        if (!key.contains("-")) {
+        try {
+            String val = msg.getStringProperty(key);
+            if (val != null) return val;
+        } catch (Exception ignored) {}
+
+        String altKey = key.contains("-") ? key.replace("-", "_") : key.replace("_", "-");
+        if (!altKey.equals(key)) {
             try {
-                String val = msg.getStringProperty(key);
-                if (val != null) return val;
-            } catch (Exception ignored) {}
-        }
-        String underscoreKey = key.replace("-", "_");
-        if (!underscoreKey.equals(key)) {
-            try {
-                return msg.getStringProperty(underscoreKey);
+                return msg.getStringProperty(altKey);
             } catch (Exception ignored) {}
         }
         return null;

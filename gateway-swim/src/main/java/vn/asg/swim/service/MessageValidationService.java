@@ -74,7 +74,7 @@ public class MessageValidationService {
      * - S-08: Kích thước bản tin trong giới hạn cho phép
      * - S-09: Số lượng người nhận trong giới hạn cho phép
      */
-    public ValidationResult validateSwimToAmhs(String messageId, Message msg, String payload) {
+    public ValidationResult validateSwimToAmhs(String messageId, Message msg, String payload, int payloadByteSize) {
         List<String> errors = new ArrayList<>();
 
         // C-02: Kiểm tra chiều chuyển đổi định dạng
@@ -120,13 +120,12 @@ public class MessageValidationService {
             errors.add("Failed to read AMQP message properties: " + e.getMessage());
         }
 
-        // S-08: Kiểm tra kích thước bản tin (EUR Doc 047 §3.3.1.4: 0 hoặc không cấu hình = không giới hạn)
-        if (payload != null) {
-            int maxSize = configService.getMaxMsgDataSize();
-            int actualSize = payload.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-            if (maxSize > 0 && actualSize > maxSize) {
-                errors.add(String.format("Message size %d bytes exceeds maximum %d bytes", actualSize, maxSize));
-            }
+        // S-08: Kiểm tra kích thước bản tin (EUR Doc 047 §4.5.1.7, §3.3.1.4: 0 hoặc không cấu hình = không giới hạn).
+        // Dùng payloadByteSize (kích thước payload AMQP gốc) thay vì đo độ dài chuỗi payload, vì với
+        // nội dung binary, payload là chuỗi đã base64-encode (dài hơn ~33% so với dữ liệu gốc).
+        int maxSize = configService.getMaxMsgDataSize();
+        if (maxSize > 0 && payloadByteSize > maxSize) {
+            errors.add(String.format("Message size %d bytes exceeds maximum %d bytes", payloadByteSize, maxSize));
         }
 
         if (!errors.isEmpty()) {
