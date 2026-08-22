@@ -26,6 +26,9 @@ public class MessageValidationService {
 
     private final ConfigService configService;
 
+    /** Các giá trị ATS-message-priority hợp lệ theo EUR Doc 047 Table 9. */
+    private static final List<String> ATS_PRIORITIES = List.of("SS", "DD", "FF", "GG", "KK");
+
     /**
      * Đối tượng chứa kết quả kiểm thử (Validation Result Container)
      */
@@ -165,12 +168,45 @@ public class MessageValidationService {
 
         // C-07: Kiểm tra số lượng người nhận (EUR Doc 047 §3.3.2.4: 0 hoặc không cấu hình = không giới hạn)
         if (recipients != null && !recipients.isBlank()) {
-            String[] recipientArray = recipients.trim().split("\\s+");
+            String[] recipientArray = recipients.trim().split("[,\\s]+");
             int maxRecipients = configService.getMaxMsgRecipients();
             if (maxRecipients > 0 && recipientArray.length > maxRecipients) {
                 errors.add(String.format("Recipients count %d exceeds maximum %d (too-many-recipients)",
                         recipientArray.length, maxRecipients));
             }
+        }
+
+        if (!errors.isEmpty()) {
+            return ValidationResult.failure(errors);
+        }
+
+        return ValidationResult.success();
+    }
+
+    /**
+     * EUR Doc 047 §4.4.2.5 - Kiểm thử cú pháp ATS-message-header của IPM đến (CTSW004).
+     *
+     * Appendix A/CTSW004 liệt kê 5 trường hợp phải sinh NDR:
+     * ATS-message-priority rỗng / sai giá trị, ATS-message-filing-time rỗng / sai định dạng,
+     * và ATS-message-header rỗng hoàn toàn (không có IHE) - trường hợp cuối tương đương
+     * cả hai trường trên cùng rỗng.
+     *
+     * Giá trị hợp lệ: priority thuộc {SS, DD, FF, GG, KK} (Table 9), filing-time là
+     * date-time group 6 chữ số DDhhmm (cùng quy ước với §4.5.2.10a chiều SWIM→AMHS).
+     */
+    public ValidationResult validateAtsMessageHeader(String atsPriority, String atsFilingTime) {
+        List<String> errors = new ArrayList<>();
+
+        if (atsPriority == null || atsPriority.isBlank()) {
+            errors.add("ATS-message-priority is empty");
+        } else if (!ATS_PRIORITIES.contains(atsPriority.trim().toUpperCase())) {
+            errors.add(String.format("ATS-message-priority '%s' is invalid", atsPriority.trim()));
+        }
+
+        if (atsFilingTime == null || atsFilingTime.isBlank()) {
+            errors.add("ATS-message-filing-time is empty");
+        } else if (!atsFilingTime.trim().matches("^\\d{6}$")) {
+            errors.add(String.format("ATS-message-filing-time '%s' is invalid", atsFilingTime.trim()));
         }
 
         if (!errors.isEmpty()) {
@@ -218,7 +254,7 @@ public class MessageValidationService {
         }
 
         List<String> errors = new ArrayList<>();
-        String[] addresses = recipients.trim().split("\\s+");
+        String[] addresses = recipients.trim().split("[,\\s]+");
 
         // S-09: Kiểm tra số lượng người nhận (EUR Doc 047 §3.3.2.4: 0 hoặc không cấu hình = không giới hạn)
         int maxRecipients = configService.getMaxMsgRecipients();
@@ -244,6 +280,56 @@ public class MessageValidationService {
     /**
      * S-06, CTSW016: Kiểm thử định dạng EIT/Body Part Type
      */
+    /**
+     * EUR Doc 047 §4.4.2.1 - Kiểm tra current encoded-information-types (EIT) của IPM.
+     * <p>
+     * Chấp nhận khi giá trị là "unspecified"/"unknown", hoặc CHỈ gồm các loại được liệt kê ở
+     * §4.4.2.1a: ia5-text (basic hoặc externally-defined {id-eit-ia5-text}),
+     * {id-cs-eit-authority 1/2/6/100} và {id-eit-file-transfer 0}. Giá trị nhiều thành phần
+     * được phân tách bởi dấu phẩy/khoảng trắng; chỉ cần MỘT thành phần không hợp lệ là từ chối
+     * (§4.4.2.1b -> NDR diagnostic "encoded-information-types-unsupported").
+     */
+    public ValidationResult validateEncodedInformationTypes(String eit) {
+        if (eit == null || eit.isBlank()) {
+            // Không có thông tin EIT -> coi như "unspecified", được phép (§4.4.2.1a)
+            return ValidationResult.success();
+        }
+        for (String part : eit.trim().split("[,;]+")) {
+            String token = part.trim().toLowerCase();
+            if (token.isEmpty()) {
+                continue;
+            }
+            if (!isAllowedEit(token)) {
+                return ValidationResult.failure(
+                        "Unsupported encoded-information-types: " + part.trim());
+            }
+        }
+        return ValidationResult.success();
+    }
+
+    private boolean isAllowedEit(String token) {
+        // "unspecified" / "unknown" (built-in 0, OID 2.6.3.4.0)
+        if (token.contains("unspecified") || token.contains("unknown") || token.equals("2.6.3.4.0")) {
+            return true;
+        }
+        // ia5-text: basic, externally-defined {id-eit-ia5-text}, OID 2.6.3.4.2
+        if (token.contains("ia5-text") || token.contains("ia5text") || token.equals("2.6.3.4.2")) {
+            return true;
+        }
+        // {id-eit-file-transfer 0}
+        if (token.contains("file-transfer") || token.contains("filetransfer")) {
+            return true;
+        }
+        // {id-cs-eit-authority N}: chỉ 1, 2, 6, 100 được phép (§4.4.2.1a 3-6)
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("authority\\D+(\\d+)").matcher(token);
+        if (m.find()) {
+            String n = m.group(1);
+            return "1".equals(n) || "2".equals(n) || "6".equals(n) || "100".equals(n);
+        }
+        return false;
+    }
+
     public ValidationResult validateBodyPartType(String bodyPartType) {
         if (bodyPartType == null || bodyPartType.isBlank()) {
             return ValidationResult.success();

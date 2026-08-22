@@ -59,6 +59,7 @@ class OutboundDispatchServiceTest {
         gwout.setOrigin("VVTSZYYX");
         gwout.setAddress("VVHHZTZX");
         gwout.setAmhsPriority("FF");
+        gwout.setFilingTime("121200");
         gwout.setContentType("text/plain");
 
         dispatch = new GwoutDispatch();
@@ -78,6 +79,12 @@ class OutboundDispatchServiceTest {
         when(configService.getInt("RETRY_DELAY_2ND_SECONDS")).thenReturn(120);
         when(configService.getInt("RETRY_DELAY_3RD_SECONDS")).thenReturn(300);
         when(configService.getGatewayId()).thenReturn("ASG-GW-01");
+        // §4.4.2.1: EIT hợp lệ theo mặc định; test nào cần kiểm EIT thì stub lại riêng
+        when(validationService.validateEncodedInformationTypes(any()))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+        // §4.4.2.5 (CTSW004): ATS-message-header hợp lệ theo mặc định
+        when(validationService.validateAtsMessageHeader(any(), any()))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
     }
 
     // ==================== ISSUE #1: VALIDATION FAILURE LOGIC ====================
@@ -436,6 +443,158 @@ class OutboundDispatchServiceTest {
         assertEquals("ia5-text-body-part", gwout.getBodyPartType());
         assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
         verify(gwoutRepository, atLeastOnce()).save(gwout);
+    }
+
+    // ==================== ATS-MESSAGE-HEADER (CTSW004) ====================
+
+    @Test
+    void testAtsHeaderSyntaxError_ShouldRejectWithContentSyntaxError() throws Exception {
+        // CTSW004: ATS-message-header sai cú pháp -> không chuyển sang AMQP, sinh NDR
+        // content-syntax-error kèm supplementary-information theo đúng câu chữ của Appendix A.
+        setupValidScenario();
+        gwout.setAmhsPriority("XX");
+        when(validationService.validateAtsMessageHeader(any(), any()))
+                .thenReturn(new MessageValidationService.ValidationResult(false,
+                        List.of("ATS-message-priority 'XX' is invalid")));
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        assertEquals("ats-header-syntax-error", gwout.getRejectionReason());
+        assertEquals("content-syntax-error", gwout.getRejectionDiagnostic());
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("ats_header_syntax_error"),
+                eq("content-syntax-error"),
+                eq("unable to convert to AMQP due to ATS-message-header or Heading Fields syntax error"));
+        verify(alertService).create(eq(GwAlert.TYPE_VALIDATION_ERROR), eq(GwAlert.SEV_WARNING),
+                contains("ATS-message-header syntax error"), eq("gwout"), eq(1L));
+    }
+
+    // ==================== NDR SUPPLEMENTARY-INFORMATION (CTSW006 / CTSW010) ====================
+
+    @Test
+    void testSizeLimitRejection_ShouldCarryContentSizeSupplementaryInfo() {
+        // CTSW006: NDR phải mang "unable to convert to AMQP due to the content size"
+        when(validationService.validateAmhsToSwim(anyString(), anyString()))
+                .thenReturn(new MessageValidationService.ValidationResult(false,
+                        List.of("Message size 200 bytes exceeds maximum 100 bytes (content-too-long)")));
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals("content-too-long", gwout.getRejectionDiagnostic());
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("validation_failed"),
+                eq("content-too-long"), eq("unable to convert to AMQP due to the content size"));
+    }
+
+    @Test
+    void testRecipientsLimitRejection_ShouldCarryRecipientsSupplementaryInfo() {
+        // CTSW010: NDR phải mang "unable to convert to AMQP due to number of recipients"
+        when(validationService.validateAmhsToSwim(anyString(), anyString()))
+                .thenReturn(new MessageValidationService.ValidationResult(false,
+                        List.of("Recipients count 513 exceeds maximum 512 (too-many-recipients)")));
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals("too-many-recipients", gwout.getRejectionDiagnostic());
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("validation_failed"),
+                eq("too-many-recipients"), eq("unable to convert to AMQP due to number of recipients"));
+    }
+
+    @Test
+    void testTtlExpired_ShouldNotCarrySupplementaryInfo() throws Exception {
+        // CTSW005 chỉ yêu cầu reason-code + diagnostic-code; trước đây code nhét
+        // "unable-to-transfer" (một reason-code) vào ô supplementary-information.
+        setupValidScenario();
+        gwout.setAmhsTtl(LocalDateTime.now().minusHours(1));
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals("maximum-time-expired", gwout.getRejectionDiagnostic());
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), eq("ttl_expired"),
+                eq("maximum-time-expired"), isNull());
+    }
+
+    // ==================== BODY PART COUNT (CTSW007) ====================
+
+    @Test
+    void testBodyPartCount_TwoTextBodyParts_ShouldReject() throws Exception {
+        // CTSW007 - điện văn 3: hai body part ia5-text (không có FTBP) -> NDR
+        setupValidScenario();
+        gwout.setNumberOfAttachment(2);
+        gwout.setBodyPartType("ia5-text-body-part");
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        assertEquals("unsupported-body-parts", gwout.getRejectionReason());
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("unsupported_body_parts"),
+                eq("content-syntax-error"),
+                eq("unable to convert to AMQP due to unsupported combination of body part types"));
+    }
+
+    @Test
+    void testBodyPartCount_ThreeBodyParts_ShouldReject() throws Exception {
+        // CTSW007 - điện văn 4: ba body part -> NDR "multiple body parts"
+        setupValidScenario();
+        gwout.setNumberOfAttachment(3);
+        gwout.setBodyPartType("file-transfer-body-part");
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("unsupported_body_parts"),
+                eq("content-syntax-error"),
+                eq("unable to convert to AMQP due to multiple body parts"));
+    }
+
+    @Test
+    void testBodyPartCount_TextPlusFtbp_ShouldBeAccepted() throws Exception {
+        // CTSW007 - điện văn 1&2: cặp text + file-transfer-body-part là tổ hợp hợp lệ
+        setupValidScenario();
+        gwout.setNumberOfAttachment(2);
+        gwout.setBodyPartType("file-transfer-body-part");
+        when(validationService.validateBodyPartType("file-transfer-body-part"))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
+    }
+
+    @Test
+    void testBodyPartCount_SingleBodyPart_ShouldBeAccepted() throws Exception {
+        setupValidScenario();
+        gwout.setNumberOfAttachment(1);
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
+    }
+
+    // ==================== SS -> CONTROL POSITION (CTSW020) ====================
+
+    @Test
+    void testPrioritySS_ShouldAlertControlPositionButStillForward() throws Exception {
+        // CTSW020 (§4.4.4.4): bản tin SS phải được báo lên Control Position NHƯNG
+        // vẫn tiếp tục chuyển sang SWIM.
+        setupValidScenario();
+        gwout.setAmhsPriority("SS");
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
+        verify(alertService).create(eq(GwAlert.TYPE_VALIDATION_ERROR), eq(GwAlert.SEV_WARNING),
+                contains("SS"), eq("gwout"), eq(1L));
+    }
+
+    @Test
+    void testPriorityNotSS_ShouldNotAlertControlPosition() throws Exception {
+        setupValidScenario();
+        gwout.setAmhsPriority("FF");
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
+        verify(alertService, never()).create(anyString(), anyString(), anyString(), anyString(), anyLong());
     }
 
     // ==================== HELPER METHODS ====================

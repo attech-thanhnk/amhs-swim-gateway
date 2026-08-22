@@ -55,7 +55,11 @@ public class AllTestCasesAuditTest {
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
         when(validationService.validateAftnAddress(anyString(), anyString()))
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+        when(validationService.validateEncodedInformationTypes(any()))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
         when(validationService.validateBodyPartType(anyString()))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+        when(validationService.validateAtsMessageHeader(any(), any()))
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
         
         Routing metarRule = new Routing();

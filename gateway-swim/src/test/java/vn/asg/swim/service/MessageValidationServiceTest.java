@@ -104,4 +104,116 @@ class MessageValidationServiceTest {
 
         assertTrue(result.isValid());
     }
+
+    // ==================== AMHS → SWIM: SIZE & RECIPIENTS (CTSW006 / CTSW010) ====================
+
+    @Test
+    void testAmhsToSwim_SizeOverLimit_ShouldReportContentTooLong() {
+        // CTSW006 (b/c): payload vượt "Maximum message data size" -> content-too-long
+        when(configService.getConversionDir()).thenReturn("BOTH");
+        when(configService.getMaxMsgDataSize()).thenReturn(100);
+        when(configService.getMaxMsgRecipients()).thenReturn(512);
+
+        var result = service.validateAmhsToSwim("A".repeat(101), "VVHHZTZX");
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrorMessage().contains("content-too-long"));
+    }
+
+    @Test
+    void testAmhsToSwim_RecipientsCommaSeparated_ShouldBeCountedIndividually() {
+        // CTSW010 (b): gwout.address được ghi bằng dấu phẩy (AmhsToGwoutSyncScheduler),
+        // nên bộ đếm phải tách theo dấu phẩy - trước đây chỉ tách theo khoảng trắng
+        // nên 513 recipient bị đếm thành 1 và không bao giờ chạm ngưỡng.
+        when(configService.getConversionDir()).thenReturn("BOTH");
+        when(configService.getMaxMsgDataSize()).thenReturn(0);
+        when(configService.getMaxMsgRecipients()).thenReturn(512);
+
+        StringBuilder tooMany = new StringBuilder("VVHHZTZX");
+        for (int i = 1; i < 513; i++) {
+            tooMany.append(",VVHHZTZX");
+        }
+
+        var result = service.validateAmhsToSwim("METAR VVTS", tooMany.toString());
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrorMessage().contains("too-many-recipients"));
+        assertTrue(result.getErrorMessage().contains("513"));
+    }
+
+    @Test
+    void testAmhsToSwim_RecipientsAtConfiguredMax_ShouldPass() {
+        // CTSW010 (a): đúng 512 recipient (== max cấu hình) -> vẫn chuyển đổi bình thường
+        when(configService.getConversionDir()).thenReturn("BOTH");
+        when(configService.getMaxMsgDataSize()).thenReturn(0);
+        when(configService.getMaxMsgRecipients()).thenReturn(512);
+
+        StringBuilder atMax = new StringBuilder("VVHHZTZX");
+        for (int i = 1; i < 512; i++) {
+            atMax.append(",VVHHZTZX");
+        }
+
+        var result = service.validateAmhsToSwim("METAR VVTS", atMax.toString());
+
+        assertTrue(result.isValid());
+    }
+
+    // ==================== ATS-MESSAGE-HEADER (CTSW004) ====================
+
+    @Test
+    void testAtsHeader_ValidPriorityAndFilingTime_ShouldPass() {
+        assertTrue(service.validateAtsMessageHeader("FF", "121200").isValid());
+    }
+
+    @Test
+    void testAtsHeader_EmptyPriority_ShouldFail() {
+        // CTSW004 - điện văn 1: ATS-message-priority rỗng
+        var result = service.validateAtsMessageHeader("", "121200");
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrorMessage().contains("ATS-message-priority is empty"));
+    }
+
+    @Test
+    void testAtsHeader_InvalidPriority_ShouldFail() {
+        // CTSW004 - điện văn 2: ATS-message-priority sai giá trị (ngoài SS/DD/FF/GG/KK).
+        // Trước đây AmqpProperties.mapAtsPriorityToAmqp âm thầm map về FF và cho qua.
+        var result = service.validateAtsMessageHeader("XX", "121200");
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrorMessage().contains("ATS-message-priority 'XX' is invalid"));
+    }
+
+    @Test
+    void testAtsHeader_EmptyFilingTime_ShouldFail() {
+        // CTSW004 - điện văn 3: ATS-message-filing-time rỗng
+        var result = service.validateAtsMessageHeader("FF", null);
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrorMessage().contains("ATS-message-filing-time is empty"));
+    }
+
+    @Test
+    void testAtsHeader_InvalidFilingTime_ShouldFail() {
+        // CTSW004 - điện văn 4: filing-time không phải date-time group 6 số DDhhmm
+        var result = service.validateAtsMessageHeader("FF", "12:00");
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrorMessage().contains("ATS-message-filing-time '12:00' is invalid"));
+    }
+
+    @Test
+    void testAtsHeader_CompletelyEmptyHeader_ShouldReportBothFields() {
+        // CTSW004 - điện văn 5: ATS-message-header rỗng hoàn toàn, không có IHE
+        var result = service.validateAtsMessageHeader(null, null);
+
+        assertFalse(result.isValid());
+        assertEquals(2, result.getErrors().size());
+    }
+
+    @Test
+    void testAtsHeader_LowercasePriority_ShouldBeAccepted() {
+        // Giá trị đúng nhưng viết thường vẫn là priority hợp lệ, không phải lỗi cú pháp
+        assertTrue(service.validateAtsMessageHeader("ss", "121200").isValid());
+    }
 }

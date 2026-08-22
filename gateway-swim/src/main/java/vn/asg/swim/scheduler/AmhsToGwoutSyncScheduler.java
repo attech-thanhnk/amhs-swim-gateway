@@ -94,9 +94,11 @@ public class AmhsToGwoutSyncScheduler {
                     t.bodyPartCharacterSet,
                     t.ftbpFileName,
                     t.ftbpObjectSize,
-                    t.ftbpLastMod
+                    t.ftbpLastMod,
+                    t.numberOfAttachment,
+                    t.originEncodeInformationType
                 FROM (
-                    SELECT id, content, atsFilingTime, atsPriority, atsOhi, bodyPartType, ipmId, messageId, orAddress, bodyPartCharacterSet, ftbpFileName, ftbpObjectSize, ftbpLastMod
+                    SELECT id, content, atsFilingTime, atsPriority, atsOhi, bodyPartType, ipmId, messageId, orAddress, bodyPartCharacterSet, ftbpFileName, ftbpObjectSize, ftbpLastMod, numberOfAttachment, originEncodeInformationType
                     FROM mtcu_tmp
                     ORDER BY id DESC
                     LIMIT 200
@@ -153,6 +155,15 @@ public class AmhsToGwoutSyncScheduler {
                     String ftbpFileName = asString(row[11]);
                     String ftbpObjectSize = asString(row[12]);
                     String ftbpLastMod = asString(row[13]);
+                    // §4.4.2.2: số body part của IPM, dùng để phát hiện IPM nhiều body part
+                    Integer numberOfAttachment = null;
+                    if (row.length > 14 && row[14] != null) {
+                        try {
+                            numberOfAttachment = Integer.valueOf(asString(row[14]).trim());
+                        } catch (NumberFormatException ignored) {
+                            log.warn("Giá trị numberOfAttachment '{}' không hợp lệ từ mtcu_tmp", row[14]);
+                        }
+                    }
 
                     // ICAO Doc 047: amhs_recipients phải liệt kê các recipient THẬT của IPM
                     // (không phải chính địa chỉ gateway VVTSSWIM dùng để nhận tin).
@@ -186,13 +197,23 @@ public class AmhsToGwoutSyncScheduler {
                         } else if ("402".equals(bodyPartType) || "general-text".equalsIgnoreCase(bodyPartType) || "general-text-body-part".equalsIgnoreCase(bodyPartType)) {
                             standardBodyPartType = "general-text-body-part";
                             bodyType = "text";
-                        } else {
+                        } else if ("403".equals(bodyPartType) || "file-transfer".equalsIgnoreCase(bodyPartType) || "file-transfer-body-part".equalsIgnoreCase(bodyPartType)) {
                             standardBodyPartType = "file-transfer-body-part";
                             bodyType = "ftbp";
+                        } else {
+                            // EUR Doc 047 §4.4.2.3b: loại body part ngoài danh sách cho phép phải bị
+                            // TỪ CHỐI. Giữ nguyên giá trị thô để OutboundDispatchService.validateBodyPartType
+                            // phát hiện - KHÔNG được tự coi là file-transfer-body-part.
+                            standardBodyPartType = bodyPartType;
+                            bodyType = "text";
+                            log.warn("bodyPartType '{}' không thuộc danh sách §4.4.2.3, giữ nguyên để từ chối ở bước sau",
+                                    bodyPartType);
                         }
                     }
                     gwout.setBodyPartType(standardBodyPartType);
                     gwout.setBodyType(bodyType);
+                    gwout.setNumberOfAttachment(numberOfAttachment);
+                    gwout.setOriginEit(row.length > 15 ? asString(row[15]) : null);
                     // EUR Doc 047 §4.4.3.4.9: repertoire chỉ có ý nghĩa cho general-text-body-part
                     // (ia5-text* luôn là "ia5", file-transfer-body-part không áp dụng)
                     if ("general-text-body-part".equals(standardBodyPartType)) {

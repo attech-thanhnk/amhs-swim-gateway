@@ -8,4 +8,6 @@ import vn.asg.swim.entity.GwAlert;
 public interface GwAlertRepository extends JpaRepository<GwAlert, Long> {
 
     long countByStatus(String status);
+
+    java.util.List<GwAlert> findByAlertTypeAndStatusNot(String alertType, String status);
 }

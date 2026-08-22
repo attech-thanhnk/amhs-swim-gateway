@@ -107,6 +107,20 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
+                <configuration>
+                    <!--
+                        ManualSimulationTest/ManualOutboundSimulationTest là test tích hợp:
+                        chúng khởi động nguyên một bản sao gateway-swim, dùng chung CSDL và
+                        chung tài khoản AMQP với hệ thống đang chạy thật. Khi test kết thúc,
+                        @PreDestroy ghi DISCONNECTED vào chính cột account.bind_status mà
+                        Control Position đang đọc -> CP báo "mất kết nối" dù broker vẫn tốt.
+                        Vì vậy không chạy chúng trong `mvn test` mặc định.
+                        Chạy có chủ đích: mvn test -Dtest='Manual*' -DfailIfNoSpecifiedTests=false
+                    -->
+                    <excludes>
+                        <exclude>**/Manual*SimulationTest.java</exclude>
+                    </excludes>
+                </configuration>
             </plugin>
         </plugins>
     </build>

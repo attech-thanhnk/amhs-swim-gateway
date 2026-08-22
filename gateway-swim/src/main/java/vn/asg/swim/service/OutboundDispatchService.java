@@ -76,7 +76,31 @@ public class OutboundDispatchService {
             gwout.setRejectionDiagnostic(ndrDiagnosticFor(dirResult.getErrorMessage()));
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwimRejected(gwout, "validation_failed: " + dirResult.getErrorMessage(),
-                    ndrDiagnosticFor(dirResult.getErrorMessage()), null);
+                    ndrDiagnosticFor(dirResult.getErrorMessage()),
+                    ndrSupplementaryFor(dirResult.getErrorMessage()));
+            return;
+        }
+
+        // CTSW004 (§4.4.2.5): ATS-message-header phải có priority và filing-time hợp lệ,
+        // nếu sai cú pháp thì từ chối và sinh NDR content-syntax-error.
+        MessageValidationService.ValidationResult headerResult =
+                validationService.validateAtsMessageHeader(gwout.getAmhsPriority(), gwout.getFilingTime());
+        if (!headerResult.isValid()) {
+            log.warn("gwout#{} rejected: ATS-message-header sai cú pháp - {}",
+                    gwout.getMsgid(), headerResult.getErrorMessage());
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                    "gwout#" + gwout.getMsgid() + " rejected: ATS-message-header syntax error - "
+                            + headerResult.getErrorMessage(),
+                    "gwout", gwout.getMsgid());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
+            gwout.setRejectionReason("ats-header-syntax-error");
+            gwout.setRejectionDiagnostic("content-syntax-error");
+            gwoutRepository.save(gwout);
+            conversionService.logAmhsToSwimRejected(gwout,
+                    "ats_header_syntax_error: " + headerResult.getErrorMessage(),
+                    "content-syntax-error",
+                    "unable to convert to AMQP due to ATS-message-header or Heading Fields syntax error");
             return;
         }
 
@@ -92,6 +116,55 @@ public class OutboundDispatchService {
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "REJECTED", "unauthorized_originator: " + gwout.getOrigin());
             return;
+        }
+
+        // CTSW016 (§4.4.2.1): kiểm current encoded-information-types TRƯỚC các bước sau.
+        MessageValidationService.ValidationResult eitTypeResult =
+                validationService.validateEncodedInformationTypes(gwout.getOriginEit());
+        if (!eitTypeResult.isValid()) {
+            log.warn("gwout#{} rejected by EIT check: {}", gwout.getMsgid(), eitTypeResult.getErrorMessage());
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                    "gwout#" + gwout.getMsgid() + " rejected: " + eitTypeResult.getErrorMessage(),
+                    "gwout", gwout.getMsgid());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
+            gwout.setRejectionReason("unsupported-eit");
+            gwout.setRejectionDiagnostic("encoded-information-types-unsupported");
+            gwoutRepository.save(gwout);
+            conversionService.logAmhsToSwimRejected(gwout, "unsupported_eit: " + eitTypeResult.getErrorMessage(),
+                    "encoded-information-types-unsupported", null);
+            return;
+        }
+
+        // CTSW007 (§4.4.2.2 / §4.4.2.4): kiểm tra số lượng body part của IPM gốc.
+        //   1 body part  -> xử lý bình thường
+        //   2 body part  -> chỉ hợp lệ khi là cặp text + file-transfer-body-part (§4.4.2.4a)
+        //   > 2body part -> từ chối (§4.4.2.2c)
+        Integer bodyPartCount = gwout.getNumberOfAttachment();
+        if (bodyPartCount != null && bodyPartCount > 1) {
+            String supplementary = null;
+            if (bodyPartCount > 2) {
+                supplementary = "unable to convert to AMQP due to multiple body parts";
+            } else if (!"file-transfer-body-part".equals(gwout.getBodyPartType())) {
+                // Đúng 2 body part nhưng không có FTBP -> không phải cặp text+FTBP hợp lệ
+                supplementary = "unable to convert to AMQP due to unsupported combination of body part types";
+            }
+            if (supplementary != null) {
+                log.warn("gwout#{} rejected: {} body part(s), type={}",
+                        gwout.getMsgid(), bodyPartCount, gwout.getBodyPartType());
+                alertService.create(
+                        GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                        "gwout#" + gwout.getMsgid() + " rejected: " + supplementary,
+                        "gwout", gwout.getMsgid());
+                gwout.setStatus(OutboundStatus.FAILED.getValue());
+                gwout.setRejectionReason("unsupported-body-parts");
+                gwout.setRejectionDiagnostic("content-syntax-error");
+                gwoutRepository.save(gwout);
+                conversionService.logAmhsToSwimRejected(gwout,
+                        "unsupported_body_parts: " + bodyPartCount + " parts",
+                        "content-syntax-error", supplementary);
+                return;
+            }
         }
 
         // CTSW016: Kiểm thử EIT/Body Part Type của bản tin đi
@@ -130,7 +203,9 @@ public class OutboundDispatchService {
             gwout.setRejectionReason("ttl-expired");
             gwout.setRejectionDiagnostic("maximum-time-expired");
             gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwimRejected(gwout, "ttl_expired", "maximum-time-expired", "unable-to-transfer");
+            // CTSW005 chỉ yêu cầu non-delivery-reason-code + non-delivery-diagnostic-code,
+            // không yêu cầu supplementary-information.
+            conversionService.logAmhsToSwimRejected(gwout, "ttl_expired", "maximum-time-expired", null);
             return;
         }
 
@@ -160,6 +235,18 @@ public class OutboundDispatchService {
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "ERROR", "routing_failed: " + e.getMessage());
             return;
+        }
+
+        // CTSW020 (§4.4.4.4): priority-indicator "SS" (tương đương precedence 107 theo Table 9)
+        // với recipient "responsible" -> phải log và báo Control Position, NHƯNG bản tin vẫn được
+        // chuyển tiếp sang SWIM. Mọi recipient trong gwout đều là "responsible" (§4.4.3.4.4).
+        if ("SS".equalsIgnoreCase(gwout.getAmhsPriority())) {
+            log.warn("gwout#{}: bản tin ưu tiên SS - báo Control Position (§4.4.4.4)", gwout.getMsgid());
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                    "gwout#" + gwout.getMsgid() + ": bản tin AMHS ưu tiên SS gửi tới "
+                            + gwout.getAddress() + " - cần Control Position xử lý (§4.4.4.4)",
+                    "gwout", gwout.getMsgid());
         }
 
         // Giữ nguyên nội dung bản tin gốc, không convert theo chiều nào (theo ICAO Doc 047)
@@ -547,6 +634,18 @@ public class OutboundDispatchService {
     }
 
     /**
+     * Suy ra supplementary-information của NDR theo Appendix A:
+     * CTSW006 (vượt "Maximum message data size") và CTSW010 (vượt "Maximum message
+     * number of recipients") đều bắt buộc NDR mang đúng chuỗi mô tả tương ứng.
+     */
+    private String ndrSupplementaryFor(String errorMessage) {
+        if (errorMessage == null) return null;
+        if (errorMessage.contains("content-too-long")) return "unable to convert to AMQP due to the content size";
+        if (errorMessage.contains("too-many-recipients")) return "unable to convert to AMQP due to number of recipients";
+        return null;
+    }
+
+    /**
      * CTSW011 - CTSW013: Xử lý bản tin Probe nhận từ AMHS.
      */
     private void processAmhsProbe(Gwout gwout) {
@@ -574,7 +673,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        String[] recipientArray = recipients.trim().split("\\s+");
+        String[] recipientArray = recipients.trim().split("[,\\s]+");
         for (String recipient : recipientArray) {
             var formatResult = validationService.validateAftnAddress(recipient, "Recipient");
             if (!formatResult.isValid()) {

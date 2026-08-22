@@ -91,6 +91,22 @@ public class Gwout {
     @Column(name = "status")
     private Integer status = OutboundStatus.PENDING.getValue();
 
+    /**
+     * Current encoded-information-types của IPM gốc (mtcu_tmp.originEncodeInformationType).
+     * EUR Doc 047 §4.4.2.1: chỉ chấp nhận các loại được liệt kê, ngoài ra phải sinh NDR
+     * với diagnostic "encoded-information-types-unsupported".
+     */
+    @Column(name = "origin_eit", length = 255)
+    private String originEit;
+
+    /**
+     * Số body part của IPM gốc (mtcu_tmp.numberOfAttachment).
+     * EUR Doc 047 §4.4.2.2/§4.4.2.4: 1 -> xử lý bình thường; 2 -> chỉ hợp lệ khi là
+     * cặp text + file-transfer-body-part; &gt;2 -> từ chối.
+     */
+    @Column(name = "number_of_attachment")
+    private Integer numberOfAttachment;
+
     @Column(name = "body_part_type", length = 50)
     private String bodyPartType;
 
@@ -259,6 +275,22 @@ public class Gwout {
 
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    public String getOriginEit() {
+        return originEit;
+    }
+
+    public void setOriginEit(String originEit) {
+        this.originEit = originEit;
+    }
+
+    public Integer getNumberOfAttachment() {
+        return numberOfAttachment;
+    }
+
+    public void setNumberOfAttachment(Integer numberOfAttachment) {
+        this.numberOfAttachment = numberOfAttachment;
     }
 
     public String getBodyPartType() {

@@ -108,7 +108,13 @@ public class ConnectionManagerService {
             log.info("Active AMQP account change or reconnect requested for account '{}' (bindStatus={}). Connecting...",
                     activeAcc.getAccountName(), activeAcc.getBindStatus());
             connect();
-        } else if (BIND_CONNECTING.equals(activeAcc.getBindStatus()) && connected.get()) {
+        } else if (connected.get() && !BIND_CONNECTED.equals(activeAcc.getBindStatus())) {
+            // Kết nối thực tế đang tốt nhưng cột bind_status trong CSDL nói khác (CONNECTING,
+            // hoặc DISCONNECTED do một tiến trình khác - ví dụ test tích hợp - ghi đè lên).
+            // Control Position chỉ đọc cột này nên phải đồng bộ lại, nếu không CP sẽ báo
+            // "mất kết nối" vĩnh viễn cho tới lần restart kế tiếp.
+            log.info("Đồng bộ lại bind_status: CSDL đang là '{}' trong khi kết nối AMQP vẫn hoạt động",
+                    activeAcc.getBindStatus());
             updateBindStatus(BIND_CONNECTED);
         }
     }
@@ -125,8 +131,11 @@ public class ConnectionManagerService {
         } finally {
             connection = null;
             connected.set(false);
-            activeAccountId = null;
+            // updateBindStatus() chỉ ghi được vào CSDL khi activeAccountId còn giá trị,
+            // nên phải cập nhật trạng thái TRƯỚC khi xóa nó - nếu không Control Position
+            // sẽ vẫn thấy CONNECTED dù kết nối đã bị đóng.
             updateBindStatus(BIND_DISCONNECTED);
+            activeAccountId = null;
         }
     }
 
@@ -244,6 +253,10 @@ public class ConnectionManagerService {
                 log.info("AMQP broker connected: {}", url);
                 systemLogService.log(GwAlert.SEV_INFO, "SWIM_COMPONENT",
                          "AMQP connection established: " + url);
+                // Kết nối đã khôi phục -> đóng các cảnh báo mất kết nối còn treo,
+                // nếu không Control Position vẫn báo đỏ cho tới khi có người bấm tay.
+                alertService.resolveOpenAlerts(GwAlert.TYPE_CONNECTION_LOST,
+                        "AMQP connection restored: " + url);
 
             } catch (Exception ex) {
                 if (newConn != null) {

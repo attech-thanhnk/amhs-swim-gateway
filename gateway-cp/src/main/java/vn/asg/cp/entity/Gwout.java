@@ -74,6 +74,14 @@ public class Gwout {
     @Column(name = "amqp_message_id", length = 256)
     private String amqpMessageId;
 
+    /** Current encoded-information-types của IPM gốc - EUR Doc 047 §4.4.2.1 (CTSW016). */
+    @Column(name = "origin_eit", length = 255)
+    private String originEit;
+
+    /** Số body part của IPM gốc - EUR Doc 047 §4.4.2.2/§4.4.2.4 (CTSW007). */
+    @Column(name = "number_of_attachment")
+    private Integer numberOfAttachment;
+
     @Column(name = "body_part_type", length = 50)
     private String bodyPartType;
 
