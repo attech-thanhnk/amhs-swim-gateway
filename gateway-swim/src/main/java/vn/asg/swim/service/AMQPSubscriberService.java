@@ -175,10 +175,13 @@ public class AMQPSubscriberService {
             contentType = getMsgProperty(amqpMsg, "content_type");
         }
 
-        // EUR Doc 047 v3.0 §4.4.3.3.3 / §4.5.1.6: chỉ 2 content-type hợp lệ, và mỗi content-type
-        // bắt buộc phải đi kèm đúng body-section tương ứng (octet-stream <-> data/BytesMessage,
-        // text/plain <-> amqp-value/TextMessage) - lệch cặp nào cũng phải reject (§4.5.1.6.c).
-        boolean isBytesMessage = amqpMsg instanceof BytesMessage;
+        // EUR Doc 047 v3.0 §4.4.3.3.3 / §4.5.1.6: chỉ 2 content-type hợp lệ.
+        // Lưu ý: KHÔNG cross-check content-type với loại JMS message (TextMessage/BytesMessage) -
+        // trên thực tế, client AMQP thật (SWIM Test Tool) có thể gửi nội dung text qua "data"
+        // (BytesMessage) dù content-type=text/plain; đây là hành vi hợp lệ của client AMQP, JMS
+        // message type không phải proxy đáng tin cậy cho việc AMQP dùng amqp-value hay data.
+        // (Đã thử strict cross-check ở đây trước đó và phải revert vì làm reject nhầm bản tin
+        // CTSW101 thật - xem thêm ghi chú trong lịch sử.)
         boolean contentTypeSupported = true;
         if (contentType == null || contentType.isBlank()) {
             // CTSW102: Content-type is mandatory for AMHS-unaware service level
@@ -186,19 +189,9 @@ public class AMQPSubscriberService {
             log.warn("AMQP: Mandatory content-type property is missing");
         } else {
             String ct = contentType.toLowerCase();
-            boolean isOctetStream = ct.contains("application/octet-stream");
-            boolean isTextPlain = ct.contains("text/plain");
-            if (!isTextPlain && !isOctetStream) {
+            if (!ct.contains("text/plain") && !ct.contains("application/octet-stream")) {
                 contentTypeSupported = false;
                 log.warn("AMQP: Unsupported content-type '{}'", contentType);
-            } else if (isOctetStream && !isBytesMessage) {
-                // §4.5.1.6(a): octet-stream đòi hỏi payload nằm ở data (BytesMessage), không phải amqp-value
-                contentTypeSupported = false;
-                log.warn("AMQP: content-type declares octet-stream but payload did not arrive as data (binary) body");
-            } else if (isTextPlain && isBytesMessage) {
-                // §4.5.1.6(b): text/plain đòi hỏi payload nằm ở amqp-value (TextMessage), không phải data
-                contentTypeSupported = false;
-                log.warn("AMQP: content-type declares text/plain but payload arrived as data (binary) body, not amqp-value");
             }
             if (ct.contains("utf-16")) {
                 // CTSW110: utf-16 is unsupported
@@ -206,6 +199,12 @@ public class AMQPSubscriberService {
                 log.warn("AMQP: Unsupported charset utf-16 in content-type '{}'", contentType);
             }
             if (ct.contains("text/")) {
+                // content-type=text/* là tín hiệu quyết định: nếu heuristic isProbablyText đoán nhầm
+                // là binary (VD: client AMQP thật gửi text qua BytesMessage/data), phải decode lại
+                // đúng thành text từ binaryPayload thay vì giữ nguyên base64 đã tính trước đó.
+                if (binaryPayload != null) {
+                    finalContent = new String(binaryPayload, StandardCharsets.UTF_8);
+                }
                 binaryPayload = null;
                 if (finalContent != null) {
                     finalContent = finalContent.replace("\u0000", "");

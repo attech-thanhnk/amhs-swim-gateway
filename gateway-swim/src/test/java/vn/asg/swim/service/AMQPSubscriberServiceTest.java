@@ -644,10 +644,14 @@ class AMQPSubscriberServiceTest {
     }
 
     @Test
-    void testContentType_TextPlainDeclaredButPayloadArrivedAsData_ShouldReject() throws JMSException {
-        // CTSW110 Case 2: content-type=text/plain nhưng payload thực tế đến qua data (BytesMessage) -> reject
+    void testContentType_TextPlainWithPayloadArrivedAsData_ShouldAcceptAndDecodeAsText() throws JMSException {
+        // KHÔNG reject khi content-type=text/plain nhưng payload đến qua data (BytesMessage):
+        // đây là hành vi hợp lệ của client AMQP thật (xác nhận qua log production thật của
+        // CTSW101) - JMS message type không phải proxy đáng tin cậy cho amqp-value/data, nên
+        // gateway-swim không cross-check 2 thứ này. content-type quyết định cách xử lý; nếu
+        // heuristic đoán nhầm binary, phải decode lại đúng thành text, không giữ base64.
         jakarta.jms.BytesMessage bytesMessage = mock(jakarta.jms.BytesMessage.class);
-        when(bytesMessage.getJMSMessageID()).thenReturn("test-ctsw110-case2");
+        when(bytesMessage.getJMSMessageID()).thenReturn("test-ctsw101-text-via-data");
         when(bytesMessage.getJMSPriority()).thenReturn(4);
         when(bytesMessage.getJMSTimestamp()).thenReturn(System.currentTimeMillis());
         byte[] hexLikeBytes = "A1B2C3D4E5F67890".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
@@ -662,9 +666,11 @@ class AMQPSubscriberServiceTest {
 
         service.handleMessage(bytesMessage, "swim.test.queue");
 
-        verify(gwinRepository).save(argThat(gwin ->
-                gwin.getStatus().equals(InboundStatus.FAILED.getValue())
-        ));
+        verify(gwinRepository).save(argThat(gwin -> {
+            assertEquals(InboundStatus.PENDING.getValue(), gwin.getStatus());
+            assertEquals("A1B2C3D4E5F67890", gwin.getPayloadContent());
+            return true;
+        }));
     }
 
     @Test
