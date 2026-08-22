@@ -37,7 +37,6 @@ class AMQPSubscriberServiceTest {
     @Mock private ConnectionManagerService connectionManager;
     @Mock private RoutingService routingService;
     @Mock private MessageConversionService conversionService;
-    @Mock private AddressingResolverService addressingResolver;
     @Mock private AlertService alertService;
     @Mock private GwinRepository gwinRepository;
     @Mock private MessageValidationService validationService;
@@ -52,7 +51,6 @@ class AMQPSubscriberServiceTest {
     private Message amqpMessage;
     private TextMessage textMessage;
     private String jsonPayload;
-    private ResolvedAddressing resolvedAddressing;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -73,12 +71,6 @@ class AMQPSubscriberServiceTest {
             }
             """;
 
-        resolvedAddressing = new ResolvedAddressing(
-            "VVHHZPZX",
-            "VVHHZTZX VVTSZDYX",
-            ResolvedAddressing.SOURCE_ROUTING_RULE
-        );
-
         // Default mocks
         when(amqpMessage.getJMSMessageID()).thenReturn("test-msg-123");
         when(textMessage.getText()).thenReturn(jsonPayload);
@@ -87,6 +79,10 @@ class AMQPSubscriberServiceTest {
         when(amqpMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("text/plain; charset=\"utf-8\"");
         when(amqpMessage.getStringProperty("amhs_subject")).thenReturn("METAR");
         when(amqpMessage.getStringProperty("amhs_gateway_id")).thenReturn(null); // Default: no loopback
+        // §4.5.1.5/§4.5.2.12: amhs_recipients/amhs_originator read directly from AMQP properties
+        // (no routing-rule fallback) — defaulted here so unrelated tests keep the accept path.
+        when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX VVTSZDYX");
+        when(amqpMessage.getStringProperty("amhs_originator")).thenReturn("VVHHZPZX");
 
         when(configService.getGatewayId()).thenReturn("ASG-GW-01");
         when(configService.isStrictComplianceMode()).thenReturn(false);
@@ -99,8 +95,6 @@ class AMQPSubscriberServiceTest {
             .thenReturn(validResult);
 
         when(authorizationService.isSwimUserAuthorized(any())).thenReturn(true);
-        when(addressingResolver.resolve(any(), anyString()))
-            .thenReturn(resolvedAddressing);
         when(atsmhsResolver.resolve(any(), any(), any())).thenReturn("ENHANCED");
         when(atsmhsResolver.validateContent(any(), any(), anyBoolean())).thenReturn(true);
         when(configService.getMaxMsgRecipients()).thenReturn(20);
@@ -301,6 +295,7 @@ class AMQPSubscriberServiceTest {
         });
         when(bytesMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE"))
             .thenReturn("application/octet-stream");
+        when(bytesMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX");
         when(bytesMessage.getJMSPriority()).thenReturn(2);
         when(bytesMessage.getJMSTimestamp()).thenReturn(System.currentTimeMillis());
         when(authorizationService.isSwimUserAuthorized(any())).thenReturn(true);
@@ -421,13 +416,15 @@ class AMQPSubscriberServiceTest {
             return rawBinary.length;
         });
         when(bytesMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("application/octet-stream");
+        when(bytesMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
         service.handleMessage(bytesMessage, "swim.test.queue");
 
         String expectedBase64 = java.util.Base64.getEncoder().encodeToString(rawBinary);
         verify(gwinRepository).save(argThat(gwin ->
-                expectedBase64.equals(gwin.getPayloadContent())
+                gwin.getStatus().equals(InboundStatus.PENDING.getValue())
+                        && expectedBase64.equals(gwin.getPayloadContent())
         ));
     }
 
@@ -451,13 +448,15 @@ class AMQPSubscriberServiceTest {
         when(bytesMessage.getStringProperty("amhs_ftbp_file_name")).thenReturn("flight_plan_data.bin");
         when(bytesMessage.getStringProperty("amhs_ftbp_object_size")).thenReturn("1024");
         when(bytesMessage.getStringProperty("amhs_ftbp_last_mod")).thenReturn("20260723142742Z");
+        when(bytesMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
         service.handleMessage(bytesMessage, "swim.test.queue");
 
         verify(gwinRepository).save(argThat(gwin -> {
             String props = gwin.getAmqpProperties();
-            return props.contains("flight_plan_data.bin")
+            return gwin.getStatus().equals(InboundStatus.PENDING.getValue())
+                    && props.contains("flight_plan_data.bin")
                     && props.contains("1024")
                     && props.contains("20260723142742Z");
         }));
@@ -486,13 +485,15 @@ class AMQPSubscriberServiceTest {
         });
         when(bytesMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("application/octet-stream");
         when(bytesMessage.getStringProperty("swim_compression")).thenReturn("gzip");
+        when(bytesMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
         service.handleMessage(bytesMessage, "swim.test.queue");
 
         String expectedBase64 = java.util.Base64.getEncoder().encodeToString(originalBinary);
         verify(gwinRepository).save(argThat(gwin ->
-                expectedBase64.equals(gwin.getPayloadContent())
+                gwin.getStatus().equals(InboundStatus.PENDING.getValue())
+                        && expectedBase64.equals(gwin.getPayloadContent())
         ));
     }
 
@@ -501,12 +502,9 @@ class AMQPSubscriberServiceTest {
     @Test
     void testBodyPartTypeAndEncoding_AllFourValidCombinations_ShouldBeForwardedVerbatim() throws JMSException {
         // CTSW115: gateway-swim chỉ forward nguyên văn amhs_bodypart_type/amhs_content_encoding/
-        // amqp-value - việc map sang đúng AMHS Body Part object + repertoire + khởi tạo
-        // original-encoded-information-types trong envelope (§4.5.4.7, Table 10) là dựng IPM/
-        // envelope thô, ngoài phạm vi gateway-swim (đã xác nhận từ CTSW101).
-        // Lưu ý: test_case.md Case 2 dùng "ia5_text_body_part" (underscore) - đây là chính tả CŨ
-        // mà bản thân EUR Doc 047 v3.0 (trang errata, dòng 49-53) đã ghi rõ là lỗi và SỬA thành
-        // dấu gạch ngang "ia5-text-body-part". Dùng đúng chính tả v3.0 hiện hành ở đây.
+        // amqp-value - dựng AMHS Body Part object thật (§4.5.4.7) ngoài phạm vi (xác nhận từ CTSW101).
+        // Dùng chính tả v3.0 "ia5-text-body-part" (gạch ngang) - EUR Doc 047 v3.0 errata sửa lỗi
+        // "ia5_text_body_part" (gạch dưới) của test_case.md cũ.
         record Case(String bodyPartType, String encoding, String value) {}
         List<Case> cases = List.of(
                 new Case("ia5-text", "IA5", "Lorem ipsum"),
@@ -543,11 +541,9 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testNotificationRequests_RnAndNrn_ShouldBeForwarded() throws JMSException {
-        // CTSW113: gateway-swim chỉ trích xuất & forward notification_requests (RN/NRN) vào
-        // gwin.amqp_properties - việc xử lý IPN/RN/NRN nhận NGƯỢC LẠI từ AMHS (§4.4.7) và việc
-        // gate rn/nrn theo priority=SS lúc dựng IPM (§4.5.3.4) nằm ngoài phạm vi gateway-swim
-        // (không có bảng/kênh nào cho AMHS-originated control traffic quay lại - đã xác nhận
-        // qua audit trước, xem [[project_eurdoc047_systematic_audit]]).
+        // CTSW113: gateway-swim chỉ forward notification_requests (RN/NRN) vào amqp_properties -
+        // xử lý IPN/RN/NRN ngược từ AMHS (§4.4.7) và gate theo priority=SS lúc dựng IPM (§4.5.3.4)
+        // nằm ngoài phạm vi (không có bảng/kênh cho AMHS-originated control traffic quay lại).
         when(amqpMessage.getStringProperty("notification_requests")).thenReturn("RN,NRN");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
@@ -557,6 +553,45 @@ class AMQPSubscriberServiceTest {
             String props = gwin.getAmqpProperties();
             return props.contains("notification_requests") && props.contains("RN") && props.contains("NRN");
         }));
+    }
+
+    // ==================== REGISTERED IDENTIFIER (§4.5.2.13/.14) ====================
+
+    @Test
+    void testRegisteredIdentifier_NonDefaultOidWithoutUserVisibleString_ShouldReportControlPosition()
+            throws JMSException {
+        // §4.5.2.14: registered-identifier khác OID mặc định thì user-visible-string bắt
+        // buộc phải có. Thiếu -> log + báo Control Position, nhưng bản tin VẪN được chuyển tiếp.
+        when(amqpMessage.getStringProperty("amhs_registered_identifier")).thenReturn("2.16.840.1.113694.2.2.9.9");
+        when(amqpMessage.getStringProperty("amhs_user_visible_string")).thenReturn(null);
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        verify(alertService).create(
+                eq(GwAlert.TYPE_VALIDATION_ERROR),
+                eq(GwAlert.SEV_WARNING),
+                contains("amhs_user_visible_string"),
+                eq("gwin"),
+                isNull());
+        // vẫn chuyển tiếp, không reject
+        verify(gwinRepository).save(argThat(gwin ->
+                gwin.getStatus().equals(InboundStatus.PENDING.getValue())));
+    }
+
+    @Test
+    void testRegisteredIdentifier_DefaultOid_ShouldNotReportControlPosition() throws JMSException {
+        // §4.5.2.13b: OID mặc định "unknown-attachment" thì không cần
+        // user-visible-string -> không được báo Control Position.
+        when(amqpMessage.getStringProperty("amhs_registered_identifier")).thenReturn("2.16.840.1.113694.2.2.1.1");
+        when(amqpMessage.getStringProperty("amhs_user_visible_string")).thenReturn(null);
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        verify(alertService, never()).create(any(), any(), contains("amhs_user_visible_string"), any(), any());
+        verify(gwinRepository).save(argThat(gwin ->
+                gwin.getStatus().equals(InboundStatus.PENDING.getValue())));
     }
 
     // ==================== RECIPIENTS COUNT (CTSW112) ====================
@@ -585,8 +620,10 @@ class AMQPSubscriberServiceTest {
     }
 
     @Test
-    void testRecipientsCount_OverConfiguredMax_ShouldRejectAndReportControlPosition() throws JMSException {
-        // CTSW112 Case B: 513 recipient (> max cấu hình 512) -> reject + báo Control Position
+    void testRecipientsCount_OverConfiguredMax_ShouldParkUnroutedAndReportControlPosition() throws JMSException {
+        // CTSW112 Case B: 513 recipient (> max cấu hình 512) -> not auto-processed, parked UNROUTED
+        // + báo Control Position (§4.5.1.8b + §4.2.6.1, same reasoning as CTSW102 — recoverable via
+        // Control Position, not a terminal FAILED; see the comment on isCompliant).
         when(configService.getMaxMsgRecipients()).thenReturn(512);
         when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn(buildRecipientList(513));
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
@@ -594,11 +631,11 @@ class AMQPSubscriberServiceTest {
         service.handleMessage(amqpMessage, "swim.test.queue");
 
         verify(gwinRepository).save(argThat(gwin ->
-                gwin.getStatus().equals(InboundStatus.FAILED.getValue())
+                gwin.getStatus().equals(InboundStatus.UNROUTED.getValue())
         ));
         verify(alertService).create(
                 eq(GwAlert.TYPE_VALIDATION_ERROR),
-                eq(GwAlert.SEV_ERROR),
+                eq(GwAlert.SEV_WARNING),
                 contains("amhs_recipients"),
                 eq("gwin"),
                 isNull()
@@ -645,11 +682,9 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testContentType_TextPlainWithPayloadArrivedAsData_ShouldAcceptAndDecodeAsText() throws JMSException {
-        // KHÔNG reject khi content-type=text/plain nhưng payload đến qua data (BytesMessage):
-        // đây là hành vi hợp lệ của client AMQP thật (xác nhận qua log production thật của
-        // CTSW101) - JMS message type không phải proxy đáng tin cậy cho amqp-value/data, nên
-        // gateway-swim không cross-check 2 thứ này. content-type quyết định cách xử lý; nếu
-        // heuristic đoán nhầm binary, phải decode lại đúng thành text, không giữ base64.
+        // CTSW101: KHÔNG reject khi content-type=text/plain nhưng payload đến qua data (BytesMessage)
+        // - client AMQP thật gửi vậy, JMS message type không đáng tin làm proxy cho amqp-value/data;
+        // content-type quyết định cách xử lý, đoán nhầm binary thì decode lại đúng thành text.
         jakarta.jms.BytesMessage bytesMessage = mock(jakarta.jms.BytesMessage.class);
         when(bytesMessage.getJMSMessageID()).thenReturn("test-ctsw101-text-via-data");
         when(bytesMessage.getJMSPriority()).thenReturn(4);
@@ -662,6 +697,7 @@ class AMQPSubscriberServiceTest {
             return hexLikeBytes.length;
         });
         when(bytesMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("text/plain; charset=\"utf-8\"");
+        when(bytesMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
         service.handleMessage(bytesMessage, "swim.test.queue");
@@ -714,6 +750,7 @@ class AMQPSubscriberServiceTest {
             return fakeBinary.length;
         });
         when(bytesMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("application/octet-stream");
+        when(bytesMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
         service.handleMessage(bytesMessage, "swim.test.queue");
@@ -936,6 +973,60 @@ class AMQPSubscriberServiceTest {
     }
 
     @Test
+    void testPriority_OutOfRange10_ShouldRejectMessage() throws JMSException {
+        // CTSW102 - "The first AMQP message shall have 10 as priority" -> reject + report to CP.
+        // AMQP priority hợp lệ là 0-9 (§4.5.1.1 / Table 9).
+        when(amqpMessage.getJMSPriority()).thenReturn(10);
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        verify(gwinRepository).save(argThat(gwin ->
+                gwin.getStatus().equals(InboundStatus.FAILED.getValue())));
+        verify(alertService).create(
+                eq(GwAlert.TYPE_VALIDATION_ERROR),
+                eq(GwAlert.SEV_ERROR),
+                contains("priority"),
+                eq("gwin"),
+                isNull());
+    }
+
+    @Test
+    void testContentType_Empty_ShouldRejectMessage() throws JMSException {
+        // CTSW102 - "another AMQP message shall have empty content-type element" -> reject.
+        // Khác với CTSW110 (content-type có giá trị nhưng không hỗ trợ): đây là THIẾU hẳn.
+        when(amqpMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn(null);
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        verify(gwinRepository).save(argThat(gwin ->
+                gwin.getStatus().equals(InboundStatus.FAILED.getValue())));
+        verify(alertService).create(
+                eq(GwAlert.TYPE_VALIDATION_ERROR),
+                eq(GwAlert.SEV_ERROR),
+                contains("content-type"),
+                eq("gwin"),
+                isNull());
+    }
+
+    @Test
+    void testRecipients_AddressLongerThanEightLetters_ShouldNotBeConveyed() throws JMSException {
+        // CTSW102 (bản tin binary thứ 5) - "an address of more than eight letters as
+        // amhs_recipients" -> không được chuyển sang AMHS. Địa chỉ AFTN phải đúng 8 ký tự
+        // (§4.5.2.9), địa chỉ 9 ký tự bị loại; không còn recipient nào hợp lệ -> UNROUTED.
+        when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZXX");
+        when(validationService.validateAftnAddress(eq("VVHHZTZXX"), anyString()))
+                .thenReturn(new MessageValidationService.ValidationResult(false, List.of("must be exactly 8 characters")));
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        verify(gwinRepository).save(argThat(gwin ->
+                gwin.getStatus().equals(InboundStatus.UNROUTED.getValue())));
+    }
+
+    @Test
     void testFilingTime_BlankAmhsAtsFt_ShouldFallBackToAmqpCreationTime() throws JMSException {
         // CTSW105 - Điện văn 1: amhs_ats_ft để trống -> dùng creation-time AMQP
         // (JMSTimestamp, không phải property "creation-time") chuyển sang DDhhmm
@@ -953,11 +1044,31 @@ class AMQPSubscriberServiceTest {
         }));
     }
 
+    @Test
+    void testFilingTime_WrongFormatAmhsAtsFt_ShouldFallBackToAmqpCreationTime() throws JMSException {
+        // CTSW105 (§4.5.2.10b): amhs_ats_ft SAI ĐỊNH DẠNG (không phải 6 số DDhhmm, cũng không phải
+        // epoch millis) -> phải dùng creation-time của AMQP, KHÔNG được lấy nguyên chuỗi rác.
+        when(amqpMessage.getStringProperty("amhs_ats_ft")).thenReturn("ABCDEF");
+        when(amqpMessage.getJMSTimestamp()).thenReturn(1787285680974L); // -> 210414
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        // When
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        // Then
+        verify(gwinRepository).save(argThat(gwin -> {
+            String props = gwin.getAmqpProperties();
+            assertTrue(props.contains("210414"), "phải dùng creation-time AMQP");
+            assertFalse(props.contains("ABCDEF"), "không được lưu chuỗi sai định dạng làm filing time");
+            return true;
+        }));
+    }
+
     // ==================== SUCCESSFUL PROCESSING ====================
 
     @Test
     void testSuccessfulProcessing_WithResolvedAddressing() throws JMSException {
-        // Given: All valid, addressing resolved
+        // Given: All valid, amhs_originator/amhs_recipients present (default setUp() stubs)
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
         // When
@@ -968,7 +1079,7 @@ class AMQPSubscriberServiceTest {
             assertEquals(InboundStatus.PENDING.getValue(), gwin.getStatus());
             assertEquals("VVHHZPZX", gwin.getOrigin());
             assertEquals("VVHHZTZX VVTSZDYX", gwin.getAddress());
-            assertEquals(ResolvedAddressing.SOURCE_ROUTING_RULE, gwin.getAddressingSource());
+            assertEquals(ResolvedAddressing.SOURCE_AMQP_PROPERTY, gwin.getAddressingSource());
             assertTrue(gwin.getPayloadContent().contains("\"messageType\": \"METAR\""));
             assertTrue(gwin.getPayloadContent().contains("\"stationIcao\": \"VVTS\""));
             return true;
@@ -993,6 +1104,7 @@ class AMQPSubscriberServiceTest {
             return fakeBinary.length;
         });
         when(bytesMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("application/octet-stream");
+        when(bytesMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
         // When
@@ -1000,6 +1112,7 @@ class AMQPSubscriberServiceTest {
 
         // Then: EUR Doc 047 §4.5.2.4(b) - suy luận bodyType từ content-type khi thiếu amhs_bodypart_type
         verify(gwinRepository).save(argThat(gwin -> {
+            assertEquals(InboundStatus.PENDING.getValue(), gwin.getStatus());
             assertEquals("ftbp", gwin.getBodyType());
             return true;
         }));
@@ -1032,7 +1145,8 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testAllRecipientsInvalid_ShouldRejectWhole() throws JMSException {
-        // Given: TẤT CẢ recipient đều sai định dạng -> phải từ chối cả bản tin (EUR Doc 047 §4.5.2.9c)
+        // Given: TẤT CẢ recipient đều sai định dạng -> not auto-processed, parked UNROUTED for
+        // Control Position (EUR Doc 047 §4.5.2.9c + §4.2.6.1, same reasoning as CTSW102)
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
         when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn("BADADDR1,BADADDR2");
         when(validationService.validateAftnAddress(anyString(), anyString()))
@@ -1043,27 +1157,32 @@ class AMQPSubscriberServiceTest {
 
         // Then
         verify(gwinRepository).save(argThat(gwin ->
-            gwin.getStatus().equals(InboundStatus.FAILED.getValue())
+            gwin.getStatus().equals(InboundStatus.UNROUTED.getValue())
         ));
     }
 
     @Test
-    void testUnresolvedAddressing_ShouldRejectAsMandatoryFieldMissing() throws JMSException {
-        // Given: Addressing cannot be resolved -> amhs_recipients ends up empty
+    void testMissingAmhsRecipientsProperty_ShouldParkUnroutedForControlPosition() throws JMSException {
+        // CTSW102 (§4.5.1.5): amhs_recipients absent -> not auto-processed, no property/routing-rule
+        // fallback. Per §4.2.6.1, Control Position exists for "appropriate action" - parked UNROUTED
+        // for manual routing, not terminal FAILED.
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
-        ResolvedAddressing unresolved = new ResolvedAddressing(
-            null, null, ResolvedAddressing.SOURCE_UNRESOLVED
-        );
-        when(addressingResolver.resolve(any(), anyString()))
-            .thenReturn(unresolved);
+        when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn(null);
 
         // When
         service.handleMessage(amqpMessage, "swim.test.queue");
 
-        // Then: EUR Doc 047 treats amhs_recipients as mandatory -> rejected (still persisted for audit)
+        // Then: parked UNROUTED (still persisted, recoverable via Control Position)
         verify(gwinRepository).save(argThat(gwin ->
-            gwin.getStatus().equals(InboundStatus.FAILED.getValue())
+            gwin.getStatus().equals(InboundStatus.UNROUTED.getValue())
         ));
+        verify(alertService).create(
+                eq(GwAlert.TYPE_VALIDATION_ERROR),
+                eq(GwAlert.SEV_WARNING),
+                contains("amhs_recipients"),
+                eq("gwin"),
+                isNull()
+        );
     }
 
     @Test

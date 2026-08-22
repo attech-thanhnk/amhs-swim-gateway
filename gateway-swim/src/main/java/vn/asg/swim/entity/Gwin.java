@@ -82,6 +82,15 @@ public class Gwin {
     private String addressingSource;
 
     /**
+     * Mức dịch vụ ATSMHS đã phân giải cho bản tin này (BASIC / EXTENDED).
+     * EUR Doc 047 §3.3.3 + §4.5.2.10.1/§4.5.3.7-9: quyết định thành phần dựng IPM map
+     * amhs_ats_ft và amhs_ats_ohi vào ATS-message-Filing-Time/Optional-Heading-Info (basic)
+     * hay authorization-time/originators-reference (extended).
+     */
+    @Column(name = "atsmhs_service_level", length = 20)
+    private String atsmhsServiceLevel;
+
+    /**
      * Global Status:
      * 0=PENDING, 4=FAILED, 5=UNROUTED, 6=RESOLVED, 7=CANCELLED
      */
@@ -116,6 +125,8 @@ public class Gwin {
     public void setAddress(String address) { this.address = address; }
     public String getAddressingSource() { return addressingSource; }
     public void setAddressingSource(String addressingSource) { this.addressingSource = addressingSource; }
+    public String getAtsmhsServiceLevel() { return atsmhsServiceLevel; }
+    public void setAtsmhsServiceLevel(String atsmhsServiceLevel) { this.atsmhsServiceLevel = atsmhsServiceLevel; }
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }
 }

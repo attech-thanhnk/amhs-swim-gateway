@@ -111,6 +111,7 @@ public class MessagesController {
         m.put("origin", g.getOrigin());
         m.put("address", g.getAddress());
         m.put("addressingSource", g.getAddressingSource());
+        m.put("atsmhsServiceLevel", g.getAtsmhsServiceLevel());
         m.put("status", g.getStatus());
 
         Map<String, Object> parsedProps = new java.util.HashMap<>();

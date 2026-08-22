@@ -335,6 +335,20 @@ public class OutboundDispatchService {
                 }
                 if (gwout.getAmhsRegisteredId() != null) {
                     message.setStringProperty("amhs_registered_identifier", gwout.getAmhsRegisteredId());
+                    // §4.4.4.6: registered-identifier khác OID mặc định thì
+                    // user-visible-string bắt buộc phải có kèm. Nguồn AMHS (mtcu_tmp) không có cột
+                    // nào cho giá trị này -> log + báo Control Position, vẫn gửi bản tin đi.
+                    if (!vn.asg.swim.model.AmqpProperties.isDefaultRegisteredIdentifier(gwout.getAmhsRegisteredId())) {
+                        log.warn("gwout#{}: amhs_registered_identifier '{}' khác OID mặc định nhưng "
+                                + "không có amhs_user_visible_string kèm theo", gwout.getMsgid(), gwout.getAmhsRegisteredId());
+                        alertService.create(
+                                GwAlert.TYPE_VALIDATION_ERROR,
+                                GwAlert.SEV_WARNING,
+                                "gwout#" + gwout.getMsgid() + ": amhs_registered_identifier '"
+                                        + gwout.getAmhsRegisteredId() + "' khác OID mặc định nhưng thiếu "
+                                        + "amhs_user_visible_string (§4.4.4.6)",
+                                "gwout", gwout.getMsgid());
+                    }
                 }
             } else if ("ia5-text".equals(bodyPartType) || "ia5-text-body-part".equals(bodyPartType)) {
                 message.setStringProperty("amhs_content_encoding", "IA5");

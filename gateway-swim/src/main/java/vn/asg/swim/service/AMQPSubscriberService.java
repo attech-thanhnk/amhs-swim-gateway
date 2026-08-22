@@ -34,7 +34,6 @@ public class AMQPSubscriberService {
     private final ConnectionManagerService connectionManager;
     private final RoutingService routingService;
     private final MessageConversionService conversionService;
-    private final AddressingResolverService addressingResolver;
     private final AlertService alertService;
     private final GwinRepository gwinRepository;
     private final MessageValidationService validationService;
@@ -175,13 +174,10 @@ public class AMQPSubscriberService {
             contentType = getMsgProperty(amqpMsg, "content_type");
         }
 
-        // EUR Doc 047 v3.0 §4.4.3.3.3 / §4.5.1.6: chỉ 2 content-type hợp lệ.
-        // Lưu ý: KHÔNG cross-check content-type với loại JMS message (TextMessage/BytesMessage) -
-        // trên thực tế, client AMQP thật (SWIM Test Tool) có thể gửi nội dung text qua "data"
-        // (BytesMessage) dù content-type=text/plain; đây là hành vi hợp lệ của client AMQP, JMS
-        // message type không phải proxy đáng tin cậy cho việc AMQP dùng amqp-value hay data.
-        // (Đã thử strict cross-check ở đây trước đó và phải revert vì làm reject nhầm bản tin
-        // CTSW101 thật - xem thêm ghi chú trong lịch sử.)
+        // EUR Doc 047 v3.0 §4.4.3.3.3 / §4.5.1.6: chỉ 2 content-type hợp lệ. Không cross-check với
+        // loại JMS message (Text/BytesMessage) - client AMQP thật có thể gửi text qua "data"
+        // (BytesMessage) dù content-type=text/plain, nên JMS message type không đáng tin cậy làm
+        // proxy cho amqp-value/data.
         boolean contentTypeSupported = true;
         if (contentType == null || contentType.isBlank()) {
             // CTSW102: Content-type is mandatory for AMHS-unaware service level
@@ -199,13 +195,9 @@ public class AMQPSubscriberService {
                 log.warn("AMQP: Unsupported charset utf-16 in content-type '{}'", contentType);
             }
             if (ct.contains("text/")) {
-                // content-type=text/* la tin hieu quyet dinh: neu heuristic isProbablyText doan nham
-                // la binary (VD: client AMQP that gui text qua BytesMessage/data), phai decode lai
-                // dung thanh text tu binaryPayload thay vi giu nguyen base64 da tinh truoc do.
-                // Dung strict UTF-8 decode (bao loi thay vi am tham thay U+FFFD) de phan biet "text
-                // hop le gui qua data" (chap nhan) voi "content-type khai sai, bytes thuc su khong
-                // phai UTF-8 text" (mismatch that -> reject, khong dua vao loai goi tin JMS nua vi
-                // da xac nhan khong dang tin cay).
+                // content-type=text/* quyet dinh, khong dua theo heuristic isProbablyText. Dung
+                // strict UTF-8 decode (bao loi thay vi am tham thay U+FFFD) de phan biet "text hop
+                // le" voi "content-type khai sai, bytes khong phai UTF-8" (mismatch that -> reject).
                 if (binaryPayload != null) {
                     try {
                         finalContent = strictUtf8Decode(binaryPayload);
@@ -342,25 +334,31 @@ public class AMQPSubscriberService {
             if (atsFt == null || atsFt.isBlank()) atsFt = getAppProperty(amqpMsg, "creation-time");
 
             if (atsFt != null && !atsFt.isBlank()) {
-                creationTimeFieldFound = true;
                 String trimmed = atsFt.trim();
-                if ("0".equals(trimmed) || "000000".equals(trimmed) || "null".equalsIgnoreCase(trimmed)) {
-                    creationTimeValid = false;
-                    log.warn("AMQP {}: creationTime field found but invalid (null or zero)", amqpMsgId);
-                } else if (trimmed.matches("^\\d{6}$")) {
+                // CTSW105 (§4.5.2.10a): chỉ nhận amhs_ats_ft khi đúng date-time group 6 số DDhhmm
+                // (hoặc epoch millis - client JMS hay gửi dạng này). "0"/"000000"/"null" là giá trị
+                // rỗng trá hình, không phải giờ thật.
+                boolean placeholder = "0".equals(trimmed) || "000000".equals(trimmed) || "null".equalsIgnoreCase(trimmed);
+                if (!placeholder && trimmed.matches("^\\d{6}$")) {
+                    creationTimeFieldFound = true;
                     amhsAtsFt = trimmed;
-                } else {
+                } else if (!placeholder) {
                     try {
                         long epochMs = Long.parseLong(trimmed);
                         if (epochMs > 0) {
+                            creationTimeFieldFound = true;
                             LocalDateTime dt = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(epochMs), java.time.ZoneOffset.UTC);
                             amhsAtsFt = dt.format(java.time.format.DateTimeFormatter.ofPattern("ddHHmm"));
-                        } else {
-                            creationTimeValid = false;
                         }
-                    } catch (NumberFormatException nfe) {
-                        amhsAtsFt = trimmed;
+                    } catch (NumberFormatException ignored) {
+                        // sai định dạng -> rơi xuống fallback creation-time bên dưới
                     }
+                }
+                // CTSW105 (§4.5.2.10b): sai định dạng thì DÙNG creation-time của AMQP, không được
+                // lấy nguyên chuỗi rác làm filing time.
+                if (!creationTimeFieldFound) {
+                    log.warn("AMQP {}: amhs_ats_ft '{}' sai định dạng - dùng creation-time của AMQP thay thế",
+                            amqpMsgId, trimmed);
                 }
             }
         }
@@ -412,6 +410,23 @@ public class AMQPSubscriberService {
         String amhsFtbpLastMod = getAppProperty(amqpMsg, "amhs_ftbp_last_mod");
         String amhsRegisteredIdentifier = getAppProperty(amqpMsg, "amhs_registered_identifier");
         String amhsUserVisibleString = getAppProperty(amqpMsg, "amhs_user_visible_string");
+
+        // §4.5.2.14: registered-identifier mang OID khác OID mặc định thì
+        // user-visible-string BẮT BUỘC phải có. Thiếu -> log + báo Control Position, nhưng vẫn
+        // chuyển tiếp bản tin. (Việc đối chiếu OID với bảng đăng ký ở ICAO EUR AMHS Manual,
+        // Appendix B A.2.4.2.6 nằm ngoài phạm vi - gateway không có bảng đó.)
+        if (amhsRegisteredIdentifier != null && !amhsRegisteredIdentifier.isBlank()
+                && !vn.asg.swim.model.AmqpProperties.isDefaultRegisteredIdentifier(amhsRegisteredIdentifier)
+                && (amhsUserVisibleString == null || amhsUserVisibleString.isBlank())) {
+            log.warn("AMQP {}: amhs_registered_identifier '{}' khác OID mặc định nhưng thiếu "
+                    + "amhs_user_visible_string", amqpMsgId, amhsRegisteredIdentifier);
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR,
+                    GwAlert.SEV_WARNING,
+                    "AMQP " + amqpMsgId + ": amhs_registered_identifier '" + amhsRegisteredIdentifier
+                            + "' khác OID mặc định nhưng thiếu amhs_user_visible_string (§4.5.2.14)",
+                    "gwin", null);
+        }
         
         String notificationRequests = null;
         List<String> notifList = getAppPropertyAsList(amqpMsg, "notification_requests");
@@ -422,33 +437,16 @@ public class AMQPSubscriberService {
             notificationRequests = String.join(",", notifList);
         }
 
-        ResolvedAddressing resolved = addressingResolver.resolve(amqpMsg, queue);
-
-        // 5. Trích xuất người nhận (Recipients Fallback Chain)
-        // Step 1: Lấy từ AMQP Application Properties
+        // CTSW102 (§4.5.1.5/§4.5.1.8): amhs_recipients is the only recipients property the spec
+        // recognises - no property-name or routing-rule fallback. Missing/unresolvable/over-max
+        // recipients park the message as UNROUTED (not terminal FAILED) per §4.2.6.1's Control
+        // Position role - reporting exists "for appropriate action", including recovering a rejection.
         List<String> recipientsList = getAppPropertyAsList(amqpMsg, "amhs_recipients");
-        if (recipientsList.isEmpty()) {
-            recipientsList = getAppPropertyAsList(amqpMsg, "recipients");
-        }
-        if (recipientsList.isEmpty()) {
-            recipientsList = getAppPropertyAsList(amqpMsg, "addressees");
-        }
-
-
-        // Step 2: Fallback sang kết quả phân giải địa chỉ (AddressingResolver)
-        if (recipientsList.isEmpty() && resolved != null && resolved.recipients() != null) {
-            String[] parts = resolved.recipients().trim().split("\\s+");
-            for (String part : parts) {
-                if (!part.isBlank() && !recipientsList.contains(part)) {
-                    recipientsList.add(part);
-                }
-            }
-        }
 
         boolean recipientsValid = true;
         if (recipientsList.isEmpty()) {
             recipientsValid = false;
-            log.warn("AMQP {}: Mandatory recipients field is missing or empty", amqpMsgId);
+            log.warn("AMQP {}: Mandatory amhs_recipients field is missing or empty", amqpMsgId);
         } else {
             // EUR Doc 047 §3.3.2.4: 0 hoặc không cấu hình = không giới hạn
             int maxRecipients = configService.getMaxMsgRecipients();
@@ -488,18 +486,22 @@ public class AMQPSubscriberService {
             }
         }
 
+        if (!recipientsValid) {
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR,
+                    GwAlert.SEV_WARNING,
+                    "AMQP " + amqpMsgId + ": amhs_recipients missing, unresolvable or over the configured "
+                            + "maximum - message parked as UNROUTED for Control Position action",
+                    "gwin", null);
+        }
+
         String amhsRecipients = String.join(" ", recipientsList);
 
-        // Phân giải originator nâng cao
+        // CTSW109 (EUR Doc 047 §4.5.2.12): chỉ property amhs_originator được spec công nhận cho
+        // originator. Nếu thiếu hoặc không đúng addressee indicator 8 ký tự, dùng default
+        // originator, đồng thời logged VÀ reported to Control Position (§4.5.2.12b) — không suy
+        // luận originator từ property tên khác hay routing rule (cùng lý do với CTSW102).
         String amhsOriginator = getAppProperty(amqpMsg, "amhs_originator");
-        if (amhsOriginator == null || amhsOriginator.isBlank()) {
-            amhsOriginator = getAppProperty(amqpMsg, "originator");
-        }
-        if (amhsOriginator == null || amhsOriginator.isBlank()) {
-            amhsOriginator = resolved != null ? resolved.originator() : null;
-        }
-        // EUR Doc 047 §4.5.2.12: amhs_originator phải chứa đúng addressee indicator 8 ký tự;
-        // nếu không, dùng default originator, đồng thời logged VÀ reported to Control Position.
         if (amhsOriginator == null || amhsOriginator.isBlank()
                 || !validationService.validateAftnAddress(amhsOriginator, "amhs_originator").isValid()) {
             String invalidOriginator = amhsOriginator;
@@ -514,12 +516,22 @@ public class AMQPSubscriberService {
                     "gwin", null);
         }
 
-        // Cập nhật lại resolved với originator và recipients hoàn chỉnh
-        if (resolved == null || !resolved.isResolved()) {
-            resolved = new ResolvedAddressing(amhsOriginator, amhsRecipients, ResolvedAddressing.SOURCE_AMQP_PROPERTY);
-        } else {
-            resolved = new ResolvedAddressing(amhsOriginator, amhsRecipients, resolved.source());
+        // amhs_originator/amhs_recipients are always sourced directly from AMQP properties now
+        // (see CTSW102/CTSW109 above) — the addressing source label just reflects whether a usable
+        // recipients list was actually present.
+        ResolvedAddressing resolved = new ResolvedAddressing(amhsOriginator, amhsRecipients,
+                recipientsValid ? ResolvedAddressing.SOURCE_AMQP_PROPERTY : ResolvedAddressing.SOURCE_UNRESOLVED);
+
+        // CTSW103 (§3.3.3 / §4.5.2.10.1 / §4.5.3.7-9): phân giải ATSMHS service level TRƯỚC khi
+        // đóng gói properties, vì mức dịch vụ quyết định cách thành phần dựng IPM map các trường
+        // (basic: ats_ft -> ATS-message-Filing-Time, ohi -> ATS-message-Optional-Heading-Info;
+        // extended: ats_ft -> authorization-time, ohi -> originators-reference,
+        // precedence-policy-identifier). Giá trị phải được lưu lại, không chỉ ghi log.
+        String atsmhsOverrideMode = getAppProperty(amqpMsg, "atsmhs_service_level");
+        if (atsmhsOverrideMode == null || atsmhsOverrideMode.isBlank()) {
+            atsmhsOverrideMode = getAppProperty(amqpMsg, "atsmhs-service-level");
         }
+        String atsmhsServiceLevel = atsmhsResolver.resolve(atsmhsOverrideMode, contentType, amhsRecipients);
 
         // Chuyển đổi các thuộc tính ứng dụng sang định dạng JSON
         java.util.Map<String, String> props = new java.util.LinkedHashMap<>();
@@ -574,7 +586,11 @@ public class AMQPSubscriberService {
                 finalContent,
                 payloadByteSize);
 
-        boolean isCompliant = hasMessageId && priorityValid && creationTimeValid && dataValid && recipientsValid && contentTypeSupported && validationResult.isValid();
+        // amhs_recipients is intentionally NOT part of isCompliant: per §4.2.6.1/.2 (see CTSW102
+        // comment above), a missing/unresolvable recipients list is handled below as UNROUTED
+        // (recoverable via Control Position), not lumped in with the other mandatory-field
+        // violations below, which have no such recovery path and are genuinely terminal.
+        boolean isCompliant = hasMessageId && priorityValid && creationTimeValid && dataValid && contentTypeSupported && validationResult.isValid();
 
         // NẾU KHÔNG THỎA MÃN 1 TRONG CÁC ĐIỀU KIỆN, VẪN LƯU VÀO GWIN VỚI STATUS = 4 (IN_FAILED)
         if (!isCompliant) {
@@ -583,7 +599,6 @@ public class AMQPSubscriberService {
             if (!priorityValid) errors.add("Invalid priority: " + rawPriority + " (must be 0-9)");
             if (!creationTimeValid) errors.add("Mandatory field 'creation-time' is missing or invalid");
             if (!dataValid) errors.add("Mandatory field 'data/amqp-value' is missing or empty");
-            if (!recipientsValid) errors.add("Mandatory field 'amhs_recipients' is missing or empty (or count exceeds max)");
             if (!contentTypeSupported) errors.add("Unsupported content-type: " + contentType);
             if (!validationResult.isValid()) errors.addAll(validationResult.getErrors());
 
@@ -614,6 +629,7 @@ public class AMQPSubscriberService {
             failedGwin.setOrigin(resolved.originator());
             failedGwin.setAddress(resolved.recipients());
             failedGwin.setAddressingSource(resolved.source());
+            failedGwin.setAtsmhsServiceLevel(atsmhsServiceLevel);
             failedGwin.setStatus(InboundStatus.FAILED.getValue()); // status = 1
 
             try {
@@ -624,18 +640,12 @@ public class AMQPSubscriberService {
             return;
         }
 
-        // Kiểm tra cấp độ dịch vụ ATSMHS theo đặc tả
+        // Kiểm tra cấp độ dịch vụ ATSMHS theo đặc tả (mức dịch vụ đã được phân giải ở trên)
         if (resolved.isResolved()) {
-            String overrideMode = getAppProperty(amqpMsg, "atsmhs_service_level");
-            if (overrideMode == null || overrideMode.isBlank()) {
-                overrideMode = getAppProperty(amqpMsg, "atsmhs-service-level");
-            }
-
-            String serviceLevel = atsmhsResolver.resolve(overrideMode, contentType, resolved.recipients());
             boolean hasBinaryContent = binaryPayload != null;
 
-            // Chế độ BASIC không hỗ trợ nội dung nhị phân (binary)
-            if (!atsmhsResolver.validateContent(serviceLevel, contentType, hasBinaryContent)) {
+            // CTSW103 bản tin 2: chế độ BASIC không hỗ trợ nội dung nhị phân (binary)
+            if (!atsmhsResolver.validateContent(atsmhsServiceLevel, contentType, hasBinaryContent)) {
                 log.error("AMQP message {} REJECTED: BASIC ATSMHS mode cannot handle binary content", amqpMsgId);
                 alertService.create(
                         GwAlert.TYPE_VALIDATION_ERROR,
@@ -660,6 +670,7 @@ public class AMQPSubscriberService {
                 failedGwin.setOrigin(resolved.originator());
                 failedGwin.setAddress(resolved.recipients());
                 failedGwin.setAddressingSource(resolved.source());
+                failedGwin.setAtsmhsServiceLevel(atsmhsServiceLevel);
                 failedGwin.setStatus(InboundStatus.FAILED.getValue()); // status = 1
 
                 try {
@@ -670,7 +681,7 @@ public class AMQPSubscriberService {
                 return;
             }
 
-            log.debug("AMQP {}: ATSMHS service level = {}", amqpMsgId, serviceLevel);
+            log.debug("AMQP {}: ATSMHS service level = {}", amqpMsgId, atsmhsServiceLevel);
         }
 
         Gwin gwin = new Gwin();
@@ -689,6 +700,7 @@ public class AMQPSubscriberService {
             gwin.setOrigin(resolved.originator());
             gwin.setAddress(resolved.recipients());
             gwin.setAddressingSource(resolved.source());
+            gwin.setAtsmhsServiceLevel(atsmhsServiceLevel);
         }
 
         try {
@@ -864,14 +876,14 @@ public class AMQPSubscriberService {
      */
     @Scheduled(fixedDelay = 10000)
     public void checkRoutingChanges() {
-        if (!running.get() || !connectionManager.getConnected().get()) {
+        if (!connectionManager.getConnected().get()) {
             return;
         }
         try {
             List<String> activeQueues = routingService.getActiveInboundTopics();
-            if (!activeQueues.equals(currentSubscribedQueues)) {
-                log.info("Detected changes in active inbound routing rules. Current subscribed: {}, New active: {}. Re-subscribing...", 
-                        currentSubscribedQueues, activeQueues);
+            if (!running.get() || !activeQueues.equals(currentSubscribedQueues) || activeSessions.isEmpty()) {
+                log.info("Re-subscribing inbound topics (running={}, activeQueues={}, activeSessions={})...", 
+                        running.get(), activeQueues, activeSessions.size());
                 subscribeAll();
             }
         } catch (Exception e) {

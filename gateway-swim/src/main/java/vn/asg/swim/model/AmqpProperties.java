@@ -8,6 +8,13 @@ package vn.asg.swim.model;
  */
 public class AmqpProperties {
 
+    /**
+     * OID mặc định do EMA đăng ký cho abstract-value "unknown-attachment"
+     * (§4.4.4.5b / §4.5.2.13b). registered-identifier mang giá trị khác OID này thì
+     * user-visible-string bắt buộc phải có kèm (§4.4.4.6 / §4.5.2.14).
+     */
+    public static final String DEFAULT_REGISTERED_IDENTIFIER_OID = "2.16.840.1.113694.2.2.1.1";
+
     // §4.4.3.4.1 / §4.5.2.1
     private String amhsIpmId; // IPM Identifier
 
@@ -216,5 +223,16 @@ public class AmqpProperties {
             case "KK" -> 2;
             default -> 4;
         };
+    }
+
+    /**
+     * Kiểm tra registered-identifier có phải OID mặc định "unknown-attachment" hay không.
+     * Chấp nhận cả dạng có ngoặc nhọn {2.16.840...} lẫn không.
+     */
+    public static boolean isDefaultRegisteredIdentifier(String oid) {
+        if (oid == null) {
+            return false;
+        }
+        return DEFAULT_REGISTERED_IDENTIFIER_OID.equals(oid.replaceAll("[{}\\s]", ""));
     }
 }

@@ -84,6 +84,10 @@ public class Gwin {
     @Column(name = "addressing_source", length = 200)
     private String addressingSource;
 
+    /** Mức dịch vụ ATSMHS đã phân giải (BASIC / EXTENDED) - EUR Doc 047 §3.3.3, CTSW103. */
+    @Column(name = "atsmhs_service_level", length = 20)
+    private String atsmhsServiceLevel;
+
     /**
      * Global Status.
      * 0=PENDING, 1=UNROUTED, 2=TRANSFORMED, 3=DELIVERED, 4=FAILED, 5=RESOLVED, 6=CANCELLED

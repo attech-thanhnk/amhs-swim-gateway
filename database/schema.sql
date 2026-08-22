@@ -72,6 +72,7 @@ CREATE TABLE `gwin` (
   `msgid` bigint(20) NOT NULL AUTO_INCREMENT,
   `address` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `addressing_source` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `atsmhs_service_level` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `amhs_recipients` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `amqp_properties` text COLLATE utf8mb4_unicode_ci,
   `body_type` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,

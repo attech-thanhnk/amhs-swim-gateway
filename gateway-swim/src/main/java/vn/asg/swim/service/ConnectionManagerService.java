@@ -102,17 +102,23 @@ public class ConnectionManagerService {
             return;
         }
 
-        // Nếu có tài khoản ACTIVE nhưng đang ở trạng thái CONNECTING hoặc mất kết nối -> tiến hành connect
-        if (!connected.get() || BIND_CONNECTING.equals(activeAcc.getBindStatus()) || (activeAccountId != null && !activeAccountId.equals(activeAcc.getId()))) {
+        // Chỉ tiến hành connect khi mất kết nối hoặc chuyển đổi tài khoản active.
+        // Nếu kết nối đang hoat động tốt nhưng DB mang trạng thái CONNECTING -> đồng bộ DB sang CONNECTED thay vì tear-down kết nối.
+        if (!connected.get() || (activeAccountId != null && !activeAccountId.equals(activeAcc.getId()))) {
             log.info("Active AMQP account change or reconnect requested for account '{}' (bindStatus={}). Connecting...",
                     activeAcc.getAccountName(), activeAcc.getBindStatus());
             connect();
+        } else if (BIND_CONNECTING.equals(activeAcc.getBindStatus()) && connected.get()) {
+            updateBindStatus(BIND_CONNECTED);
         }
     }
 
     public synchronized void disconnectInternal() {
         try {
             if (connection != null) {
+                try {
+                    connection.setExceptionListener(null);
+                } catch (Exception ignored) {}
                 connection.close();
             }
         } catch (Exception ignored) {
@@ -205,7 +211,12 @@ public class ConnectionManagerService {
             Connection newConn = null;
             try {
                 newConn = factory.createConnection();
+                final Connection targetConn = newConn;
                 newConn.setExceptionListener(ex -> {
+                    if (this.connection != targetConn && targetConn != null) {
+                        log.debug("Ignored exception on superseded AMQP connection: {}", ex.getMessage());
+                        return;
+                    }
                     log.error("AMQP connection exception: {}", ex.getMessage());
                     connected.set(false);
                     updateBindStatus(BIND_DISCONNECTED);
@@ -215,10 +226,11 @@ public class ConnectionManagerService {
                 });
                 newConn.start();
 
-                // Đóng kết nối cũ trước khi gán kết nối mới để tránh rò rỉ tài nguyên
+                // Đóng kết nối cũ trước khi gán kết nối mới để tránh rò rỉ tài nguyên, hủy ExceptionListener cũ để tránh cascade loop
                 Connection oldConn = this.connection;
-                if (oldConn != null) {
+                if (oldConn != null && oldConn != newConn) {
                     try {
+                        oldConn.setExceptionListener(null);
                         oldConn.close();
                         log.debug("Closed old AMQP connection");
                     } catch (Exception ignored) {}
@@ -235,7 +247,10 @@ public class ConnectionManagerService {
 
             } catch (Exception ex) {
                 if (newConn != null) {
-                    try { newConn.close(); } catch (Exception ignored) {}
+                    try {
+                        newConn.setExceptionListener(null);
+                        newConn.close();
+                    } catch (Exception ignored) {}
                 }
                 throw ex;
             }
@@ -269,13 +284,18 @@ public class ConnectionManagerService {
      * Lập lịch kết nối lại tự động khi gặp sự cố mất kết nối.
      */
     private void scheduleReconnect() {
+        if (connected.get()) {
+            return;
+        }
         int attempt = reconnectAttempt.incrementAndGet();
         long delay = Math.min(1000L * (1L << Math.min(attempt - 1, 5)), MAX_BACKOFF_MS);
         log.warn("Scheduling AMQP reconnect in {}ms (attempt #{})", delay, attempt);
         Thread t = new Thread(() -> {
             try {
                 Thread.sleep(delay);
-                connect();
+                if (!connected.get()) {
+                    connect();
+                }
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
             }

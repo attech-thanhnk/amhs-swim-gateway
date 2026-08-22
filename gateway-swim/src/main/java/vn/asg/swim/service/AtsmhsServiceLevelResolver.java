@@ -96,9 +96,11 @@ public class AtsmhsServiceLevelResolver {
         String extendedCapableAddresses = configService.get("ATSMHS_EXTENDED_CAPABLE_ADDRESSES");
 
         if (extendedCapableAddresses.isBlank()) {
-            // Default: assume all modern AMHS units support extended
-            log.debug("ATSMHS: recipients-based → EXTENDED (default assumption)");
-            return EXTENDED;
+            // EUR Doc 047 §3.3.3.6: chỉ map extended khi TẤT CẢ người nhận hỗ trợ extended;
+            // "Otherwise" -> basic. Danh sách rỗng = không có bằng chứng nào, nên phải là BASIC.
+            log.warn("ATSMHS: ATSMHS_EXTENDED_CAPABLE_ADDRESSES chưa được cấu hình - "
+                    + "recipients-based → BASIC (§3.3.3.6)");
+            return BASIC;
         }
 
         String[] recipientArray = recipients.trim().split("\\s+");
