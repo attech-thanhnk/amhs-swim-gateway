@@ -132,6 +132,7 @@ CREATE TABLE `gwout` (
   `body_type` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `number_of_attachment` int(11) DEFAULT NULL,
   `origin_eit` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `x400_content_type` int(11) DEFAULT NULL,
   `content_type` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `error_type` int(11) DEFAULT NULL,
   `filing_time` varchar(6) COLLATE utf8mb4_unicode_ci DEFAULT NULL,

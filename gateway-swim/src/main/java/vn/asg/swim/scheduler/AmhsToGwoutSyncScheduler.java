@@ -47,6 +47,21 @@ public class AmhsToGwoutSyncScheduler {
     }
 
     /**
+     * Đọc một cột kiểu số từ dòng kết quả, trả về -1 nếu thiếu hoặc không hợp lệ
+     * để các phép so sánh giá trị (CTSW003 report-request, CTSW008 content-type) không khớp nhầm.
+     */
+    private int asInt(Object[] row, int index) {
+        if (row == null || row.length <= index || row[index] == null) return -1;
+        if (row[index] instanceof Number n) return n.intValue();
+        try {
+            return Integer.parseInt(asString(row[index]).trim());
+        } catch (NumberFormatException e) {
+            log.warn("Giá trị số '{}' không hợp lệ ở cột {} của kết quả mtcu", row[index], index);
+            return -1;
+        }
+    }
+
+    /**
      * Ánh xạ giá trị bodyPartCharacterSet thô từ mtcu_tmp sang repertoire chuẩn
      * EUR Doc 047 §4.4.3.4.9 (Basic ISO-646 / Basic-1 ISO-8859-1).
      */
@@ -96,9 +111,12 @@ public class AmhsToGwoutSyncScheduler {
                     t.ftbpObjectSize,
                     t.ftbpLastMod,
                     t.numberOfAttachment,
-                    t.originEncodeInformationType
+                    t.originEncodeInformationType,
+                    o.reportRequest,
+                    o.mtaReportRequest,
+                    t.contentType
                 FROM (
-                    SELECT id, content, atsFilingTime, atsPriority, atsOhi, bodyPartType, ipmId, messageId, orAddress, bodyPartCharacterSet, ftbpFileName, ftbpObjectSize, ftbpLastMod, numberOfAttachment, originEncodeInformationType
+                    SELECT id, content, atsFilingTime, atsPriority, atsOhi, bodyPartType, ipmId, messageId, orAddress, bodyPartCharacterSet, ftbpFileName, ftbpObjectSize, ftbpLastMod, numberOfAttachment, originEncodeInformationType, contentType
                     FROM mtcu_tmp
                     ORDER BY id DESC
                     LIMIT 200
@@ -214,6 +232,20 @@ public class AmhsToGwoutSyncScheduler {
                     gwout.setBodyType(bodyType);
                     gwout.setNumberOfAttachment(numberOfAttachment);
                     gwout.setOriginEit(row.length > 15 ? asString(row[15]) : null);
+                    // CTSW008 (§4.4.1.1): content-type abstract-value của MTE, giữ nguyên giá trị thô
+                    // để OutboundDispatchService từ chối nếu khác interpersonal-messaging-1988(22).
+                    // Lưu ý 0 = unidentified là giá trị THẬT (phải bị từ chối), khác với -1 = thiếu dữ liệu.
+                    int rawContentType = asInt(row, 18);
+                    gwout.setX400ContentType(rawContentType >= 0 ? rawContentType : null);
+
+                    // CTSW003 (§4.4.8 / Doc 9880 §4.5.6.2.20): per-recipient-indicators quyết định
+                    // có phải sinh Delivery Report hay không. Cần DR khi originator-report-request
+                    // = report(2), HOẶC originating-MTA-report-request = report(2)/audited-report(3).
+                    // Cờ nằm ở mức từng recipient nên duyệt hết các dòng mtcu_to của bản tin.
+                    gwout.setAmhsDeliveryReport(msgRows.stream().anyMatch(r ->
+                            asInt(r, 16) == 2
+                                    || asInt(r, 17) == 2
+                                    || asInt(r, 17) == 3));
                     // EUR Doc 047 §4.4.3.4.9: repertoire chỉ có ý nghĩa cho general-text-body-part
                     // (ia5-text* luôn là "ia5", file-transfer-body-part không áp dụng)
                     if ("general-text-body-part".equals(standardBodyPartType)) {

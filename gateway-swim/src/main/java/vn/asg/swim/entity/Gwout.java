@@ -100,6 +100,14 @@ public class Gwout {
     private String originEit;
 
     /**
+     * Content-type abstract-value lấy từ Message Transfer Envelope (mtcu_tmp.contentType).
+     * EUR Doc 047 §4.4.1.1: chỉ chấp nhận interpersonal-messaging-1988(22); các giá trị
+     * khác (ví dụ 2, 35, 0) phải sinh NDR "content-type-not-supported".
+     */
+    @Column(name = "x400_content_type")
+    private Integer x400ContentType;
+
+    /**
      * Số body part của IPM gốc (mtcu_tmp.numberOfAttachment).
      * EUR Doc 047 §4.4.2.2/§4.4.2.4: 1 -> xử lý bình thường; 2 -> chỉ hợp lệ khi là
      * cặp text + file-transfer-body-part; &gt;2 -> từ chối.
@@ -283,6 +291,14 @@ public class Gwout {
 
     public void setOriginEit(String originEit) {
         this.originEit = originEit;
+    }
+
+    public Integer getX400ContentType() {
+        return x400ContentType;
+    }
+
+    public void setX400ContentType(Integer x400ContentType) {
+        this.x400ContentType = x400ContentType;
     }
 
     public Integer getNumberOfAttachment() {

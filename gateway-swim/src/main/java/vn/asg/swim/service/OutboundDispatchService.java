@@ -24,6 +24,9 @@ import java.util.List;
 @Slf4j
 public class OutboundDispatchService {
 
+    /** Abstract-value X.400 của content-type duy nhất được chấp nhận (EUR Doc 047 §4.4.1.1). */
+    private static final int IPM_1988_CONTENT_TYPE = 22;
+
     private final ConnectionManagerService connectionManager;
     private final MessageDetectService detectService;
     private final RoutingService routingService;
@@ -60,6 +63,28 @@ public class OutboundDispatchService {
         if (isProbe) {
             log.info("Processing AMHS Probe for gwout#{}", gwout.getMsgid());
             processAmhsProbe(gwout);
+            return;
+        }
+
+        // CTSW008 (§4.4.1.1): content-type của Message Transfer Envelope phải là
+        // interpersonal-messaging-1988(22). Mọi giá trị khác - kể cả
+        // interpersonal-messaging-1984(2), edi-messaging(35), unidentified(0) - phải bị từ chối.
+        // NULL = bản tin cũ không có dữ liệu content-type -> bỏ qua bước kiểm tra.
+        Integer x400ContentType = gwout.getX400ContentType();
+        if (x400ContentType != null && x400ContentType != IPM_1988_CONTENT_TYPE) {
+            log.warn("gwout#{} rejected: content-type {} khác interpersonal-messaging-1988(22)",
+                    gwout.getMsgid(), x400ContentType);
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                    "gwout#" + gwout.getMsgid() + " rejected: unsupported content-type " + x400ContentType,
+                    "gwout", gwout.getMsgid());
+            gwout.setStatus(OutboundStatus.FAILED.getValue());
+            gwout.setRejectionReason("unsupported-content-type");
+            gwout.setRejectionDiagnostic("content-type-not-supported");
+            gwoutRepository.save(gwout);
+            // CTSW008 chỉ yêu cầu non-delivery-reason-code + non-delivery-diagnostic-code.
+            conversionService.logAmhsToSwimRejected(gwout,
+                    "unsupported_content_type: " + x400ContentType, "content-type-not-supported", null);
             return;
         }
 
@@ -146,8 +171,11 @@ public class OutboundDispatchService {
             if (bodyPartCount > 2) {
                 supplementary = "unable to convert to AMQP due to multiple body parts";
             } else if (!"file-transfer-body-part".equals(gwout.getBodyPartType())) {
-                // Đúng 2 body part nhưng không có FTBP -> không phải cặp text+FTBP hợp lệ
-                supplementary = "unable to convert to AMQP due to unsupported combination of body part types";
+                // Đúng 2 body part nhưng không có FTBP -> không phải cặp text+FTBP hợp lệ.
+                // Appendix A/CTSW007 (bản tin thứ 3) quy định chuỗi supplementary-information
+                // là "unsupported body part type"; §4.4.2.4 của EUR Doc 047 dùng chữ
+                // "unsupported combination of body part types". Theo tài liệu kiểm thử.
+                supplementary = "unable to convert to AMQP due to unsupported body part type";
             }
             if (supplementary != null) {
                 log.warn("gwout#{} rejected: {} body part(s), type={}",
@@ -258,6 +286,17 @@ public class OutboundDispatchService {
             gwoutRepository.save(gwout);
             conversionService.logAmhsToSwim(gwout, null, "OK", "forwarded_unchanged");
             log.info("gwout#{} forwarded unchanged -> status=OUT_TRANSFORMED", gwout.getMsgid());
+
+            // CTSW003 (§4.4.8): IPM đã dịch thành công và per-recipient-indicators có yêu cầu
+            // report -> phải sinh Delivery Report trả về AMHS. Cờ được
+            // AmhsToGwoutSyncScheduler tính sẵn từ mtcu_to.reportRequest/mtaReportRequest.
+            // Giống CTSW011, phần phát DR ra đường truyền X.400 do AMHS Component (amss) thực hiện;
+            // ở đây ghi nhận để amss phát và để Control Position tra cứu được.
+            if (Boolean.TRUE.equals(gwout.getAmhsDeliveryReport())) {
+                log.info("gwout#{} yêu cầu Delivery Report (CTSW003) - ghi nhận để AMHS Component phát DR",
+                        gwout.getMsgid());
+                conversionService.logAmhsToSwim(gwout, null, "OK", "dr_generated");
+            }
         } catch (Exception e) {
             log.error("gwout#{} processing failed: {}", gwout.getMsgid(), e.getMessage());
             gwout.setStatus(OutboundStatus.FAILED.getValue());

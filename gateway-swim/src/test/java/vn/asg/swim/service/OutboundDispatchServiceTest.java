@@ -528,7 +528,7 @@ class OutboundDispatchServiceTest {
         assertEquals("unsupported-body-parts", gwout.getRejectionReason());
         verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("unsupported_body_parts"),
                 eq("content-syntax-error"),
-                eq("unable to convert to AMQP due to unsupported combination of body part types"));
+                eq("unable to convert to AMQP due to unsupported body part type"));
     }
 
     @Test
@@ -620,5 +620,97 @@ class OutboundDispatchServiceTest {
         when(connectionManager.createSession()).thenReturn(session);
         when(connectionManager.createProducer(any(), anyString())).thenReturn(mockProducer);
         when(session.createTextMessage(anyString())).thenReturn(mockTextMessage);
+    }
+
+    // ==================== DELIVERY REPORT (CTSW003) ====================
+
+    @Test
+    void testCTSW003_DeliveryReportRequested_ShouldRecordDr() throws Exception {
+        setupValidScenario();
+        gwout.setAmhsDeliveryReport(true);
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
+        verify(conversionService).logAmhsToSwim(eq(gwout), isNull(), eq("OK"), eq("dr_generated"));
+    }
+
+    @Test
+    void testCTSW003_DeliveryReportNotRequested_ShouldNotRecordDr() throws Exception {
+        setupValidScenario();
+        gwout.setAmhsDeliveryReport(false);
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
+        verify(conversionService, never()).logAmhsToSwim(any(), any(), any(), eq("dr_generated"));
+    }
+
+    @Test
+    void testCTSW003_RejectedMessage_ShouldNotRecordDr() throws Exception {
+        // DR chỉ dành cho IPM dịch THÀNH CÔNG; bản tin bị từ chối phải ra NDR, không phải DR
+        setupValidScenario();
+        gwout.setAmhsDeliveryReport(true);
+        gwout.setAmhsTtl(java.time.LocalDateTime.now().minusDays(1));
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        verify(conversionService, never()).logAmhsToSwim(any(), any(), any(), eq("dr_generated"));
+    }
+
+    // ==================== MTE CONTENT-TYPE (CTSW008) ====================
+
+    @Test
+    void testCTSW008_Ipm1988_ShouldBeAccepted() throws Exception {
+        // Bản tin 1: interpersonal-messaging-1988(22) -> chấp nhận và chuyển đổi
+        setupValidScenario();
+        gwout.setX400ContentType(22);
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
+    }
+
+    @Test
+    void testCTSW008_Ipm1984_ShouldBeRejected() throws Exception {
+        // Bản tin 2: interpersonal-messaging-1984(2) -> NDR content-type-not-supported
+        assertContentTypeRejected(2);
+    }
+
+    @Test
+    void testCTSW008_EdiMessaging_ShouldBeRejected() throws Exception {
+        // Bản tin 3: edi-messaging(35)
+        assertContentTypeRejected(35);
+    }
+
+    @Test
+    void testCTSW008_Unidentified_ShouldBeRejected() throws Exception {
+        // Bản tin 4: unidentified(0)
+        assertContentTypeRejected(0);
+    }
+
+    @Test
+    void testCTSW008_NullContentType_ShouldSkipCheck() throws Exception {
+        // Bản tin cũ đồng bộ trước khi có cột x400_content_type -> không được từ chối oan
+        setupValidScenario();
+        gwout.setX400ContentType(null);
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
+    }
+
+    private void assertContentTypeRejected(int contentType) throws Exception {
+        setupValidScenario();
+        gwout.setX400ContentType(contentType);
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        assertEquals("unsupported-content-type", gwout.getRejectionReason());
+        assertEquals("content-type-not-supported", gwout.getRejectionDiagnostic());
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout),
+                contains("unsupported_content_type"), eq("content-type-not-supported"), isNull());
     }
 }

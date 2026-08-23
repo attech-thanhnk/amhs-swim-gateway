@@ -12,7 +12,9 @@
 --   2 body part   -> chỉ hợp lệ khi là cặp text + file-transfer-body-part (§4.4.2.4a)
 --                    ngược lại từ chối, diagnostic "content-syntax-error",
 --                    supplementary "unable to convert to AMQP due to unsupported
---                    combination of body part types"
+--                    body part type" (chuỗi theo Appendix A/CTSW007 bản tin 3;
+--                    §4.4.2.4 của EUR Doc 047 dùng chữ "unsupported combination of
+--                    body part types" — đã chọn bám tài liệu kiểm thử)
 --   > 2 body part -> từ chối, supplementary "unable to convert to AMQP due to
 --                    multiple body parts" (§4.4.2.2c)
 --

@@ -247,6 +247,11 @@ public class MessagesController {
         m.put("rejectionDiagnostic", g.getRejectionDiagnostic());
         m.put("amhsDeliveryReport", g.getAmhsDeliveryReport());
         m.put("contentType", g.getContentType());
+        // Dữ liệu gốc từ MTE/IPM làm căn cứ cho các NDR §4.4.1.1 / §4.4.2.1 / §4.4.2.2,
+        // Control Position cần thấy được để đối chiếu khi nghiệm thu (CTSW008/016/007).
+        m.put("x400ContentType", g.getX400ContentType());
+        m.put("originEit", g.getOriginEit());
+        m.put("numberOfAttachment", g.getNumberOfAttachment());
         m.put("status", g.getStatus());
         return m;
     }

@@ -78,6 +78,10 @@ public class Gwout {
     @Column(name = "origin_eit", length = 255)
     private String originEit;
 
+    /** Content-type abstract-value của MTE (X.400) - EUR Doc 047 §4.4.1.1 (CTSW008). */
+    @Column(name = "x400_content_type")
+    private Integer x400ContentType;
+
     /** Số body part của IPM gốc - EUR Doc 047 §4.4.2.2/§4.4.2.4 (CTSW007). */
     @Column(name = "number_of_attachment")
     private Integer numberOfAttachment;
