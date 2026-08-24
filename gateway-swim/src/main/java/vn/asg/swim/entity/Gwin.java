@@ -83,12 +83,26 @@ public class Gwin {
 
     /**
      * Mức dịch vụ ATSMHS đã phân giải cho bản tin này (BASIC / EXTENDED).
-     * EUR Doc 047 §3.3.3 + §4.5.2.10.1/§4.5.3.7-9: quyết định thành phần dựng IPM map
-     * amhs_ats_ft và amhs_ats_ohi vào ATS-message-Filing-Time/Optional-Heading-Info (basic)
-     * hay authorization-time/originators-reference (extended).
+     * EUR Doc 047 §3.3.3 + §4.5.2.10.1/§4.5.3.7-9.
      */
     @Column(name = "atsmhs_service_level", length = 20)
     private String atsmhsServiceLevel;
+
+    /**
+     * Lý do bị từ chối theo ICAO Doc 047 (validation-failed, atsmhs-validation-failed, unauthorized...).
+     */
+    @Column(name = "rejection_reason", length = 64)
+    private String rejectionReason;
+
+    /**
+     * Chẩn đoán chi tiết lỗi từ chối theo ICAO Doc 047 (Invalid priority: 10, Missing messageId...).
+     */
+    @Column(name = "rejection_diagnostic", length = 500)
+    private String rejectionDiagnostic;
+
+    /** Nguon phat sinh loi: SWIM / AMHS */
+    @Column(name = "rejection_source", length = 20)
+    private String rejectionSource;
 
     /**
      * Global Status:
@@ -127,6 +141,14 @@ public class Gwin {
     public void setAddressingSource(String addressingSource) { this.addressingSource = addressingSource; }
     public String getAtsmhsServiceLevel() { return atsmhsServiceLevel; }
     public void setAtsmhsServiceLevel(String atsmhsServiceLevel) { this.atsmhsServiceLevel = atsmhsServiceLevel; }
+    public String getRejectionReason() { return rejectionReason; }
+    public void setRejectionReason(String rejectionReason) { this.rejectionReason = rejectionReason; if (rejectionReason != null && this.rejectionSource == null) { this.rejectionSource = "SWIM"; } }
+    public String getRejectionDiagnostic() { return rejectionDiagnostic; }
+    public void setRejectionDiagnostic(String rejectionDiagnostic) { this.rejectionDiagnostic = rejectionDiagnostic; }
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }
+    public String getRejectionSource() { return rejectionSource; }
+    public String getErrorSource() { return rejectionSource; }
+    public void setRejectionSource(String rejectionSource) { this.rejectionSource = rejectionSource; }
+    public void setErrorSource(String errorSource) { this.rejectionSource = errorSource; }
 }

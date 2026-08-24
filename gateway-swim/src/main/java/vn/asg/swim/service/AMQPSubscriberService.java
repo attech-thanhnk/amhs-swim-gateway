@@ -250,7 +250,7 @@ public class AMQPSubscriberService {
             alertService.create(
                     GwAlert.TYPE_VALIDATION_ERROR,
                     GwAlert.SEV_WARNING,
-                    "Unauthorized SWIM message rejected: " + amqpMsgId,
+                    "[SWIM->AMHS] Unauthorized SWIM message rejected: " + amqpMsgId,
                     "gwin", null);
             conversionService.logSwimToAmhs(amqpMsgId, null, "REJECTED", "unauthorized",
                     "SWIM user not authorized");
@@ -418,13 +418,13 @@ public class AMQPSubscriberService {
         if (amhsRegisteredIdentifier != null && !amhsRegisteredIdentifier.isBlank()
                 && !vn.asg.swim.model.AmqpProperties.isDefaultRegisteredIdentifier(amhsRegisteredIdentifier)
                 && (amhsUserVisibleString == null || amhsUserVisibleString.isBlank())) {
-            log.warn("AMQP {}: amhs_registered_identifier '{}' khác OID mặc định nhưng thiếu "
-                    + "amhs_user_visible_string", amqpMsgId, amhsRegisteredIdentifier);
+            log.warn("AMQP {}: amhs_registered_identifier '{}' is non-default OID but missing amhs_user_visible_string",
+                    amqpMsgId, amhsRegisteredIdentifier);
             alertService.create(
                     GwAlert.TYPE_VALIDATION_ERROR,
                     GwAlert.SEV_WARNING,
-                    "AMQP " + amqpMsgId + ": amhs_registered_identifier '" + amhsRegisteredIdentifier
-                            + "' khác OID mặc định nhưng thiếu amhs_user_visible_string (§4.5.2.14)",
+                    "[SWIM->AMHS] AMQP " + amqpMsgId + ": amhs_registered_identifier '" + amhsRegisteredIdentifier
+                            + "' is not default OID but missing amhs_user_visible_string (§4.5.2.14)",
                     "gwin", null);
         }
         
@@ -475,7 +475,7 @@ public class AMQPSubscriberService {
                 alertService.create(
                         GwAlert.TYPE_VALIDATION_ERROR,
                         GwAlert.SEV_WARNING,
-                        "AMQP " + amqpMsgId + ": unrecognised recipient(s) dropped: " + invalidRecipients,
+                        "[SWIM->AMHS] AMQP " + amqpMsgId + ": unrecognised recipient(s) dropped: " + invalidRecipients,
                         "gwin", null);
             }
             if (validRecipients.isEmpty()) {
@@ -484,15 +484,6 @@ public class AMQPSubscriberService {
             } else {
                 recipientsList = validRecipients;
             }
-        }
-
-        if (!recipientsValid) {
-            alertService.create(
-                    GwAlert.TYPE_VALIDATION_ERROR,
-                    GwAlert.SEV_WARNING,
-                    "AMQP " + amqpMsgId + ": amhs_recipients missing, unresolvable or over the configured "
-                            + "maximum - message parked as UNROUTED for Control Position action",
-                    "gwin", null);
         }
 
         String amhsRecipients = String.join(" ", recipientsList);
@@ -511,7 +502,7 @@ public class AMQPSubscriberService {
             alertService.create(
                     GwAlert.TYPE_VALIDATION_ERROR,
                     GwAlert.SEV_WARNING,
-                    "AMQP " + amqpMsgId + ": invalid/unknown amhs_originator '" + invalidOriginator
+                    "[SWIM->AMHS] AMQP " + amqpMsgId + ": invalid/unknown amhs_originator '" + invalidOriginator
                             + "', falling back to default originator " + amhsOriginator,
                     "gwin", null);
         }
@@ -586,11 +577,9 @@ public class AMQPSubscriberService {
                 finalContent,
                 payloadByteSize);
 
-        // amhs_recipients is intentionally NOT part of isCompliant: per §4.2.6.1/.2 (see CTSW102
-        // comment above), a missing/unresolvable recipients list is handled below as UNROUTED
-        // (recoverable via Control Position), not lumped in with the other mandatory-field
-        // violations below, which have no such recovery path and are genuinely terminal.
-        boolean isCompliant = hasMessageId && priorityValid && creationTimeValid && dataValid && contentTypeSupported && validationResult.isValid();
+        // CTSW102 (§4.5.1.5): amhs_recipients is mandatory for AMHS-unaware service level.
+        // If missing or all recipients invalid/over max -> reject immediately.
+        boolean isCompliant = hasMessageId && priorityValid && creationTimeValid && dataValid && contentTypeSupported && recipientsValid && validationResult.isValid();
 
         // NẾU KHÔNG THỎA MÃN 1 TRONG CÁC ĐIỀU KIỆN, VẪN LƯU VÀO GWIN VỚI STATUS = 4 (IN_FAILED)
         if (!isCompliant) {
@@ -600,16 +589,11 @@ public class AMQPSubscriberService {
             if (!creationTimeValid) errors.add("Mandatory field 'creation-time' is missing or invalid");
             if (!dataValid) errors.add("Mandatory field 'data/amqp-value' is missing or empty");
             if (!contentTypeSupported) errors.add("Unsupported content-type: " + contentType);
+            if (!recipientsValid) errors.add("Mandatory field 'amhs_recipients' is missing or invalid");
             if (!validationResult.isValid()) errors.addAll(validationResult.getErrors());
 
             String errorMessage = String.join("; ", errors);
             log.error("AMQP message {} validation FAILED: {}", amqpMsgId, errorMessage);
-
-            alertService.create(
-                    GwAlert.TYPE_VALIDATION_ERROR,
-                    GwAlert.SEV_ERROR,
-                    "Message validation failed: " + amqpMsgId + " - " + errorMessage,
-                    "gwin", null);
 
             conversionService.logSwimToAmhs(amqpMsgId, resolved.originator(), "REJECTED", "validation-failed",
                     errorMessage);
@@ -630,13 +614,24 @@ public class AMQPSubscriberService {
             failedGwin.setAddress(resolved.recipients());
             failedGwin.setAddressingSource(resolved.source());
             failedGwin.setAtsmhsServiceLevel(atsmhsServiceLevel);
-            failedGwin.setStatus(InboundStatus.FAILED.getValue()); // status = 1
+            failedGwin.setRejectionReason("validation-failed");
+            failedGwin.setRejectionSource("SWIM");
+            failedGwin.setRejectionDiagnostic(errorMessage);
+            failedGwin.setStatus(InboundStatus.FAILED.getValue()); // status = 1 (FAILED)
 
+            Long savedMsgid = null;
             try {
-                gwinRepository.save(failedGwin);
+                Gwin saved = gwinRepository.save(failedGwin);
+                savedMsgid = saved.getMsgid();
             } catch (DataIntegrityViolationException e) {
                 log.warn("AMQP message {} already exists (race condition). Ignoring.", amqpMsgId);
             }
+
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR,
+                    GwAlert.SEV_ERROR,
+                    "[SWIM->AMHS] Message validation failed: " + amqpMsgId + " - " + errorMessage,
+                    "gwin", savedMsgid);
             return;
         }
 
@@ -646,14 +641,11 @@ public class AMQPSubscriberService {
 
             // CTSW103 bản tin 2: chế độ BASIC không hỗ trợ nội dung nhị phân (binary)
             if (!atsmhsResolver.validateContent(atsmhsServiceLevel, contentType, hasBinaryContent)) {
+                String errorDiagnostic = "Binary content not supported in BASIC mode";
                 log.error("AMQP message {} REJECTED: BASIC ATSMHS mode cannot handle binary content", amqpMsgId);
-                alertService.create(
-                        GwAlert.TYPE_VALIDATION_ERROR,
-                        GwAlert.SEV_ERROR,
-                        "Binary content rejected in BASIC ATSMHS mode: " + amqpMsgId,
-                        "gwin", null);
+
                 conversionService.logSwimToAmhs(amqpMsgId, resolved.originator(), "REJECTED",
-                        "atsmhs-validation-failed", "Binary content not supported in BASIC mode");
+                        "atsmhs-validation-failed", errorDiagnostic);
 
                 Gwin failedGwin = new Gwin();
                 failedGwin.setMessageId(amqpMsgId);
@@ -671,13 +663,24 @@ public class AMQPSubscriberService {
                 failedGwin.setAddress(resolved.recipients());
                 failedGwin.setAddressingSource(resolved.source());
                 failedGwin.setAtsmhsServiceLevel(atsmhsServiceLevel);
-                failedGwin.setStatus(InboundStatus.FAILED.getValue()); // status = 1
+                failedGwin.setRejectionReason("atsmhs-validation-failed");
+                failedGwin.setRejectionSource("SWIM");
+                failedGwin.setRejectionDiagnostic(errorDiagnostic);
+                failedGwin.setStatus(InboundStatus.FAILED.getValue()); // status = 1 (FAILED)
 
+                Long savedMsgid = null;
                 try {
-                    gwinRepository.save(failedGwin);
+                    Gwin saved = gwinRepository.save(failedGwin);
+                    savedMsgid = saved.getMsgid();
                 } catch (DataIntegrityViolationException e) {
                     log.warn("AMQP message {} already exists (race condition). Ignoring.", amqpMsgId);
                 }
+
+                alertService.create(
+                        GwAlert.TYPE_VALIDATION_ERROR,
+                        GwAlert.SEV_ERROR,
+                        "[SWIM->AMHS] Binary content rejected in BASIC ATSMHS mode: " + amqpMsgId,
+                        "gwin", savedMsgid);
                 return;
             }
 

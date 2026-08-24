@@ -113,7 +113,6 @@ public class MessagesController {
         m.put("addressingSource", g.getAddressingSource());
         m.put("atsmhsServiceLevel", g.getAtsmhsServiceLevel());
         m.put("status", g.getStatus());
-
         Map<String, Object> parsedProps = new java.util.HashMap<>();
         if (g.getAmqpProperties() != null && !g.getAmqpProperties().isBlank()) {
             try {
@@ -122,6 +121,30 @@ public class MessagesController {
         }
         m.put("amqpProperties", g.getAmqpProperties());
         m.put("parsedAmqpProperties", parsedProps);
+
+        String rejReason = g.getRejectionReason();
+        if ((rejReason == null || rejReason.isBlank()) && parsedProps != null) {
+            rejReason = (String) parsedProps.get("rejection_reason");
+            if (rejReason == null || rejReason.isBlank()) {
+                rejReason = (String) parsedProps.get("rejectionReason");
+            }
+        }
+        m.put("rejectionReason", rejReason);
+
+        String rejDiag = g.getRejectionDiagnostic();
+        if ((rejDiag == null || rejDiag.isBlank()) && parsedProps != null) {
+            rejDiag = (String) parsedProps.get("rejection_note");
+            if (rejDiag == null || rejDiag.isBlank()) {
+                rejDiag = (String) parsedProps.get("rejection_diagnostic");
+            }
+            if (rejDiag == null || rejDiag.isBlank()) {
+                rejDiag = (String) parsedProps.get("rejectionDiagnostic");
+            }
+        }
+        m.put("rejectionDiagnostic", rejDiag);
+        String rejSrc = g.getRejectionSource() != null ? g.getRejectionSource() : (rejReason != null ? "SWIM" : null);
+        m.put("rejectionSource", rejSrc);
+        m.put("errorSource", rejSrc);
 
         String ft = (String) parsedProps.get("amhs_ats_ft");
         if (ft == null || ft.isBlank()) {
@@ -245,6 +268,9 @@ public class MessagesController {
         m.put("messageSigned", g.getMessageSigned());
         m.put("rejectionReason", g.getRejectionReason());
         m.put("rejectionDiagnostic", g.getRejectionDiagnostic());
+        String rejSrcOut = g.getRejectionSource() != null ? g.getRejectionSource() : (g.getRejectionReason() != null ? "AMHS" : null);
+        m.put("rejectionSource", rejSrcOut);
+        m.put("errorSource", rejSrcOut);
         m.put("amhsDeliveryReport", g.getAmhsDeliveryReport());
         m.put("contentType", g.getContentType());
         // Dữ liệu gốc từ MTE/IPM làm căn cứ cho các NDR §4.4.1.1 / §4.4.2.1 / §4.4.2.2,

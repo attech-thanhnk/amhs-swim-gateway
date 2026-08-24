@@ -8,4 +8,7 @@ import vn.asg.cp.entity.MessageConversionLog;
 @Repository
 public interface MessageConversionLogRepository
         extends JpaRepository<MessageConversionLog, Long>, JpaSpecificationExecutor<MessageConversionLog> {
+    java.util.Optional<MessageConversionLog> findFirstByReferenceIdOrderByIdDesc(Long referenceId);
+    java.util.Optional<MessageConversionLog> findFirstByAmqpMessageIdOrderByIdDesc(String amqpMessageId);
+    java.util.Optional<MessageConversionLog> findFirstByMessageIdOrderByIdDesc(String messageId);
 }

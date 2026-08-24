@@ -141,6 +141,10 @@ public class Gwout {
     @Column(name = "rejection_diagnostic", length = 64)
     private String rejectionDiagnostic;
 
+    /** Nguon phat sinh loi: SWIM / AMHS */
+    @Column(name = "rejection_source", length = 20)
+    private String rejectionSource;
+
     /** AMQP broker-assigned message-id, captured after a successful publish */
     @Column(name = "amqp_message_id", length = 256)
     private String amqpMessageId;
@@ -355,6 +359,9 @@ public class Gwout {
 
     public void setRejectionReason(String rejectionReason) {
         this.rejectionReason = rejectionReason;
+        if (rejectionReason != null && this.rejectionSource == null) {
+            this.rejectionSource = "AMHS";
+        }
     }
 
     public String getRejectionDiagnostic() {
@@ -387,5 +394,21 @@ public class Gwout {
 
     public void setSubject(String subject) {
         this.subject = subject;
+    }
+
+    public String getRejectionSource() {
+        return rejectionSource;
+    }
+
+    public String getErrorSource() {
+        return rejectionSource;
+    }
+
+    public void setRejectionSource(String rejectionSource) {
+        this.rejectionSource = rejectionSource;
+    }
+
+    public void setErrorSource(String errorSource) {
+        this.rejectionSource = errorSource;
     }
 }

@@ -110,6 +110,10 @@ public class Gwout {
     @Column(name = "rejection_diagnostic", length = 64)
     private String rejectionDiagnostic;
 
+    /** Nguon phat sinh loi: SWIM / AMHS */
+    @Column(name = "rejection_source", length = 20)
+    private String rejectionSource;
+
     /** 0=không yêu cầu delivery report, 1=có */
     @Column(name = "amhs_delivery_report")
     private Boolean amhsDeliveryReport = false;

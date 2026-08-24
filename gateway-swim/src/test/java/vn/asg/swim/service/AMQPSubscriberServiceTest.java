@@ -247,7 +247,11 @@ class AMQPSubscriberServiceTest {
         service.handleMessage(amqpMessage, "swim.test.queue");
 
         // Then: Should reject but still persist the failed message for audit
-        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus().equals(InboundStatus.FAILED.getValue())));
+        verify(gwinRepository).save(argThat(gwin -> 
+            gwin.getStatus().equals(InboundStatus.FAILED.getValue()) &&
+            "validation-failed".equals(gwin.getRejectionReason()) &&
+            gwin.getRejectionDiagnostic().contains("Missing messageId")
+        ));
         verify(alertService).create(
             eq("VALIDATION_ERROR"),
             eq("ERROR"),
@@ -269,7 +273,10 @@ class AMQPSubscriberServiceTest {
         service.handleMessage(amqpMessage, "swim.test.queue");
 
         // Then: Rejected but still persisted for audit, same as strict mode
-        verify(gwinRepository).save(argThat(gwin -> gwin.getStatus().equals(InboundStatus.FAILED.getValue())));
+        verify(gwinRepository).save(argThat(gwin -> 
+            gwin.getStatus().equals(InboundStatus.FAILED.getValue()) &&
+            "validation-failed".equals(gwin.getRejectionReason())
+        ));
     }
 
     // ==================== ATSMHS SERVICE LEVEL ====================
@@ -310,7 +317,9 @@ class AMQPSubscriberServiceTest {
 
         // Then: Should reject but still persist the failed message for audit
         verify(gwinRepository).save(argThat(gwin ->
-            gwin.getStatus().equals(InboundStatus.FAILED.getValue())
+            gwin.getStatus().equals(InboundStatus.FAILED.getValue()) &&
+            "atsmhs-validation-failed".equals(gwin.getRejectionReason()) &&
+            "Binary content not supported in BASIC mode".equals(gwin.getRejectionDiagnostic())
         ));
         verify(alertService).create(
             eq(GwAlert.TYPE_VALIDATION_ERROR),
@@ -620,10 +629,8 @@ class AMQPSubscriberServiceTest {
     }
 
     @Test
-    void testRecipientsCount_OverConfiguredMax_ShouldParkUnroutedAndReportControlPosition() throws JMSException {
-        // CTSW112 Case B: 513 recipient (> max cấu hình 512) -> not auto-processed, parked UNROUTED
-        // + báo Control Position (§4.5.1.8b + §4.2.6.1, same reasoning as CTSW102 — recoverable via
-        // Control Position, not a terminal FAILED; see the comment on isCompliant).
+    void testRecipientsCount_OverConfiguredMax_ShouldRejectMessage() throws JMSException {
+        // CTSW112 Case B: 513 recipient (> max cấu hình 512) -> reject (FAILED) + báo Control Position
         when(configService.getMaxMsgRecipients()).thenReturn(512);
         when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn(buildRecipientList(513));
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
@@ -631,11 +638,11 @@ class AMQPSubscriberServiceTest {
         service.handleMessage(amqpMessage, "swim.test.queue");
 
         verify(gwinRepository).save(argThat(gwin ->
-                gwin.getStatus().equals(InboundStatus.UNROUTED.getValue())
+                gwin.getStatus().equals(InboundStatus.FAILED.getValue())
         ));
         verify(alertService).create(
                 eq(GwAlert.TYPE_VALIDATION_ERROR),
-                eq(GwAlert.SEV_WARNING),
+                eq(GwAlert.SEV_ERROR),
                 contains("amhs_recipients"),
                 eq("gwin"),
                 isNull()
@@ -1014,7 +1021,7 @@ class AMQPSubscriberServiceTest {
     void testRecipients_AddressLongerThanEightLetters_ShouldNotBeConveyed() throws JMSException {
         // CTSW102 (bản tin binary thứ 5) - "an address of more than eight letters as
         // amhs_recipients" -> không được chuyển sang AMHS. Địa chỉ AFTN phải đúng 8 ký tự
-        // (§4.5.2.9), địa chỉ 9 ký tự bị loại; không còn recipient nào hợp lệ -> UNROUTED.
+        // (§4.5.2.9), địa chỉ 9 ký tự bị loại; không còn recipient nào hợp lệ -> FAILED (REJECT).
         when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZXX");
         when(validationService.validateAftnAddress(eq("VVHHZTZXX"), anyString()))
                 .thenReturn(new MessageValidationService.ValidationResult(false, List.of("must be exactly 8 characters")));
@@ -1023,7 +1030,7 @@ class AMQPSubscriberServiceTest {
         service.handleMessage(amqpMessage, "swim.test.queue");
 
         verify(gwinRepository).save(argThat(gwin ->
-                gwin.getStatus().equals(InboundStatus.UNROUTED.getValue())));
+                gwin.getStatus().equals(InboundStatus.FAILED.getValue())));
     }
 
     @Test
@@ -1145,8 +1152,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testAllRecipientsInvalid_ShouldRejectWhole() throws JMSException {
-        // Given: TẤT CẢ recipient đều sai định dạng -> not auto-processed, parked UNROUTED for
-        // Control Position (EUR Doc 047 §4.5.2.9c + §4.2.6.1, same reasoning as CTSW102)
+        // Given: TẤT CẢ recipient đều sai định dạng -> reject (FAILED)
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
         when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn("BADADDR1,BADADDR2");
         when(validationService.validateAftnAddress(anyString(), anyString()))
@@ -1155,30 +1161,32 @@ class AMQPSubscriberServiceTest {
         // When
         service.handleMessage(amqpMessage, "swim.test.queue");
 
-        // Then
+        // Then: FAILED
         verify(gwinRepository).save(argThat(gwin ->
-            gwin.getStatus().equals(InboundStatus.UNROUTED.getValue())
+            gwin.getStatus().equals(InboundStatus.FAILED.getValue()) &&
+            "validation-failed".equals(gwin.getRejectionReason()) &&
+            gwin.getRejectionDiagnostic().contains("amhs_recipients")
         ));
     }
 
     @Test
-    void testMissingAmhsRecipientsProperty_ShouldParkUnroutedForControlPosition() throws JMSException {
-        // CTSW102 (§4.5.1.5): amhs_recipients absent -> not auto-processed, no property/routing-rule
-        // fallback. Per §4.2.6.1, Control Position exists for "appropriate action" - parked UNROUTED
-        // for manual routing, not terminal FAILED.
+    void testMissingAmhsRecipientsProperty_ShouldRejectMessage() throws JMSException {
+        // CTSW102 (§4.5.1.5): amhs_recipients absent -> REJECT (FAILED) + báo Control Position
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
         when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn(null);
 
         // When
         service.handleMessage(amqpMessage, "swim.test.queue");
 
-        // Then: parked UNROUTED (still persisted, recoverable via Control Position)
+        // Then: FAILED
         verify(gwinRepository).save(argThat(gwin ->
-            gwin.getStatus().equals(InboundStatus.UNROUTED.getValue())
+            gwin.getStatus().equals(InboundStatus.FAILED.getValue()) &&
+            "validation-failed".equals(gwin.getRejectionReason()) &&
+            gwin.getRejectionDiagnostic().contains("amhs_recipients")
         ));
         verify(alertService).create(
                 eq(GwAlert.TYPE_VALIDATION_ERROR),
-                eq(GwAlert.SEV_WARNING),
+                eq(GwAlert.SEV_ERROR),
                 contains("amhs_recipients"),
                 eq("gwin"),
                 isNull()

@@ -75,11 +75,14 @@ public class MessageConversionLog {
     @Column(name = "action_taken", length = 255)
     private String actionTaken;
 
-    @Column(name = "non_delivery_reason", length = 64)
-    private String nonDeliveryReason;
+    @Column(name = "rejection_source", length = 20)
+    private String rejectionSource;
 
-    @Column(name = "non_delivery_diagnostic", length = 64)
-    private String nonDeliveryDiagnostic;
+    @Column(name = "rejection_reason", length = 64)
+    private String rejectionReason;
+
+    @Column(name = "rejection_diagnostic", columnDefinition = "TEXT")
+    private String rejectionDiagnostic;
 
     @Column(name = "supplementary_info", length = 512)
     private String supplementaryInfo;

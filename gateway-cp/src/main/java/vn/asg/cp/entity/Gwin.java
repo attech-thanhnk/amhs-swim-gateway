@@ -88,6 +88,18 @@ public class Gwin {
     @Column(name = "atsmhs_service_level", length = 20)
     private String atsmhsServiceLevel;
 
+    /** Lý do bị từ chối theo ICAO Doc 047 (validation-failed, atsmhs-validation-failed, unauthorized...). */
+    @Column(name = "rejection_reason", length = 64)
+    private String rejectionReason;
+
+    /** Chẩn đoán chi tiết lỗi từ chối theo ICAO Doc 047 (Invalid priority: 10, Missing messageId...). */
+    @Column(name = "rejection_diagnostic", length = 500)
+    private String rejectionDiagnostic;
+
+    /** Nguon phat sinh loi: SWIM / AMHS */
+    @Column(name = "rejection_source", length = 20)
+    private String rejectionSource;
+
     /**
      * Global Status.
      * 0=PENDING, 1=UNROUTED, 2=TRANSFORMED, 3=DELIVERED, 4=FAILED, 5=RESOLVED, 6=CANCELLED

@@ -740,6 +740,7 @@ public class OutboundDispatchService {
         log.warn("Probe gwout#{} REJECTED: {}", gwout.getMsgid(), reason);
         gwout.setStatus(OutboundStatus.FAILED.getValue());
         gwout.setRejectionReason(rejectionCode);
+        gwout.setRejectionSource("AMHS");
         gwout.setRejectionDiagnostic(ndrDiagnostic);
         gwoutRepository.save(gwout);
         conversionService.logAmhsToSwimRejected(gwout, "ndr_" + rejectionCode + ": " + reason, ndrDiagnostic, null);

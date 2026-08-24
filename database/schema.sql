@@ -83,6 +83,9 @@ CREATE TABLE `gwin` (
   `origin` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `payload_content` mediumtext COLLATE utf8mb4_unicode_ci,
   `priority` tinyint(4) DEFAULT NULL,
+  `rejection_diagnostic` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `rejection_reason` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `rejection_source` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Nguồn lỗi: SWIM / AMHS',
   `source` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `status` int(11) DEFAULT NULL,
   `subject` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -125,7 +128,7 @@ CREATE TABLE `gwout` (
   `amhsid` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `amqp_message_id` varchar(256) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `body_part_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `body_part_charset` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Repertoire general-text-body-part: ISO-646 hoß║Àc ISO-8859-1 (EUR Doc 047 ┬º4.4.3.4.9)',
+  `body_part_charset` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Repertoire general-text-body-part: ISO-646 hoặc ISO-8859-1 (EUR Doc 047 §4.4.3.4.9)',
   `ftbp_file_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ftbp_object_size` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ftbp_last_mod` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -143,6 +146,7 @@ CREATE TABLE `gwout` (
   `payload_content` mediumtext COLLATE utf8mb4_unicode_ci,
   `rejection_diagnostic` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `rejection_reason` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `rejection_source` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Nguồn lỗi: SWIM / AMHS',
   `status` int(11) DEFAULT NULL,
   `swim_priority` int(11) DEFAULT NULL,
   `text` mediumtext COLLATE utf8mb4_unicode_ci,
@@ -157,7 +161,6 @@ CREATE TABLE `gwout` (
 DROP TABLE IF EXISTS `gwout_dispatch`;
 CREATE TABLE `gwout_dispatch` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
-  `amqp_account` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` datetime(6) NOT NULL,
   `failed_step` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `gwout_id` bigint(20) NOT NULL,
@@ -166,13 +169,12 @@ CREATE TABLE `gwout_dispatch` (
   `next_retry_at` datetime(6) DEFAULT NULL,
   `recipient` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `retry_count` int(11) NOT NULL,
-  `scope` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sent_at` datetime(6) DEFAULT NULL,
   `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `topic` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `topic` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `updated_at` datetime(6) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=135 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
 -- Bảng `message_conversion_log`
@@ -197,8 +199,9 @@ CREATE TABLE `message_conversion_log` (
   `converted_time` datetime DEFAULT NULL,
   `status` varchar(8) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `action_taken` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `non_delivery_reason` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `non_delivery_diagnostic` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `rejection_source` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Nguồn lỗi: SWIM / AMHS',
+  `rejection_reason` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `rejection_diagnostic` text COLLATE utf8mb4_unicode_ci,
   `supplementary_info` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `remark` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`)

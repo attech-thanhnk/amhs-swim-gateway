@@ -74,11 +74,14 @@ public class MessageConversionLog {
     @Column(name = "action_taken", length = 255)
     private String actionTaken;
 
-    @Column(name = "non_delivery_reason", length = 64)
-    private String nonDeliveryReason;
+    @Column(name = "rejection_source", length = 20)
+    private String rejectionSource;
 
-    @Column(name = "non_delivery_diagnostic", length = 64)
-    private String nonDeliveryDiagnostic;
+    @Column(name = "rejection_reason", length = 64)
+    private String rejectionReason;
+
+    @Column(name = "rejection_diagnostic", columnDefinition = "TEXT")
+    private String rejectionDiagnostic;
 
     @Column(name = "supplementary_info", length = 512)
     private String supplementaryInfo;
@@ -230,21 +233,7 @@ public class MessageConversionLog {
         this.actionTaken = actionTaken;
     }
 
-    public String getNonDeliveryReason() {
-        return nonDeliveryReason;
-    }
 
-    public void setNonDeliveryReason(String nonDeliveryReason) {
-        this.nonDeliveryReason = nonDeliveryReason;
-    }
-
-    public String getNonDeliveryDiagnostic() {
-        return nonDeliveryDiagnostic;
-    }
-
-    public void setNonDeliveryDiagnostic(String nonDeliveryDiagnostic) {
-        this.nonDeliveryDiagnostic = nonDeliveryDiagnostic;
-    }
 
     public String getSupplementaryInfo() {
         return supplementaryInfo;
@@ -260,5 +249,32 @@ public class MessageConversionLog {
 
     public void setRemark(String remark) {
         this.remark = remark;
+    }
+
+    public String getRejectionSource() {
+        return rejectionSource;
+    }
+
+    public void setRejectionSource(String rejectionSource) {
+        this.rejectionSource = rejectionSource;
+    }
+
+    public String getRejectionReason() {
+        return rejectionReason;
+    }
+
+    public void setRejectionReason(String rejectionReason) {
+        this.rejectionReason = rejectionReason;
+        if (rejectionReason != null && this.rejectionSource == null) {
+            this.rejectionSource = "SWIM";
+        }
+    }
+
+    public String getRejectionDiagnostic() {
+        return rejectionDiagnostic;
+    }
+
+    public void setRejectionDiagnostic(String rejectionDiagnostic) {
+        this.rejectionDiagnostic = rejectionDiagnostic;
     }
 }

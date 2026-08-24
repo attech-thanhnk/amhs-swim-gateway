@@ -29,7 +29,7 @@ public class MessageConversionService {
      * Ghi log chuyển đổi chiều gửi đi AMHS sang SWIM.
      */
     public void logAmhsToSwim(Gwout gwout, String amqpMessageId, String status, String actionTaken,
-            String mtsId, String ipmId, String nonDeliveryDiagnostic, String supplementaryInfo) {
+            String mtsId, String ipmId, String rejectionDiagnostic, String supplementaryInfo) {
         try {
             MessageConversionLog logEntry = new MessageConversionLog();
             logEntry.setDate(LocalDate.now().format(DATE_FMT));
@@ -48,17 +48,26 @@ public class MessageConversionService {
             logEntry.setConvertedTime(LocalDateTime.now());
             if (actionTaken != null && actionTaken.length() > 255) {
                 logEntry.setActionTaken(actionTaken.substring(0, 255));
-                logEntry.setRemark(actionTaken);
             } else {
                 logEntry.setActionTaken(actionTaken);
             }
             logEntry.setStatus(status);
-            // EUR Doc 047 §4.3.1.2(d)/§4.4.8: NDR reason-code is always "unable-to-transfer"
-            // in every rejection scenario this ITCU implements; only the diagnostic-code varies.
-            if (nonDeliveryDiagnostic != null) {
-                logEntry.setNonDeliveryReason("unable-to-transfer");
-                logEntry.setNonDeliveryDiagnostic(nonDeliveryDiagnostic);
+
+            // Ghi nhận lỗi từ chối (Rejection / NDR)
+            if (rejectionDiagnostic != null) {
+                logEntry.setRejectionSource("AMHS");
+                logEntry.setRejectionReason("unable-to-transfer");
+                logEntry.setRejectionDiagnostic(rejectionDiagnostic);
+            } else if ("REJECTED".equalsIgnoreCase(status) || "ERROR".equalsIgnoreCase(status)) {
+                logEntry.setRejectionSource("AMHS");
+                if (gwout.getRejectionReason() != null) {
+                    logEntry.setRejectionReason(gwout.getRejectionReason());
+                }
+                if (gwout.getRejectionDiagnostic() != null) {
+                    logEntry.setRejectionDiagnostic(gwout.getRejectionDiagnostic());
+                }
             }
+
             if (supplementaryInfo != null) {
                 logEntry.setSupplementaryInfo(
                         supplementaryInfo.length() > 512 ? supplementaryInfo.substring(0, 512) : supplementaryInfo);
@@ -80,10 +89,10 @@ public class MessageConversionService {
      * Log bản tin AMHS→SWIM bị từ chối kèm NDR non-delivery-diagnostic-code theo ma trận
      * EUR Doc 047 §4.4.1-§4.4.2/§4.4.6 (reason-code luôn là "unable-to-transfer").
      */
-    public void logAmhsToSwimRejected(Gwout gwout, String actionTaken, String nonDeliveryDiagnostic,
+    public void logAmhsToSwimRejected(Gwout gwout, String actionTaken, String rejectionDiagnostic,
             String supplementaryInfo) {
         logAmhsToSwim(gwout, null, "REJECTED", actionTaken, gwout.getAmhsid(), gwout.getIpmId(),
-                nonDeliveryDiagnostic, supplementaryInfo);
+                rejectionDiagnostic, supplementaryInfo);
     }
 
     /**
@@ -102,22 +111,19 @@ public class MessageConversionService {
             logEntry.setOrigin(originator);
             logEntry.setContent(content);
             logEntry.setConvertedTime(LocalDateTime.now());
+            logEntry.setStatus(status != null && status.length() > 8 ? status.substring(0, 8) : status);
+
             if (actionTaken != null && actionTaken.length() > 255) {
                 logEntry.setActionTaken(actionTaken.substring(0, 255));
-                logEntry.setRemark(actionTaken.length() > 1000 ? actionTaken.substring(0, 1000) : actionTaken);
             } else {
                 logEntry.setActionTaken(actionTaken);
             }
-            logEntry.setStatus(status != null && status.length() > 8 ? status.substring(0, 8) : status);
+
             if (rejectionReason != null) {
-                if (rejectionReason.length() > 64) {
-                    logEntry.setNonDeliveryReason(rejectionReason.substring(0, 64));
-                    if (logEntry.getRemark() == null) {
-                        logEntry.setRemark(rejectionReason.length() > 1000 ? rejectionReason.substring(0, 1000) : rejectionReason);
-                    }
-                } else {
-                    logEntry.setNonDeliveryReason(rejectionReason);
-                }
+                logEntry.setRejectionSource("SWIM");
+                logEntry.setRejectionReason(rejectionReason.length() > 64 ? rejectionReason.substring(0, 64) : rejectionReason);
+                logEntry.setRejectionDiagnostic(actionTaken != null ? actionTaken : rejectionReason);
+                logEntry.setRemark(actionTaken != null ? actionTaken : rejectionReason);
             }
             conversionLogRepo.save(logEntry);
         } catch (Exception e) {
