@@ -179,19 +179,25 @@ public class AMQPSubscriberService {
         // (BytesMessage) dù content-type=text/plain, nên JMS message type không đáng tin cậy làm
         // proxy cho amqp-value/data.
         boolean contentTypeSupported = true;
+        // Ly do tu choi cu the - khong gop chung thanh "Unsupported content-type" vi 3 nguyen nhan
+        // khac han nhau (thieu / gia tri khong ho tro / charset / content khong khop khai bao).
+        String contentTypeError = null;
         if (contentType == null || contentType.isBlank()) {
             // CTSW102: Content-type is mandatory for AMHS-unaware service level
             contentTypeSupported = false;
+            contentTypeError = "Mandatory field 'content-type' is missing";
             log.warn("AMQP: Mandatory content-type property is missing");
         } else {
             String ct = contentType.toLowerCase();
             if (!ct.contains("text/plain") && !ct.contains("application/octet-stream")) {
                 contentTypeSupported = false;
+                contentTypeError = "Unsupported content-type: " + contentType;
                 log.warn("AMQP: Unsupported content-type '{}'", contentType);
             }
             if (ct.contains("utf-16")) {
                 // CTSW110: utf-16 is unsupported
                 contentTypeSupported = false;
+                contentTypeError = "Unsupported charset in content-type (only utf-8): " + contentType;
                 log.warn("AMQP: Unsupported charset utf-16 in content-type '{}'", contentType);
             }
             if (ct.contains("text/")) {
@@ -204,6 +210,9 @@ public class AMQPSubscriberService {
                         binaryPayload = null;
                     } catch (java.nio.charset.CharacterCodingException e) {
                         contentTypeSupported = false;
+                        // Giu <= 64 ky tu: message_conversion_log.rejection_reason la varchar(64).
+                        // Gia tri content-type day du da co o cot gwin.content_type.
+                        contentTypeError = "content-type/content mismatch: payload is not valid UTF-8";
                         log.warn("AMQP: content-type declares text/plain but payload bytes are not valid UTF-8 (content-type/content mismatch)");
                     }
                 }
@@ -588,7 +597,8 @@ public class AMQPSubscriberService {
             if (!priorityValid) errors.add("Invalid priority: " + rawPriority + " (must be 0-9)");
             if (!creationTimeValid) errors.add("Mandatory field 'creation-time' is missing or invalid");
             if (!dataValid) errors.add("Mandatory field 'data/amqp-value' is missing or empty");
-            if (!contentTypeSupported) errors.add("Unsupported content-type: " + contentType);
+            if (!contentTypeSupported) errors.add(contentTypeError != null ? contentTypeError
+                    : "Unsupported content-type: " + contentType);
             if (!recipientsValid) errors.add("Mandatory field 'amhs_recipients' is missing or invalid");
             if (!validationResult.isValid()) errors.addAll(validationResult.getErrors());
 
