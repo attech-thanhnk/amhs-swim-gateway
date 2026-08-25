@@ -98,6 +98,9 @@ class AMQPSubscriberServiceTest {
         when(atsmhsResolver.resolve(any(), any(), any())).thenReturn("ENHANCED");
         when(atsmhsResolver.validateContent(any(), any(), anyBoolean())).thenReturn(true);
         when(configService.getMaxMsgRecipients()).thenReturn(20);
+        // JpaRepository.save() luôn trả về entity đã persist, không bao giờ null. Mock mặc định trả
+        // null khiến mọi nhánh reject NPE ở saved.getMsgid() - stub lại cho khớp hành vi thật.
+        when(gwinRepository.save(any(Gwin.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
     // ==================== DEDUPLICATION ====================
@@ -320,6 +323,62 @@ class AMQPSubscriberServiceTest {
             gwin.getStatus().equals(InboundStatus.FAILED.getValue()) &&
             "atsmhs-validation-failed".equals(gwin.getRejectionReason()) &&
             "Binary content not supported in BASIC mode".equals(gwin.getRejectionDiagnostic())
+        ));
+        verify(alertService).create(
+            eq(GwAlert.TYPE_VALIDATION_ERROR),
+            eq(GwAlert.SEV_ERROR),
+            contains("Binary content rejected"),
+            eq("gwin"),
+            isNull()
+        );
+    }
+
+    @Test
+    void testAtsmhsBasicMode_SmallPdf_ShouldStillReject() throws JMSException {
+        // CTSW103 bản tin 2 với payload thực tế: PDF NHỎ. Khác với payload toàn byte 0x01 của test
+        // trên, PDF nhỏ (stream chưa nén) hầu hết là ASCII in được nên tỉ lệ ký tự control ~0%,
+        // lọt dưới ngưỡng 5% của isProbablyText và từng bị phân loại nhầm thành text -> binaryPayload
+        // null -> check BASIC bị bỏ qua -> bản tin được accept. Ở đây KHÔNG mock validateContent để
+        // resolver thật quyết định, nhằm kiểm đúng đường suy ra hasBinaryContent.
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+        when(atsmhsResolver.resolve(any(), any(), any())).thenReturn("BASIC");
+        when(atsmhsResolver.validateContent(eq("BASIC"), any(), eq(true))).thenReturn(false);
+        when(atsmhsResolver.validateContent(eq("BASIC"), any(), eq(false))).thenReturn(true);
+
+        byte[] smallPdf = ("%PDF-1.4\n"
+            + "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+            + "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+            + "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R>>endobj\n"
+            + "4 0 obj<</Length 44>>stream\nBT /F1 24 Tf 100 700 Td (CTSW103-2) Tj ET\nendstream endobj\n"
+            + "trailer<</Root 1 0 R>>\n%%EOF\n").getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+
+        jakarta.jms.BytesMessage bytesMessage = mock(jakarta.jms.BytesMessage.class);
+        when(bytesMessage.getJMSMessageID()).thenReturn("test-ctsw103-2-small-pdf");
+        when(bytesMessage.getBodyLength()).thenReturn((long) smallPdf.length);
+        when(bytesMessage.readBytes(any(byte[].class))).thenAnswer(inv -> {
+            byte[] buf = inv.getArgument(0);
+            System.arraycopy(smallPdf, 0, buf, 0, smallPdf.length);
+            return smallPdf.length;
+        });
+        when(bytesMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE"))
+            .thenReturn("application/octet-stream");
+        when(bytesMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX");
+        when(bytesMessage.getJMSPriority()).thenReturn(2);
+        when(bytesMessage.getJMSTimestamp()).thenReturn(System.currentTimeMillis());
+        when(authorizationService.isSwimUserAuthorized(any())).thenReturn(true);
+        when(validationService.validateSwimToAmhs(anyString(), any(), anyString(), anyInt()))
+            .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+
+        // When
+        service.handleMessage(bytesMessage, "swim.test.queue");
+
+        // Then: bị từ chối, lưu lại để audit, và payload giữ nguyên dạng base64 (không bị UTF-8 decode)
+        String expectedBase64 = java.util.Base64.getEncoder().encodeToString(smallPdf);
+        verify(gwinRepository).save(argThat(gwin ->
+            gwin.getStatus().equals(InboundStatus.FAILED.getValue())
+                && "atsmhs-validation-failed".equals(gwin.getRejectionReason())
+                && "Binary content not supported in BASIC mode".equals(gwin.getRejectionDiagnostic())
+                && expectedBase64.equals(gwin.getPayloadContent())
         ));
         verify(alertService).create(
             eq(GwAlert.TYPE_VALIDATION_ERROR),
@@ -718,27 +777,63 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testContentType_TextPlainDeclaredButBytesNotValidUtf8_ShouldReject() throws JMSException {
-        // Mismatch content-type/content THẬT: content-type=text/plain nhưng bytes không phải
-        // UTF-8 hợp lệ (0xC3 0x28 là chuỗi UTF-8 sai) -> phát hiện qua strict decode, reject.
-        jakarta.jms.BytesMessage bytesMessage = mock(jakarta.jms.BytesMessage.class);
-        when(bytesMessage.getJMSMessageID()).thenReturn("test-mismatch-invalid-utf8");
-        when(bytesMessage.getJMSPriority()).thenReturn(4);
-        when(bytesMessage.getJMSTimestamp()).thenReturn(System.currentTimeMillis());
-        byte[] invalidUtf8 = new byte[]{0x01, 0x02, 0x03, (byte) 0xC3, 0x28, 0x04, 0x05, 0x06};
-        when(bytesMessage.getBodyLength()).thenReturn((long) invalidUtf8.length);
-        when(bytesMessage.readBytes(any(byte[].class))).thenAnswer(inv -> {
-            byte[] buf = inv.getArgument(0);
-            System.arraycopy(invalidUtf8, 0, buf, 0, invalidUtf8.length);
-            return invalidUtf8.length;
-        });
-        when(bytesMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("text/plain; charset=\"utf-8\"");
+        // CTSW110 bản tin 2 (§4.5.1.6.b): content-type=text/plain nhưng nội dung đến qua "data" và
+        // là binary. Qpid AmqpCodec map "Data + content-type text/*" -> TextMessageFacade (KHÔNG
+        // phải BytesMessage), rồi getText() decode bằng charset.newDecoder() với action REPORT nên
+        // bytes không hợp lệ UTF-8 làm getText() ném JMSException. Mô phỏng đúng hành vi đó ở đây -
+        // mock BytesMessage + text/plain là tổ hợp Qpid không bao giờ tạo ra.
+        jakarta.jms.TextMessage dataSectionMessage = mock(jakarta.jms.TextMessage.class);
+        when(dataSectionMessage.getJMSMessageID()).thenReturn("test-mismatch-invalid-utf8");
+        when(dataSectionMessage.getJMSPriority()).thenReturn(4);
+        when(dataSectionMessage.getJMSTimestamp()).thenReturn(System.currentTimeMillis());
+        when(dataSectionMessage.getText())
+                .thenThrow(new JMSException("Cannot decode String in UTF-8"));
+        when(dataSectionMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE"))
+                .thenReturn("text/plain; charset=\"utf-8\"");
+        when(dataSectionMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+        // anyString() không khớp null -> stub lại validateSwimToAmhs cho trường hợp payload null
+        when(validationService.validateSwimToAmhs(anyString(), any(), any(), anyInt()))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
 
-        service.handleMessage(bytesMessage, "swim.test.queue");
+        // When: KHÔNG được ném exception ra ngoài (nếu thoát ra thì listener chỉ log, bản tin mất)
+        service.handleMessage(dataSectionMessage, "swim.test.queue");
 
+        // Then: lưu bản ghi FAILED để audit, chẩn đoán đúng là mismatch chứ không phải "thiếu data"
         verify(gwinRepository).save(argThat(gwin ->
                 gwin.getStatus().equals(InboundStatus.FAILED.getValue())
+                        && gwin.getRejectionDiagnostic().contains("not valid UTF-8")
+                        && !gwin.getRejectionDiagnostic().contains("missing or empty")
         ));
+        // Và phải báo lên Control Position
+        verify(alertService).create(
+                eq(GwAlert.TYPE_VALIDATION_ERROR),
+                eq(GwAlert.SEV_ERROR),
+                contains("validation failed"),
+                eq("gwin"),
+                isNull()
+        );
+    }
+
+    @Test
+    void testContentType_TextPlainWithAmqpValueOnly_ShouldAccept() throws JMSException {
+        // CTSW110 bản tin 4 (§4.5.1.6.b): content-type=text/plain, amqp-value có, data rỗng ->
+        // PHẢI accept và convert. Qpid map amqp-value(String) -> TextMessage với getText() trả về
+        // chuỗi bình thường. Đây là bản tin duy nhất trong CTSW110 đi đường accept cùng bản tin 3.
+        when(textMessage.getText()).thenReturn("METAR VVTS 251200Z 09008KT CAVOK 30/24 Q1010 NOSIG=");
+        when(amqpMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE"))
+                .thenReturn("text/plain; charset=\"utf-8\"");
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        verify(gwinRepository).save(argThat(gwin ->
+                gwin.getStatus().equals(InboundStatus.PENDING.getValue())
+                        && gwin.getPayloadContent().startsWith("METAR VVTS")
+                        && gwin.getRejectionReason() == null
+        ));
+        verify(alertService, never()).create(
+                eq(GwAlert.TYPE_VALIDATION_ERROR), anyString(), anyString(), anyString(), any());
     }
 
     @Test

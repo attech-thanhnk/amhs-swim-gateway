@@ -104,6 +104,20 @@ public class AMQPSubscriberService {
                     handleMessage(msg, queue);
                 } catch (Exception e) {
                     log.error("Error handling AMQP message from queue {}: {}", queue, e.getMessage(), e);
+                    // Bản tin bị loại ở đây là bị mất hẳn (không có bản ghi gwin nào để tham chiếu).
+                    // Chỉ log.error là không đủ: EUR Doc 047 đòi mọi bản tin bị loại phải được báo
+                    // lên Control Position, nên luôn phát alert kể cả khi không biết msgid.
+                    try {
+                        alertService.create(
+                                GwAlert.TYPE_MESSAGE_DEAD,
+                                GwAlert.SEV_ERROR,
+                                "[SWIM->AMHS] Message dropped, unhandled error on queue " + queue + ": "
+                                        + e.getMessage(),
+                                "gwin", null);
+                    } catch (Exception alertFailure) {
+                        log.error("Failed to raise Control Position alert for dropped message: {}",
+                                alertFailure.getMessage());
+                    }
                 }
             });
 
@@ -127,14 +141,49 @@ public class AMQPSubscriberService {
      */
     @Transactional
     public void handleMessage(Message amqpMsg, String queue) throws JMSException {
+        // Content-type phai doc TRUOC khi phan loai payload: §4.5.1.6(a) coi
+        // "application/octet-stream" la khai bao binary co tinh quyet dinh, heuristic byte khong
+        // duoc phep ghi de no.
+        String contentType = getMsgProperty(amqpMsg, "content-type");
+        if (contentType == null || contentType.isBlank()) {
+            contentType = getMsgProperty(amqpMsg, "contentType");
+        }
+        if (contentType == null || contentType.isBlank()) {
+            contentType = getMsgProperty(amqpMsg, "content_type");
+        }
+        boolean declaredBinary = contentType != null
+                && contentType.toLowerCase().contains("application/octet-stream");
+
         String textPayload = null;
         byte[] binaryPayload = null;
+        // CTSW110 ban tin 2 (§4.5.1.6.b): "data" + content-type text/plain KHONG ve toi duoi dang
+        // BytesMessage. Qpid AmqpCodec.createWithoutAnnotation() map Data + content-type text/* ->
+        // AmqpJmsTextMessageFacade, va getText() decode bang charset.newDecoder() (action REPORT)
+        // nen bytes khong hop le UTF-8 se nem JMSException ngay tai day. Neu de exception thoat ra,
+        // listener chi log.error -> khong co ban ghi gwin, khong co alert, KHONG bao len Control
+        // Position, ban tin bien mat. Bat lai de di vao duong reject chuan.
+        String bodyDecodeError = null;
         if (amqpMsg instanceof TextMessage tm) {
-            textPayload = tm.getText();
+            try {
+                textPayload = tm.getText();
+            } catch (JMSException e) {
+                // Giu <= 64 ky tu: message_conversion_log.rejection_reason la varchar(64).
+                bodyDecodeError = "content-type/content mismatch: payload is not valid UTF-8";
+                log.warn("AMQP: content-type declares text but body bytes are not decodable as declared charset: {}",
+                        e.getMessage());
+            }
         } else if (amqpMsg instanceof BytesMessage bm) {
             byte[] buf = new byte[(int) bm.getBodyLength()];
             bm.readBytes(buf);
-            if (buf.length >= 2 && ((buf[0] == (byte) 0xFF && buf[1] == (byte) 0xFE) || (buf[0] == (byte) 0xFE && buf[1] == (byte) 0xFF))) {
+            if (declaredBinary) {
+                // CTSW103 ban tin 2: PDF/FTBP nho phan lon la ASCII in duoc (%PDF-1.4,
+                // /Type/Catalog, endobj) nen ty le ky tu control tut xuong duoi nguong 5% cua
+                // isProbablyText -> bi phan loai nham thanh text. Hau qua: binaryPayload=null nen
+                // (1) check BASIC-khong-nhan-binary bi bo qua hoan toan, (2) payload bi UTF-8
+                // decode lam hong byte, (3) nhanh giai nen gzip khong chay. content-type da khai
+                // binary thi tin content-type, khong chay heuristic.
+                binaryPayload = buf;
+            } else if (buf.length >= 2 && ((buf[0] == (byte) 0xFF && buf[1] == (byte) 0xFE) || (buf[0] == (byte) 0xFE && buf[1] == (byte) 0xFF))) {
                 textPayload = new String(buf, StandardCharsets.UTF_16);
             } else {
                 String text = new String(buf, StandardCharsets.UTF_8);
@@ -165,23 +214,16 @@ public class AMQPSubscriberService {
         }
 
 
-        // Trích xuất các trường dữ liệu tiêu chuẩn
-        String contentType = getMsgProperty(amqpMsg, "content-type");
-        if (contentType == null || contentType.isBlank()) {
-            contentType = getMsgProperty(amqpMsg, "contentType");
-        }
-        if (contentType == null || contentType.isBlank()) {
-            contentType = getMsgProperty(amqpMsg, "content_type");
-        }
-
+        // Trích xuất các trường dữ liệu tiêu chuẩn (contentType đã đọc ở đầu hàm)
         // EUR Doc 047 v3.0 §4.4.3.3.3 / §4.5.1.6: chỉ 2 content-type hợp lệ. Không cross-check với
-        // loại JMS message (Text/BytesMessage) - client AMQP thật có thể gửi text qua "data"
-        // (BytesMessage) dù content-type=text/plain, nên JMS message type không đáng tin cậy làm
-        // proxy cho amqp-value/data.
-        boolean contentTypeSupported = true;
+        // loại JMS message (Text/BytesMessage): Qpid AmqpCodec map CẢ "data + content-type text/*"
+        // LẪN "amqp-value(String)" về cùng TextMessage, nên JMS message type không phân biệt được
+        // amqp-value với data. Assertion cấu trúc của §4.5.1.6.b vì thế chỉ kiểm được gián tiếp qua
+        // việc body có decode được theo charset đã khai hay không (bodyDecodeError ở trên).
+        boolean contentTypeSupported = (bodyDecodeError == null);
         // Ly do tu choi cu the - khong gop chung thanh "Unsupported content-type" vi 3 nguyen nhan
         // khac han nhau (thieu / gia tri khong ho tro / charset / content khong khop khai bao).
-        String contentTypeError = null;
+        String contentTypeError = bodyDecodeError;
         if (contentType == null || contentType.isBlank()) {
             // CTSW102: Content-type is mandatory for AMHS-unaware service level
             contentTypeSupported = false;
@@ -222,7 +264,9 @@ public class AMQPSubscriberService {
             }
         }
 
-        boolean dataValid = (finalContent != null && !finalContent.isBlank());
+        // Body decode that bai thi finalContent tat nhien null - dung bao them "thieu data/amqp-value"
+        // vi ly do that la mismatch content-type/content, bao ca hai se lam sai lech chan doan.
+        boolean dataValid = bodyDecodeError != null || (finalContent != null && !finalContent.isBlank());
 
         // 1. Trích xuất messageId — chỉ từ header/properties tầng AMQP, không bao giờ lấy từ payload nghiệp vụ
         String rawMsgId = cleanAmqpMessageId(amqpMsg.getJMSMessageID());
@@ -647,7 +691,10 @@ public class AMQPSubscriberService {
 
         // Kiểm tra cấp độ dịch vụ ATSMHS theo đặc tả (mức dịch vụ đã được phân giải ở trên)
         if (resolved.isResolved()) {
-            boolean hasBinaryContent = binaryPayload != null;
+            // §3.3.3.2 / §4.5.1.6(a): "co noi dung binary hay khong" la thuoc tinh KHAI BAO cua ban
+            // tin, khong phai ket qua doan byte. Suy ra tu content-type truoc, binaryPayload chi la
+            // duong bo sung cho ban tin thieu content-type ro rang.
+            boolean hasBinaryContent = declaredBinary || binaryPayload != null;
 
             // CTSW103 bản tin 2: chế độ BASIC không hỗ trợ nội dung nhị phân (binary)
             if (!atsmhsResolver.validateContent(atsmhsServiceLevel, contentType, hasBinaryContent)) {
