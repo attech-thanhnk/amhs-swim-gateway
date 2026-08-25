@@ -153,6 +153,8 @@ public class AMQPSubscriberService {
         }
         boolean declaredBinary = contentType != null
                 && contentType.toLowerCase().contains("application/octet-stream");
+        boolean declaredText = !declaredBinary && contentType != null
+                && contentType.toLowerCase().contains("text/");
 
         String textPayload = null;
         byte[] binaryPayload = null;
@@ -183,6 +185,20 @@ public class AMQPSubscriberService {
                 // decode lam hong byte, (3) nhanh giai nen gzip khong chay. content-type da khai
                 // binary thi tin content-type, khong chay heuristic.
                 binaryPayload = buf;
+            } else if (declaredText) {
+                // Doi xung voi nhanh declaredBinary: content-type khai text/* thi bytes BAT BUOC
+                // decode duoc theo charset da khai, va heuristic khong duoc phep quyet dinh thay.
+                // Truoc day strict decode chi chay khi isProbablyText() da phan loai buf la binary,
+                // nen binary "it byte dieu khien nhung sai UTF-8" (vd 41 42 C3 28 43) lot luoi:
+                // new String(buf, UTF_8) dung action REPLACE, am tham thay byte hong bang U+FFFD
+                // roi ban tin duoc accept voi noi dung da hong.
+                try {
+                    textPayload = strictUtf8Decode(buf);
+                } catch (java.nio.charset.CharacterCodingException e) {
+                    // Giu <= 64 ky tu: message_conversion_log.rejection_reason la varchar(64).
+                    bodyDecodeError = "content-type/content mismatch: payload is not valid UTF-8";
+                    log.warn("AMQP: content-type declares '{}' but body bytes are not valid UTF-8", contentType);
+                }
             } else if (buf.length >= 2 && ((buf[0] == (byte) 0xFF && buf[1] == (byte) 0xFE) || (buf[0] == (byte) 0xFE && buf[1] == (byte) 0xFF))) {
                 textPayload = new String(buf, StandardCharsets.UTF_16);
             } else {
@@ -243,21 +259,9 @@ public class AMQPSubscriberService {
                 log.warn("AMQP: Unsupported charset utf-16 in content-type '{}'", contentType);
             }
             if (ct.contains("text/")) {
-                // content-type=text/* quyet dinh, khong dua theo heuristic isProbablyText. Dung
-                // strict UTF-8 decode (bao loi thay vi am tham thay U+FFFD) de phan biet "text hop
-                // le" voi "content-type khai sai, bytes khong phai UTF-8" (mismatch that -> reject).
-                if (binaryPayload != null) {
-                    try {
-                        finalContent = strictUtf8Decode(binaryPayload);
-                        binaryPayload = null;
-                    } catch (java.nio.charset.CharacterCodingException e) {
-                        contentTypeSupported = false;
-                        // Giu <= 64 ky tu: message_conversion_log.rejection_reason la varchar(64).
-                        // Gia tri content-type day du da co o cot gwin.content_type.
-                        contentTypeError = "content-type/content mismatch: payload is not valid UTF-8";
-                        log.warn("AMQP: content-type declares text/plain but payload bytes are not valid UTF-8 (content-type/content mismatch)");
-                    }
-                }
+                // Strict UTF-8 decode da chay o buoc phan loai payload (nhanh declaredText) - do la
+                // noi duy nhat con giu raw bytes. Khong lap lai o day de tranh hai cho cung quyet
+                // dinh mot viec roi lech nhau.
                 if (finalContent != null) {
                     finalContent = finalContent.replace("\u0000", "");
                 }

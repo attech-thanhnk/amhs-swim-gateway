@@ -816,6 +816,44 @@ class AMQPSubscriberServiceTest {
     }
 
     @Test
+    void testContentType_TextPlainWithLowControlBinary_ShouldReject() throws JMSException {
+        // CTSW110: binary đến qua "data" nhưng ÍT byte điều khiển (0x41 0x42 0xC3 0x28 ... - sai
+        // UTF-8 mà tỉ lệ control = 0%) nên isProbablyText() cho là text. Trước đây strict decode
+        // chỉ chạy khi heuristic đã kết luận là binary, nên loại payload này lọt lưới:
+        // new String(buf, UTF_8) dùng action REPLACE, âm thầm thay byte hỏng bằng U+FFFD rồi bản
+        // tin được accept với nội dung đã hỏng ("AB<?>(CD<?>(E"). Giờ content-type text/* buộc
+        // strict decode trên raw bytes, không cho heuristic quyết định thay.
+        byte[] lowControlBinary = new byte[]{0x41, 0x42, (byte) 0xC3, 0x28, 0x43, 0x44, (byte) 0xE0, 0x28, 0x45};
+
+        jakarta.jms.BytesMessage bytesMessage = mock(jakarta.jms.BytesMessage.class);
+        when(bytesMessage.getJMSMessageID()).thenReturn("test-lowcontrol-binary");
+        when(bytesMessage.getJMSPriority()).thenReturn(4);
+        when(bytesMessage.getJMSTimestamp()).thenReturn(System.currentTimeMillis());
+        when(bytesMessage.getBodyLength()).thenReturn((long) lowControlBinary.length);
+        when(bytesMessage.readBytes(any(byte[].class))).thenAnswer(inv -> {
+            byte[] buf = inv.getArgument(0);
+            System.arraycopy(lowControlBinary, 0, buf, 0, lowControlBinary.length);
+            return lowControlBinary.length;
+        });
+        when(bytesMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE"))
+                .thenReturn("text/plain; charset=\"utf-8\"");
+        when(bytesMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX");
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+        when(validationService.validateSwimToAmhs(anyString(), any(), any(), anyInt()))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+
+        service.handleMessage(bytesMessage, "swim.test.queue");
+
+        // Phải reject, và tuyệt đối không được lưu nội dung đã bị U+FFFD làm hỏng
+        verify(gwinRepository).save(argThat(gwin ->
+                gwin.getStatus().equals(InboundStatus.FAILED.getValue())
+                        && gwin.getRejectionDiagnostic().contains("not valid UTF-8")
+                        && (gwin.getPayloadContent() == null
+                            || !gwin.getPayloadContent().contains("�"))
+        ));
+    }
+
+    @Test
     void testContentType_TextPlainWithAmqpValueOnly_ShouldAccept() throws JMSException {
         // CTSW110 bản tin 4 (§4.5.1.6.b): content-type=text/plain, amqp-value có, data rỗng ->
         // PHẢI accept và convert. Qpid map amqp-value(String) -> TextMessage với getText() trả về
