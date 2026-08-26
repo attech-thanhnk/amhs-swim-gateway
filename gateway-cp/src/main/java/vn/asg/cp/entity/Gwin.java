@@ -46,7 +46,7 @@ public class Gwin {
     private Byte priority = 2;
 
     /** Recipients: comma separated AMHS ICAO */
-    @Column(name = "amhsRecipients", length = 200)
+    @Column(name = "amhsRecipients", columnDefinition = "TEXT")
     private String amhsRecipients;
 
     /** Arrival timestamp from AMQP broker */
@@ -70,7 +70,7 @@ public class Gwin {
     private String origin;
 
     /** Resolved AMHS Recipient addresses. Example: VVTSZTZX VVHHZPZX */
-    @Column(name = "address", length = 1000)
+    @Column(name = "address", columnDefinition = "TEXT")
     private String address;
 
     /**

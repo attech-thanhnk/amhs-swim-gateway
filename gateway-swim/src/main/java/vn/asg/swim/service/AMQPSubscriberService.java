@@ -682,7 +682,7 @@ public class AMQPSubscriberService {
                 Gwin saved = gwinRepository.save(failedGwin);
                 savedMsgid = saved.getMsgid();
             } catch (DataIntegrityViolationException e) {
-                log.warn("AMQP message {} already exists (race condition). Ignoring.", amqpMsgId);
+                logGwinPersistFailure(amqpMsgId, e);
             }
 
             alertService.create(
@@ -734,7 +734,7 @@ public class AMQPSubscriberService {
                     Gwin saved = gwinRepository.save(failedGwin);
                     savedMsgid = saved.getMsgid();
                 } catch (DataIntegrityViolationException e) {
-                    log.warn("AMQP message {} already exists (race condition). Ignoring.", amqpMsgId);
+                    logGwinPersistFailure(amqpMsgId, e);
                 }
 
                 alertService.create(
@@ -774,7 +774,16 @@ public class AMQPSubscriberService {
             try {
                 gwinRepository.save(gwin);
             } catch (DataIntegrityViolationException e) {
-                log.warn("AMQP message {} already exists (race condition). Ignoring.", amqpMsgId);
+                logGwinPersistFailure(amqpMsgId, e);
+                if (!isDuplicateKey(e)) {
+                    // Khong phai trung khoa (vd: tran do dai cot) -> ban tin mat that su,
+                    // phai bao len Control Position thay vi im lang bo qua.
+                    alertService.create(
+                            GwAlert.TYPE_VALIDATION_ERROR,
+                            GwAlert.SEV_CRITICAL,
+                            "[SWIM->AMHS] Failed to persist message " + amqpMsgId + ": " + rootCauseMessage(e),
+                            "gwin", null);
+                }
                 return;
             }
 
@@ -914,6 +923,32 @@ public class AMQPSubscriberService {
     /**
      * Nhận biết dữ liệu văn bản.
      */
+    /**
+     * Phan biet loi trung khoa (ban tin da xu ly - lanh tinh) voi cac vi pham rang buoc khac
+     * (tran do dai cot, NOT NULL...). Truoc day moi loi deu bi bao la "already exists", khien
+     * su co mat ban tin bi chan doan nham thanh race condition.
+     */
+    private boolean isDuplicateKey(DataIntegrityViolationException e) {
+        if (e instanceof org.springframework.dao.DuplicateKeyException) {
+            return true;
+        }
+        String msg = rootCauseMessage(e);
+        return msg != null && msg.toLowerCase().contains("duplicate entry");
+    }
+
+    private String rootCauseMessage(DataIntegrityViolationException e) {
+        Throwable cause = e.getMostSpecificCause();
+        return cause != null ? cause.getMessage() : e.getMessage();
+    }
+
+    private void logGwinPersistFailure(String amqpMsgId, DataIntegrityViolationException e) {
+        if (isDuplicateKey(e)) {
+            log.warn("AMQP message {} already exists (race condition). Ignoring.", amqpMsgId);
+        } else {
+            log.error("AMQP message {}: failed to persist gwin - {}", amqpMsgId, rootCauseMessage(e));
+        }
+    }
+
     /**
      * Decode UTF-8 nghiêm ngặt - báo lỗi CharacterCodingException nếu bytes chứa
      * chuỗi byte không hợp lệ UTF-8, thay vì âm thầm thay bằng ký tự U+FFFD như
