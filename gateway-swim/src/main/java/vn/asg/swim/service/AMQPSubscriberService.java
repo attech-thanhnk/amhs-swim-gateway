@@ -866,6 +866,16 @@ public class AMQPSubscriberService {
                 if (ct != null) return ct;
             } catch (Exception ignored) {}
         }
+        if ("subject".equalsIgnoreCase(key)) {
+            try {
+                String jmsType = msg.getJMSType();
+                if (jmsType != null && !jmsType.isBlank()) return jmsType;
+            } catch (Exception ignored) {}
+            try {
+                String s = msg.getStringProperty("JMS_AMQP_SUBJECT");
+                if (s != null && !s.isBlank()) return s;
+            } catch (Exception ignored) {}
+        }
         return safeGetStringProperty(msg, key);
     }
 

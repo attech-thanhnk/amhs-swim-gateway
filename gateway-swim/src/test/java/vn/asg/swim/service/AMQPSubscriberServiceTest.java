@@ -436,6 +436,21 @@ class AMQPSubscriberServiceTest {
     }
 
     @Test
+    void testSubjectMapping_StandardAmqpPropertiesSubjectViaJMSType() throws JMSException {
+        // CTSW107: Chuẩn AMQP 1.0 properties.subject được Qpid JMS map sang JMSType header
+        when(amqpMessage.getStringProperty("amhs_subject")).thenReturn(null);
+        when(amqpMessage.getStringProperty("subject")).thenReturn(null);
+        when(amqpMessage.getJMSType()).thenReturn("SWIM_INTERWORKING");
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        verify(gwinRepository).save(argThat(gwin ->
+                "SWIM_INTERWORKING".equals(gwin.getSubject())
+        ));
+    }
+
+    @Test
     void testSubjectMapping_SubjectPropertyBlank_ShouldUseAmhsSubject() throws JMSException {
         // CTSW107 Case 3: subject (Properties) rỗng, amhs_subject có giá trị -> dùng amhs_subject
         when(amqpMessage.getStringProperty("amhs_subject")).thenReturn("Subject example");
