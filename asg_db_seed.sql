@@ -1,3 +1,13 @@
+-- =============================================================================
+-- ĐÃ LỖI THỜI (2026-08-26) - KHÔNG DÙNG ĐỂ DỰNG MÔI TRƯỜNG
+--
+-- File này là bản dump cũ, thiếu nhiều cột mà ứng dụng đang dùng
+-- (gwout.subject, origin_eit, x400_content_type, content_length,
+--  number_of_attachment, body_part_charset, amhs_priority, swim_priority...).
+--
+-- Nguồn chính thức: database/schema.sql + database/seed.sql + database/migration_*.sql
+-- =============================================================================
+
 -- MySQL dump 10.13  Distrib 8.0.46, for Linux (x86_64)
 --
 -- Host: localhost    Database: asg_db

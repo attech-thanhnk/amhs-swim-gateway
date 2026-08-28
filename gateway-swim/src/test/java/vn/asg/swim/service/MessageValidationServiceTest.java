@@ -216,4 +216,96 @@ class MessageValidationServiceTest {
         // Giá trị đúng nhưng viết thường vẫn là priority hợp lệ, không phải lỗi cú pháp
         assertTrue(service.validateAtsMessageHeader("ss", "121200").isValid());
     }
+
+    // ==================== CTSW006: kích thước payload thật ====================
+
+    @Test
+    void testAmhsToSwim_ExplicitByteSize_ShouldOverrideStringLength() {
+        // CTSW006: payload FTBP lưu base64 trong gwout.text nên dài hơn dữ liệu gốc ~33%.
+        // Chuỗi base64 vượt ngưỡng nhưng dữ liệu sau giải mã thì không -> phải được chấp nhận.
+        when(configService.getConversionDir()).thenReturn("BOTH");
+        when(configService.getMaxMsgDataSize()).thenReturn(100);
+        when(configService.getMaxMsgRecipients()).thenReturn(0);
+
+        String base64Payload = "A".repeat(120); // 120 byte nếu đo trên chuỗi
+        var result = service.validateAmhsToSwim(base64Payload, "VVHHZTZX", 90); // 90 byte thật
+
+        assertTrue(result.isValid(), "Kích thước thật 90 < 100 nên không được từ chối");
+    }
+
+    @Test
+    void testAmhsToSwim_ExplicitByteSize_ExceedingMax_ShouldFail() {
+        when(configService.getConversionDir()).thenReturn("BOTH");
+        when(configService.getMaxMsgDataSize()).thenReturn(100);
+        when(configService.getMaxMsgRecipients()).thenReturn(0);
+
+        var result = service.validateAmhsToSwim("A".repeat(10), "VVHHZTZX", 150);
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrorMessage().contains("content-too-long"));
+    }
+
+    @Test
+    void testAmhsToSwim_NullByteSize_ShouldFallBackToStringLength() {
+        when(configService.getConversionDir()).thenReturn("BOTH");
+        when(configService.getMaxMsgDataSize()).thenReturn(100);
+        when(configService.getMaxMsgRecipients()).thenReturn(0);
+
+        var result = service.validateAmhsToSwim("A".repeat(150), "VVHHZTZX", null);
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrorMessage().contains("content-too-long"));
+    }
+
+    // ==================== CTSW017 / CTSW019: repertoire ====================
+
+    @Test
+    void testRepertoire_Ia5TextWithIta2_ShouldBeRejected() {
+        // CTSW017 điện văn 3: repertoire ita2(2) không có trong Table 6
+        var result = service.validateRepertoire("ia5-text-body-part", "ITA2");
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrorMessage().contains("unsupported-body-part-type"));
+    }
+
+    @Test
+    void testRepertoire_Ia5TextDefaultOrIa5_ShouldBeAccepted() {
+        // CTSW017 điện văn 1&2 + Note 2: vắng repertoire thì mặc định là ia5
+        assertTrue(service.validateRepertoire("ia5-text-body-part", null).isValid());
+        assertTrue(service.validateRepertoire("ia5-text-body-part", "ISO-646").isValid());
+    }
+
+    @Test
+    void testRepertoire_GeneralTextIso646_ShouldAlwaysBeAccepted() {
+        // CTSW018: Basic ISO 646 luôn hợp lệ, không phụ thuộc chính sách nội bộ
+        var result = service.validateRepertoire("general-text-body-part", "ISO-646");
+
+        assertTrue(result.isValid());
+    }
+
+    @Test
+    void testRepertoire_GeneralTextNonIso646_PolicyAllows_ShouldBeAccepted() {
+        // CTSW019: chính sách nội bộ cho phép chuyển đổi
+        when(configService.isNonIso646RepertoireAllowed()).thenReturn(true);
+
+        assertTrue(service.validateRepertoire("general-text-body-part", "ISO-8859-1").isValid());
+        assertTrue(service.validateRepertoire("general-text-body-part", "ISO-REG-144").isValid());
+    }
+
+    @Test
+    void testRepertoire_GeneralTextNonIso646_PolicyRejects_ShouldBeRejected() {
+        // CTSW019: chính sách nội bộ từ chối -> NDR unsupported encoded-information-types
+        when(configService.isNonIso646RepertoireAllowed()).thenReturn(false);
+
+        var result = service.validateRepertoire("general-text-body-part", "ISO-REG-144");
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrorMessage().contains("unsupported-encoded-information-types"));
+    }
+
+    @Test
+    void testRepertoire_FileTransferBodyPart_ShouldBeIgnored() {
+        // FTBP không có tham số repertoire
+        assertTrue(service.validateRepertoire("file-transfer-body-part", "ISO-REG-144").isValid());
+    }
 }

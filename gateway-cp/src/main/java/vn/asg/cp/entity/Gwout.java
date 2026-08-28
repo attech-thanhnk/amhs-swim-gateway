@@ -49,7 +49,8 @@ public class Gwout {
     private String origin;
 
     /** Danh sách địa chỉ AMHS recipients, cách nhau dấu cách */
-    @Column(name = "address", length = 1000)
+    /** Danh sách địa chỉ AFTN người nhận — MEDIUMTEXT để chứa tới 512 recipient (CTSW010) */
+    @Column(name = "address", columnDefinition = "MEDIUMTEXT")
     private String address;
 
     /** Optional heading/Priority prefix */

@@ -12,6 +12,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- Seed data for table `gateway_config`
 -- ============================================================
 INSERT IGNORE INTO `gateway_config` (`config_key`, `config_value`, `description`, `updated_at`) VALUES
+('ALLOW_NON_ISO646_REPERTOIRE', 'true', 'CTSW019: cho phép general-text-body-part có repertoire khác ISO 646 (true=chuyển đổi, false=từ chối)', '2026-08-26 00:00:00'),
 ('ALLOWED_ORIGINS', 'http://192.168.22.159:5173,http://localhost:5173,http://localhost:3000,http://192.168.22.188:3000,http://192.168.22.163:3000', 'CORS Allowed Origins', '2026-06-02 15:27:02'),
 ('ATSMHS_EXTENDED_CAPABLE_ADDRESSES', '', 'Danh sách địa chỉ hỗ trợ Extended ATSMHS', '2026-06-02 15:27:02'),
 ('ATSMHS_SERVICE_LEVEL', 'CONTENT_BASED', 'EXTENDED / BASIC / CONTENT_BASED / RECIPIENTS_BASED', '2026-06-02 15:27:02'),

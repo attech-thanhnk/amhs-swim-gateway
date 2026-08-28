@@ -29,6 +29,12 @@ public class MessageValidationService {
     /** Các giá trị ATS-message-priority hợp lệ theo EUR Doc 047 Table 9. */
     private static final List<String> ATS_PRIORITIES = List.of("SS", "DD", "FF", "GG", "KK");
 
+    /** Repertoire ita2(2) của X.400 - không có trong Table 6 nên không chuyển đổi được (CTSW017). */
+    public static final String REPERTOIRE_ITA2 = "ITA2";
+
+    /** Repertoire Basic ISO 646, luôn được chấp nhận cho general-text-body-part (CTSW018). */
+    public static final String REPERTOIRE_ISO646 = "ISO-646";
+
     /**
      * Đối tượng chứa kết quả kiểm thử (Validation Result Container)
      */
@@ -147,6 +153,19 @@ public class MessageValidationService {
      * - C-07: Số lượng người nhận trong giới hạn cho phép
      */
     public ValidationResult validateAmhsToSwim(String payload, String recipients) {
+        return validateAmhsToSwim(payload, recipients, null);
+    }
+
+    /**
+     * EUR Doc 047 §4.4.1 - Kiểm thử bản tin chiều AMHS → SWIM, có truyền kích thước payload thật.
+     *
+     * @param payloadByteSize kích thước THẬT của payload tính bằng byte, hoặc null để tự đo trên
+     *                        chuỗi {@code payload}. Với file-transfer-body-part, nội dung nhị phân
+     *                        được lưu dưới dạng base64 trong {@code gwout.text} nên độ dài chuỗi
+     *                        lớn hơn dữ liệu gốc khoảng 33%; caller phải truyền kích thước sau khi
+     *                        giải mã để CTSW006 so sánh đúng với "Maximum message data size".
+     */
+    public ValidationResult validateAmhsToSwim(String payload, String recipients, Integer payloadByteSize) {
         List<String> errors = new ArrayList<>();
 
         // C-03: Kiểm tra chiều chuyển đổi định dạng
@@ -159,7 +178,8 @@ public class MessageValidationService {
         // C-05: Kiểm tra kích thước bản tin (EUR Doc 047 §3.3.1.4: 0 hoặc không cấu hình = không giới hạn)
         if (payload != null) {
             int maxSize = configService.getMaxMsgDataSize();
-            int actualSize = payload.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int actualSize = payloadByteSize != null ? payloadByteSize
+                    : payload.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
             if (maxSize > 0 && actualSize > maxSize) {
                 errors.add(String.format("Message size %d bytes exceeds maximum %d bytes (content-too-long)",
                         actualSize, maxSize));
@@ -328,6 +348,55 @@ public class MessageValidationService {
             return "1".equals(n) || "2".equals(n) || "6".equals(n) || "100".equals(n);
         }
         return false;
+    }
+
+    /**
+     * EUR Doc 047 §4.4.2.3 - Kiểm tra repertoire của body part (CTSW017 và CTSW019).
+     * <p>
+     * <b>ia5-text-body-part</b> (CTSW017): tham số X.400 {@code repertoire} là kiểu liệt kê chỉ
+     * nhận ita2(2) hoặc ia5(5); vắng mặt thì mặc định là ia5. Giá trị ita2 không nằm trong Table 6
+     * nên không chuyển đổi được sang AMQP -> từ chối với supplementary-information
+     * "unsupported body part type".
+     * <p>
+     * <b>general-text-body-part</b> (CTSW018/CTSW019): repertoire Basic ISO 646 luôn được chấp nhận.
+     * Repertoire khác ISO 646 (ISO 8859-x, Cyrillic, Arabic, Greek, Hebrew, CJK...) được chuyển đổi
+     * hay bị từ chối là tuỳ chính sách nội bộ của AMHS Management Domain, khai báo qua cấu hình
+     * {@code ALLOW_NON_ISO646_REPERTOIRE}. Khi từ chối, supplementary-information là
+     * "unsupported encoded-information-types".
+     *
+     * @param repertoire giá trị repertoire đã chuẩn hoá (ITA2 / ISO-646 / ISO-8859-1 / ...),
+     *                   null hoặc rỗng nghĩa là không khai báo -> chấp nhận theo mặc định.
+     */
+    public ValidationResult validateRepertoire(String bodyPartType, String repertoire) {
+        if (bodyPartType == null || repertoire == null || repertoire.isBlank()) {
+            return ValidationResult.success();
+        }
+        String bpt = bodyPartType.trim().toLowerCase();
+        String rep = repertoire.trim().toUpperCase();
+
+        if (bpt.startsWith("ia5-text")) {
+            if (REPERTOIRE_ITA2.equals(rep)) {
+                return ValidationResult.failure(String.format(
+                        "ia5-text-body-part repertoire '%s' is not supported (unsupported-body-part-type)",
+                        repertoire.trim()));
+            }
+            return ValidationResult.success();
+        }
+
+        if (bpt.equals("general-text-body-part")) {
+            if (REPERTOIRE_ISO646.equals(rep)) {
+                return ValidationResult.success();
+            }
+            if (configService.isNonIso646RepertoireAllowed()) {
+                return ValidationResult.success();
+            }
+            return ValidationResult.failure(String.format(
+                    "general-text-body-part repertoire '%s' rejected by local AMHS Management Domain "
+                            + "policy (unsupported-encoded-information-types)",
+                    repertoire.trim()));
+        }
+
+        return ValidationResult.success();
     }
 
     public ValidationResult validateBodyPartType(String bodyPartType) {

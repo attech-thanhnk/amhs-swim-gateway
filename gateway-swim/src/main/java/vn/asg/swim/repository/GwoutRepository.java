@@ -37,5 +37,14 @@ public interface GwoutRepository extends JpaRepository<Gwout, Long> {
         List<Gwout> findPendingPublishBatch(@Param("batchSize") int batchSize);
 
         long countByStatus(int status);
+
+        /**
+         * Tra bản tin đã đi qua gateway theo IPM-Identifier, phục vụ xử lý IPN đến
+         * (EUR Doc 047 §4.4.7.1 / CTSW014, CTSW015).
+         */
+        List<Gwout> findByIpmId(String ipmId);
+
+        /** Tra theo MTS-Identifier khi IPN không mang IPM-Identifier. */
+        List<Gwout> findByAmhsid(String amhsid);
 }
 

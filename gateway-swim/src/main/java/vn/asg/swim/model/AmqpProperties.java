@@ -226,6 +226,34 @@ public class AmqpProperties {
     }
 
     /**
+     * EUR Doc 047 v3.0 Table 5 (Amhs_ats_pri ATS-message-priority and IPM precedence
+     * equivalency): precedence của Extended IPM ↔ ATS-message-priority.
+     * <p>
+     * 107 = SS, 71 = DD, 57 = FF, 28 = GG, 14 = KK. Giá trị precedence nằm ngoài danh sách
+     * trả về null để caller quyết định (thường là giữ nguyên ATS-message-priority của
+     * Basic IPM thay vì suy diễn sai).
+     */
+    public static String mapPrecedenceToAtsPriority(Integer precedence) {
+        if (precedence == null) {
+            return null;
+        }
+        return switch (precedence) {
+            case 107 -> "SS";
+            case 71 -> "DD";
+            case 57 -> "FF";
+            case 28 -> "GG";
+            case 14 -> "KK";
+            default -> null;
+        };
+    }
+
+    /**
+     * EUR Doc 047 §4.4.4.4 / Appendix A CTSW020: precedence 107 tương đương ưu tiên SS và
+     * phải được log + báo Control Position khi recipient có responsibility "responsible".
+     */
+    public static final int PRECEDENCE_SS = 107;
+
+    /**
      * Kiểm tra registered-identifier có phải OID mặc định "unknown-attachment" hay không.
      * Chấp nhận cả dạng có ngoặc nhọn {2.16.840...} lẫn không.
      */

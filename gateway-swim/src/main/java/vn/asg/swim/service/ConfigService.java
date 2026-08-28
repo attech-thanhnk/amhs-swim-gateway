@@ -25,6 +25,7 @@ public class ConfigService {
     public static final String KEY_MAX_MSG_DATA_SIZE = "MAX_MSG_DATA_SIZE";
     public static final String KEY_SERVER_PORT = "SERVER_PORT_SWIM";
     public static final String KEY_GATEWAY_ID = "GATEWAY_ID";
+    public static final String KEY_ALLOW_NON_ISO646_REPERTOIRE = "ALLOW_NON_ISO646_REPERTOIRE";
 
     private final GatewayConfigRepository repository;
 
@@ -107,6 +108,22 @@ public class ConfigService {
      */
     public int getMaxMsgDataSize() {
         return getInt(KEY_MAX_MSG_DATA_SIZE);
+    }
+
+    /**
+     * EUR Doc 047 §4.4.2.3 / Appendix A CTSW019: chính sách nội bộ của AMHS Management Domain
+     * đối với general-text-body-part có repertoire khác ISO 646 (ISO 8859-x, Cyrillic, Arabic,
+     * Greek, Hebrew, CJK...). true = vẫn chuyển đổi sang AMQP, false = từ chối và sinh NDR.
+     * Mặc định true (chuyển đổi) khi cấu hình chưa được khai báo.
+     */
+    public boolean isNonIso646RepertoireAllowed() {
+        try {
+            String value = get(KEY_ALLOW_NON_ISO646_REPERTOIRE);
+            return value == null || value.isBlank() || Boolean.parseBoolean(value.trim());
+        } catch (Exception e) {
+            log.warn("{} not found in DB, defaulting to 'allowed' (convert)", KEY_ALLOW_NON_ISO646_REPERTOIRE);
+            return true;
+        }
     }
 
     /**

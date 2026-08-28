@@ -56,7 +56,12 @@ public class Gwout {
     private String origin;
 
     /** AMHS Recipients list (space-separated) */
-    @Column(name = "address", length = 1000)
+    /**
+     * Danh sách địa chỉ AFTN người nhận, phân cách dấu phẩy.
+     * EUR Doc 047 §3.3.2.4 / CTSW010: phải chứa được tới "Maximum message number of recipients"
+     * (512 recipient x 9 ký tự ~ 4.6KB) nên dùng MEDIUMTEXT, không phải varchar(1000).
+     */
+    @Column(name = "address", columnDefinition = "MEDIUMTEXT")
     private String address;
 
     /** X.400 Optional Heading Information (OHI) */
@@ -75,6 +80,17 @@ public class Gwout {
     /** X.400 registered identifier */
     @Column(name = "amhs_registered_id", length = 200)
     private String amhsRegisteredId;
+
+    /**
+     * Phần tử user-visible-string của FTBP (EUR Doc 047 Table 2 / §4.4.3.4.11, mã T1).
+     * Ánh xạ sang AMQP application property {@code amhs_user_visible_string} khi có mặt.
+     * <p>
+     * §4.4.4.6: khi registered-identifier khác OID mặc định thì giá trị này bắt buộc phải
+     * có kèm; thiếu thì bản tin vẫn được chuyển nhưng phải báo Control Position.
+     * Nguồn dữ liệu do AMHS Component cung cấp.
+     */
+    @Column(name = "amhs_user_visible_string", length = 512)
+    private String amhsUserVisibleString;
 
     /** 0 = delivery report not requested, 1 = requested */
     @Column(name = "amhs_delivery_report")
@@ -115,10 +131,32 @@ public class Gwout {
     @Column(name = "number_of_attachment")
     private Integer numberOfAttachment;
 
+    /**
+     * Precedence cao nhất trong các recipient "responsible" của Extended IPM
+     * (mtcu_to.precedence). NULL với Basic IPM hoặc khi AMHS Component chưa cung cấp.
+     * <p>
+     * EUR Doc 047 §4.4.3.4.3 / Table 5 và Appendix A CTSW001: với Extended IPM,
+     * {@code amhs_ats_pri} và AMQP priority được suy từ precedence cao nhất chứ không phải từ
+     * ATS-message-priority. CTSW020: giá trị 107 phải được báo Control Position.
+     */
+    @Column(name = "precedence")
+    private Integer precedence;
+
+    /**
+     * Tham số content-length của Probe (chỉ áp dụng cho X.400 probe, NULL với IPM thường).
+     * EUR Doc 047 §4.4.6.2 / CTSW011: probe khai báo content-length vượt "Maximum message data
+     * size" phải bị từ chối bằng NDR "content-too-long" trước khi chuyển đổi sang AMQP.
+     * <p>
+     * Giá trị do AMHS Component (amss) điền khi chuyển probe sang ITCU; NULL nghĩa là không có
+     * dữ liệu và bước kiểm tra được bỏ qua (cùng quy ước với {@link #x400ContentType}).
+     */
+    @Column(name = "content_length")
+    private Integer contentLength;
+
     @Column(name = "body_part_type", length = 50)
     private String bodyPartType;
 
-    /** Repertoire của general-text-body-part — EUR Doc 047 §4.4.3.4.9: ISO-646 / ISO-8859-1 */
+    /** Repertoire của body part — EUR Doc 047 §4.4.3.4.9: ITA2 / ISO-646 / ISO-8859-1 / ISO-REG-n */
     @Column(name = "body_part_charset", length = 20)
     private String bodyPartCharset;
 
@@ -265,6 +303,14 @@ public class Gwout {
         this.amhsRegisteredId = amhsRegisteredId;
     }
 
+    public String getAmhsUserVisibleString() {
+        return amhsUserVisibleString;
+    }
+
+    public void setAmhsUserVisibleString(String amhsUserVisibleString) {
+        this.amhsUserVisibleString = amhsUserVisibleString;
+    }
+
     public Boolean getAmhsDeliveryReport() {
         return amhsDeliveryReport;
     }
@@ -303,6 +349,22 @@ public class Gwout {
 
     public void setX400ContentType(Integer x400ContentType) {
         this.x400ContentType = x400ContentType;
+    }
+
+    public Integer getPrecedence() {
+        return precedence;
+    }
+
+    public void setPrecedence(Integer precedence) {
+        this.precedence = precedence;
+    }
+
+    public Integer getContentLength() {
+        return contentLength;
+    }
+
+    public void setContentLength(Integer contentLength) {
+        this.contentLength = contentLength;
     }
 
     public Integer getNumberOfAttachment() {

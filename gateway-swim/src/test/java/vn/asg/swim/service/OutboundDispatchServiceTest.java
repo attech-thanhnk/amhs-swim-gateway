@@ -38,6 +38,7 @@ class OutboundDispatchServiceTest {
     @Mock private AuthorizationService authorizationService;
     @Mock private ConfigService configService;
     @Mock private AlertService alertService;
+    @Mock private ReportService reportService;
     @Mock private GwoutDispatchRepository gwoutDispatchRepository;
     @Mock private GwoutRepository gwoutRepository;
 
@@ -49,6 +50,8 @@ class OutboundDispatchServiceTest {
     private Routing routing;
     private MessageProducer mockProducer;
     private TextMessage mockTextMessage;
+    private Session session;
+    private jakarta.jms.BytesMessage mockBytesMessage;
 
     @BeforeEach
     void setUp() {
@@ -85,6 +88,12 @@ class OutboundDispatchServiceTest {
         // §4.4.2.5 (CTSW004): ATS-message-header hợp lệ theo mặc định
         when(validationService.validateAtsMessageHeader(any(), any()))
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+        // §4.4.2.3 (CTSW017/CTSW019): repertoire hợp lệ theo mặc định
+        when(validationService.validateRepertoire(any(), any()))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+        // §4.4.2.3 (CTSW016): body part type hợp lệ theo mặc định; test nào cần thì stub lại riêng
+        when(validationService.validateBodyPartType(anyString()))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
     }
 
     // ==================== ISSUE #1: VALIDATION FAILURE LOGIC ====================
@@ -95,7 +104,7 @@ class OutboundDispatchServiceTest {
         when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
         MessageValidationService.ValidationResult invalidResult =
             new MessageValidationService.ValidationResult(false, List.of("Invalid AFTN address format"));
-        when(validationService.validateAmhsToSwim(anyString(), anyString()))
+        when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
             .thenReturn(invalidResult);
 
         // When
@@ -120,7 +129,7 @@ class OutboundDispatchServiceTest {
         when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
         MessageValidationService.ValidationResult validResult =
             new MessageValidationService.ValidationResult(true, List.of());
-        when(validationService.validateAmhsToSwim(anyString(), anyString()))
+        when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
             .thenReturn(validResult);
         when(authorizationService.isAmhsUserAuthorized("VVTSZYYX")).thenReturn(false);
 
@@ -147,7 +156,7 @@ class OutboundDispatchServiceTest {
         when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
         MessageValidationService.ValidationResult validResult =
             new MessageValidationService.ValidationResult(true, List.of());
-        when(validationService.validateAmhsToSwim(anyString(), anyString()))
+        when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
             .thenReturn(validResult);
         when(authorizationService.isAmhsUserAuthorized(anyString())).thenReturn(true);
 
@@ -197,7 +206,7 @@ class OutboundDispatchServiceTest {
         when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
         MessageValidationService.ValidationResult validResult =
             new MessageValidationService.ValidationResult(true, List.of());
-        when(validationService.validateAmhsToSwim(anyString(), anyString()))
+        when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
             .thenReturn(validResult);
         when(authorizationService.isAmhsUserAuthorized(anyString())).thenReturn(true);
         when(detectService.detect(anyString())).thenReturn("UNKNOWN");
@@ -332,10 +341,100 @@ class OutboundDispatchServiceTest {
         // When
         service.processOutboundMessage(probe);
 
-        // Then: Should mark as OUT_PUBLISHED and log DR
+        // Then: Should mark as OUT_PUBLISHED and log DR cho từng recipient (CTSW012 §4.4.6.6)
         assertEquals(OutboundStatus.PUBLISHED.getValue(), probe.getStatus());
         verify(gwoutRepository).save(probe);
-        verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("OK"), eq("dr_generated_probe"));
+        verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("OK"), eq("dr_generated_probe: VVHHZTZX"));
+    }
+
+    @Test
+    void testProbeConveyance_MixedRecipients_ShouldGenerateCombinedReport() {
+        // CTSW012: probe tới 2 recipient, chỉ 1 chuyển đổi được sang AF-address.
+        // Kỳ vọng: NDR "unrecognised-OR-name" cho recipient lạ, DR cho recipient hợp lệ.
+        Gwout probe = new Gwout();
+        probe.setMsgid(2L);
+        probe.setOrigin("VVTSZYYX");
+        probe.setAddress("VVHHZTZX,VVZZZTZX");
+        probe.setBodyType("probe");
+
+        when(authorizationService.isAmhsUserAuthorized("VVTSZYYX")).thenReturn(true);
+        when(validationService.validateAftnAddress(anyString(), eq("Recipient")))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+        // Chỉ VVHHZTZX nằm trong bảng tra địa chỉ
+        when(configService.get("AUTHORIZED_AMHS_ADDRESSES")).thenReturn("VVHHZTZX");
+        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(routingService.isRecipientConfigured("VVZZZTZX")).thenReturn(false);
+
+        service.processOutboundMessage(probe);
+
+        // Probe vẫn coi là xử lý xong vì có recipient nhận DR
+        assertEquals(OutboundStatus.PUBLISHED.getValue(), probe.getStatus());
+        assertEquals("unrecognised-OR-name", probe.getRejectionDiagnostic());
+        verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("OK"), eq("dr_generated_probe: VVHHZTZX"));
+        verify(conversionService).logAmhsToSwimRejected(eq(probe),
+                eq("ndr_unknown_recipient: VVZZZTZX"), eq("unrecognised-OR-name"), isNull());
+    }
+
+    @Test
+    void testProbeConveyance_ContentLengthExceedsMax_ShouldGenerateNDR() {
+        // CTSW011 Probe 3 (§4.4.6.2): content-length vượt "Maximum message data size"
+        Gwout probe = new Gwout();
+        probe.setMsgid(2L);
+        probe.setOrigin("VVTSZYYX");
+        probe.setAddress("VVHHZTZX");
+        probe.setBodyType("probe");
+        probe.setContentLength(5000);
+
+        when(authorizationService.isAmhsUserAuthorized("VVTSZYYX")).thenReturn(true);
+        when(configService.getMaxMsgDataSize()).thenReturn(2048);
+
+        service.processOutboundMessage(probe);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), probe.getStatus());
+        assertEquals("content-too-long", probe.getRejectionDiagnostic());
+        verify(conversionService).logAmhsToSwimRejected(eq(probe), anyString(), eq("content-too-long"),
+                eq("unable to convert to AMQP due to the content size"));
+    }
+
+    @Test
+    void testProbeConveyance_TooManyRecipients_ShouldGenerateNDR() {
+        // CTSW011 Probe 5 (§4.4.6.3): số recipient vượt "Maximum message number of recipients"
+        Gwout probe = new Gwout();
+        probe.setMsgid(2L);
+        probe.setOrigin("VVTSZYYX");
+        probe.setAddress("VVHHZTZX,VVNBZTZX,VVDNZTZX");
+        probe.setBodyType("probe");
+
+        when(authorizationService.isAmhsUserAuthorized("VVTSZYYX")).thenReturn(true);
+        when(configService.getMaxMsgRecipients()).thenReturn(2);
+
+        service.processOutboundMessage(probe);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), probe.getStatus());
+        assertEquals("too-many-recipients", probe.getRejectionDiagnostic());
+        verify(conversionService).logAmhsToSwimRejected(eq(probe), anyString(), eq("too-many-recipients"),
+                eq("unable to convert to AMQP due to number of recipients"));
+    }
+
+    @Test
+    void testProbeConveyance_UnsupportedEit_ShouldGenerateNDR() {
+        // CTSW016 (§4.4.6.1): EIT của probe cũng phải được kiểm tra
+        Gwout probe = new Gwout();
+        probe.setMsgid(2L);
+        probe.setOrigin("VVTSZYYX");
+        probe.setAddress("VVHHZTZX");
+        probe.setBodyType("probe");
+        probe.setOriginEit("{id-cs-eit-authority 3}");
+
+        when(authorizationService.isAmhsUserAuthorized("VVTSZYYX")).thenReturn(true);
+        when(validationService.validateEncodedInformationTypes("{id-cs-eit-authority 3}"))
+                .thenReturn(new MessageValidationService.ValidationResult(false,
+                        List.of("Unsupported encoded-information-types: {id-cs-eit-authority 3}")));
+
+        service.processOutboundMessage(probe);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), probe.getStatus());
+        assertEquals("encoded-information-types-unsupported", probe.getRejectionDiagnostic());
     }
 
     @Test
@@ -352,11 +451,18 @@ class OutboundDispatchServiceTest {
         // When
         service.processOutboundMessage(probe);
 
-        // Then: Should mark as OUT_FAILED, log REJECTED and ndr_unknown_originator
+        // Then (CTSW013 §4.4.6.4): OUT_FAILED kèm diagnostic "invalid-arguments" và
+        // supplementary-information theo Appendix A
         assertEquals(OutboundStatus.FAILED.getValue(), probe.getStatus());
         assertEquals("unknown-originator", probe.getRejectionReason());
+        assertEquals("invalid-arguments", probe.getRejectionDiagnostic());
         verify(gwoutRepository).save(probe);
-        verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("REJECTED"), eq("ndr_unknown_originator: UNKNOWNX"));
+        verify(conversionService).logAmhsToSwimRejected(eq(probe),
+                eq("ndr_unknown-originator: Unknown originator: UNKNOWNX"),
+                eq("invalid-arguments"),
+                eq("unable to convert to AMQP due to unrecognized originator O/R address"));
+        // §3.1.1.1: probe bị từ chối phải được báo Control Position
+        verify(alertService).create(anyString(), anyString(), anyString(), eq("gwout"), eq(2L));
     }
 
     @Test
@@ -389,7 +495,7 @@ class OutboundDispatchServiceTest {
     void testEitValidation_UnsupportedType_ShouldReject() {
         // Given
         gwout.setBodyPartType("unsupported-format-eit");
-        when(validationService.validateAmhsToSwim(anyString(), anyString())).thenReturn(
+        when(validationService.validateAmhsToSwim(anyString(), anyString(), any())).thenReturn(
             new MessageValidationService.ValidationResult(true, List.of())
         );
         when(authorizationService.isAmhsUserAuthorized(anyString())).thenReturn(true);
@@ -474,7 +580,7 @@ class OutboundDispatchServiceTest {
     @Test
     void testSizeLimitRejection_ShouldCarryContentSizeSupplementaryInfo() {
         // CTSW006: NDR phải mang "unable to convert to AMQP due to the content size"
-        when(validationService.validateAmhsToSwim(anyString(), anyString()))
+        when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
                 .thenReturn(new MessageValidationService.ValidationResult(false,
                         List.of("Message size 200 bytes exceeds maximum 100 bytes (content-too-long)")));
 
@@ -488,7 +594,7 @@ class OutboundDispatchServiceTest {
     @Test
     void testRecipientsLimitRejection_ShouldCarryRecipientsSupplementaryInfo() {
         // CTSW010: NDR phải mang "unable to convert to AMQP due to number of recipients"
-        when(validationService.validateAmhsToSwim(anyString(), anyString()))
+        when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
                 .thenReturn(new MessageValidationService.ValidationResult(false,
                         List.of("Recipients count 513 exceeds maximum 512 (too-many-recipients)")));
 
@@ -511,6 +617,292 @@ class OutboundDispatchServiceTest {
         assertEquals("maximum-time-expired", gwout.getRejectionDiagnostic());
         verify(conversionService).logAmhsToSwimRejected(eq(gwout), eq("ttl_expired"),
                 eq("maximum-time-expired"), isNull());
+        // §3.1.1.1: tình huống ngoài luồng phải được báo Control Position
+        verify(alertService).create(eq(GwAlert.TYPE_VALIDATION_ERROR), eq(GwAlert.SEV_WARNING),
+                contains("latest-delivery-time exceeded"), eq("gwout"), eq(1L));
+    }
+
+    // ==================== CTSW020: báo Control Position ====================
+
+    @Test
+    void testCTSW020_Precedence107_ShouldNotifyControlPosition() throws Exception {
+        // CTSW020 điện văn 1: Extended IPM, precedence cao nhất 107 -> báo CP, vẫn chuyển tiếp
+        setupValidScenario();
+        gwout.setPrecedence(107);
+        gwout.setAmhsPriority("SS");
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
+        verify(alertService).create(eq(GwAlert.TYPE_VALIDATION_ERROR), eq(GwAlert.SEV_WARNING),
+                contains("precedence 107"), eq("gwout"), eq(1L));
+    }
+
+    @Test
+    void testCTSW020_Precedence14_ShouldNotNotifyControlPosition() throws Exception {
+        // CTSW020 điện văn 4: precedence 14 -> KHÔNG báo CP
+        setupValidScenario();
+        gwout.setPrecedence(14);
+        gwout.setAmhsPriority("KK");
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
+        verify(alertService, never()).create(anyString(), anyString(), anyString(), anyString(), anyLong());
+    }
+
+    @Test
+    void testCTSW020_BasicIpmWithSsPriority_ShouldNotifyControlPosition() throws Exception {
+        // CTSW020 điện văn 2: Basic IPM, ATS-message-priority SS -> báo CP
+        setupValidScenario();
+        gwout.setPrecedence(null);
+        gwout.setAmhsPriority("SS");
+
+        service.processOutboundMessage(gwout);
+
+        verify(alertService).create(eq(GwAlert.TYPE_VALIDATION_ERROR), eq(GwAlert.SEV_WARNING),
+                contains("ATS-message-priority SS"), eq("gwout"), eq(1L));
+    }
+
+    @Test
+    void testCTSW020_BasicIpmWithDdPriority_ShouldNotNotify() throws Exception {
+        // CTSW020 điện văn 5: priority DD -> KHÔNG báo CP
+        setupValidScenario();
+        gwout.setAmhsPriority("DD");
+
+        service.processOutboundMessage(gwout);
+
+        verify(alertService, never()).create(anyString(), anyString(), anyString(), anyString(), anyLong());
+    }
+
+    // ==================== CTSW003 / NDR: hàng đợi gwout_report ====================
+
+    @Test
+    void testCTSW003_DeliveryReportRequested_ShouldQueueDr() throws Exception {
+        setupValidScenario();
+        gwout.setAmhsDeliveryReport(true);
+
+        service.processOutboundMessage(gwout);
+
+        verify(reportService).recordDrForAll(gwout);
+    }
+
+    @Test
+    void testCTSW003_NoReportRequested_ShouldNotQueueDr() throws Exception {
+        setupValidScenario();
+        gwout.setAmhsDeliveryReport(false);
+
+        service.processOutboundMessage(gwout);
+
+        verify(reportService, never()).recordDrForAll(any());
+    }
+
+    @Test
+    void testRejection_ShouldQueueNdrWithSameTripletAsLog() throws Exception {
+        // Bộ ba phần tử NDR phải nhất quán giữa traffic log và hàng đợi gwout_report
+        setupValidScenario();
+        gwout.setAmhsTtl(LocalDateTime.now().minusHours(1));
+
+        service.processOutboundMessage(gwout);
+
+        verify(reportService).recordNdrForAll(gwout, "maximum-time-expired", null);
+    }
+
+    @Test
+    void testProbeMixedRecipients_ShouldQueueBothDrAndNdr() throws Exception {
+        // CTSW012: combined report - DR cho recipient hợp lệ, NDR cho recipient lạ
+        Gwout probe = new Gwout();
+        probe.setMsgid(2L);
+        probe.setOrigin("VVTSZYYX");
+        probe.setAddress("VVHHZTZX,VVZZZTZX");
+        probe.setBodyType("probe");
+
+        when(authorizationService.isAmhsUserAuthorized("VVTSZYYX")).thenReturn(true);
+        when(validationService.validateAftnAddress(anyString(), eq("Recipient")))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+        when(configService.get("AUTHORIZED_AMHS_ADDRESSES")).thenReturn("VVHHZTZX");
+        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(routingService.isRecipientConfigured("VVZZZTZX")).thenReturn(false);
+
+        service.processOutboundMessage(probe);
+
+        verify(reportService).recordDr(probe, "VVHHZTZX");
+        verify(reportService).recordNdr(probe, "VVZZZTZX", "unrecognised-OR-name", null);
+    }
+
+    // ==================== REPERTOIRE (CTSW017 / CTSW019) ====================
+
+    @Test
+    void testRepertoireIta2_ShouldRejectWithUnsupportedBodyPartType() throws Exception {
+        // CTSW017 điện văn 3: ia5-text-body-part với repertoire ita2 -> NDR content-syntax-error
+        setupValidScenario();
+        gwout.setBodyPartType("ia5-text-body-part");
+        gwout.setBodyPartCharset("ITA2");
+        when(validationService.validateRepertoire("ia5-text-body-part", "ITA2"))
+                .thenReturn(new MessageValidationService.ValidationResult(false,
+                        List.of("ia5-text-body-part repertoire 'ITA2' is not supported (unsupported-body-part-type)")));
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        assertEquals("unsupported-repertoire", gwout.getRejectionReason());
+        assertEquals("content-syntax-error", gwout.getRejectionDiagnostic());
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("unsupported_repertoire"),
+                eq("content-syntax-error"),
+                eq("unable to convert to AMQP due to unsupported body part type"));
+    }
+
+    @Test
+    void testRepertoireNonIso646_RejectedByPolicy_ShouldCarryEitSupplementary() throws Exception {
+        // CTSW019: chính sách nội bộ từ chối repertoire khác ISO 646
+        setupValidScenario();
+        gwout.setBodyPartType("general-text-body-part");
+        gwout.setBodyPartCharset("ISO-REG-144");
+        when(validationService.validateRepertoire("general-text-body-part", "ISO-REG-144"))
+                .thenReturn(new MessageValidationService.ValidationResult(false,
+                        List.of("general-text-body-part repertoire 'ISO-REG-144' rejected by local AMHS "
+                                + "Management Domain policy (unsupported-encoded-information-types)")));
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        assertEquals("content-syntax-error", gwout.getRejectionDiagnostic());
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("unsupported_repertoire"),
+                eq("content-syntax-error"),
+                eq("unable to convert to AMQP due to unsupported encoded-information-types"));
+    }
+
+    // ==================== AMQP APPLICATION PROPERTIES (CTSW001) ====================
+
+    @Test
+    void testPublish_ShouldSetAmhsSubjectProperty() throws Exception {
+        // CTSW001 (§4.4.3.4.8): amhs_subject phải mang phần tử subject của IPM heading
+        setupValidScenario();
+        gwout.setSubject("SIGMET VVTS");
+
+        service.processOutboundMessage(gwout);
+        service.processDispatch(dispatch);
+
+        verify(mockTextMessage).setStringProperty("amhs_subject", "SIGMET VVTS");
+    }
+
+    @Test
+    void testPublish_BlankSubject_ShouldNotSetAmhsSubjectProperty() throws Exception {
+        setupValidScenario();
+        gwout.setSubject("   ");
+
+        service.processOutboundMessage(gwout);
+        service.processDispatch(dispatch);
+
+        verify(mockTextMessage, never()).setStringProperty(eq("amhs_subject"), anyString());
+    }
+
+    @Test
+    void testPublish_UserVisibleString_ShouldBeSetWhenPresent() throws Exception {
+        // Table 2 / §4.4.3.4.11: amhs_user_visible_string là T1 - gán khi phần tử có mặt
+        setupValidScenario();
+        gwout.setBodyType("ftbp");
+        gwout.setBodyPartType("file-transfer-body-part");
+        gwout.setText(java.util.Base64.getEncoder().encodeToString(new byte[] { 1, 2, 3 }));
+        gwout.setAmhsUserVisibleString("bao-cao-thoi-tiet.pdf");
+        when(session.createBytesMessage()).thenReturn(mockBytesMessage);
+
+        service.processOutboundMessage(gwout);
+        service.processDispatch(dispatch);
+
+        verify(mockBytesMessage).setStringProperty("amhs_user_visible_string", "bao-cao-thoi-tiet.pdf");
+    }
+
+    @Test
+    void testPublish_NonDefaultRegisteredIdWithoutUserVisibleString_ShouldAlertControlPosition() throws Exception {
+        // §4.4.4.6: registered-identifier khác OID mặc định thì user-visible-string bắt buộc.
+        // Thiếu -> vẫn gửi bản tin nhưng phải báo Control Position.
+        setupValidScenario();
+        gwout.setBodyType("ftbp");
+        gwout.setBodyPartType("file-transfer-body-part");
+        gwout.setText(java.util.Base64.getEncoder().encodeToString(new byte[] { 1, 2, 3 }));
+        gwout.setAmhsRegisteredId("1.2.3.4.5");
+        gwout.setAmhsUserVisibleString(null);
+        when(session.createBytesMessage()).thenReturn(mockBytesMessage);
+
+        service.processOutboundMessage(gwout);
+        service.processDispatch(dispatch);
+
+        verify(mockBytesMessage).setStringProperty("amhs_registered_identifier", "1.2.3.4.5");
+        verify(alertService).create(eq(GwAlert.TYPE_VALIDATION_ERROR), eq(GwAlert.SEV_WARNING),
+                contains("amhs_user_visible_string"), eq("gwout"), eq(1L));
+    }
+
+    @Test
+    void testPublish_DefaultRegisteredId_ShouldNotAlert() throws Exception {
+        // OID mặc định "unknown-attachment" thì không cần user-visible-string
+        setupValidScenario();
+        gwout.setBodyType("ftbp");
+        gwout.setBodyPartType("file-transfer-body-part");
+        gwout.setText(java.util.Base64.getEncoder().encodeToString(new byte[] { 1, 2, 3 }));
+        gwout.setAmhsRegisteredId(vn.asg.swim.model.AmqpProperties.DEFAULT_REGISTERED_IDENTIFIER_OID);
+        when(session.createBytesMessage()).thenReturn(mockBytesMessage);
+
+        service.processOutboundMessage(gwout);
+        service.processDispatch(dispatch);
+
+        verify(alertService, never()).create(anyString(), anyString(),
+                contains("amhs_user_visible_string"), anyString(), anyLong());
+    }
+
+    @Test
+    void testPublish_UnknownRepertoire_ShouldNotSetContentEncoding() throws Exception {
+        // Table 6: amhs_content_encoding chỉ nhận IA5 / ISO-646 / ISO-8859-1.
+        // Repertoire ISO-REG-n qua được chính sách CTSW019 thì vẫn gửi bản tin nhưng
+        // không gán property với giá trị ngoài Table 6.
+        setupValidScenario();
+        gwout.setBodyPartType("general-text-body-part");
+        gwout.setBodyPartCharset("ISO-REG-144");
+
+        service.processOutboundMessage(gwout);
+        service.processDispatch(dispatch);
+
+        verify(mockTextMessage, never()).setStringProperty(eq("amhs_content_encoding"), anyString());
+    }
+
+    @Test
+    void testPublish_Iso8859Repertoire_ShouldSetContentEncoding() throws Exception {
+        setupValidScenario();
+        gwout.setBodyPartType("general-text-body-part");
+        gwout.setBodyPartCharset("ISO-8859-1");
+
+        service.processOutboundMessage(gwout);
+        service.processDispatch(dispatch);
+
+        verify(mockTextMessage).setStringProperty("amhs_content_encoding", "ISO-8859-1");
+    }
+
+    // ==================== KÍCH THƯỚC PAYLOAD FTBP (CTSW006) ====================
+
+    @Test
+    void testFtbpPayloadSize_ShouldBeMeasuredAfterBase64Decode() throws Exception {
+        // CTSW006 (c): với FTBP, gwout.text là base64 nên phải giải mã trước khi đo,
+        // nếu không bản tin sát ngưỡng sẽ bị từ chối nhầm.
+        setupValidScenario();
+        byte[] raw = new byte[300];
+        gwout.setBodyType("ftbp");
+        gwout.setText(java.util.Base64.getEncoder().encodeToString(raw)); // chuỗi dài 400 ký tự
+
+        service.processOutboundMessage(gwout);
+
+        // Validator phải nhận đúng 300 byte (dữ liệu gốc), không phải 400 (độ dài chuỗi base64)
+        verify(validationService).validateAmhsToSwim(anyString(), anyString(), eq(300));
+    }
+
+    @Test
+    void testTextPayloadSize_ShouldBeMeasuredOnUtf8Bytes() throws Exception {
+        setupValidScenario();
+        gwout.setBodyType("text");
+        gwout.setText("METAR VVTS");
+
+        service.processOutboundMessage(gwout);
+
+        verify(validationService).validateAmhsToSwim(anyString(), anyString(), eq(10));
     }
 
     // ==================== BODY PART COUNT (CTSW007) ====================
@@ -602,7 +994,7 @@ class OutboundDispatchServiceTest {
     private void setupValidScenario() throws Exception {
         MessageValidationService.ValidationResult validResult =
             new MessageValidationService.ValidationResult(true, List.of());
-        when(validationService.validateAmhsToSwim(anyString(), anyString()))
+        when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
             .thenReturn(validResult);
         when(authorizationService.isAmhsUserAuthorized(anyString())).thenReturn(true);
         when(detectService.detect(anyString())).thenReturn("METAR");
@@ -611,9 +1003,11 @@ class OutboundDispatchServiceTest {
         // gwout.text đã set sẵn ở setUp() để bypass empty check trong processDispatch
         dispatch.setTopic("ats.met.metar");
         when(gwoutDispatchRepository.findByGwoutId(1L)).thenReturn(List.of(dispatch));
+        when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
 
         // Mock AMQP publishing
-        Session session = mock(Session.class);
+        session = mock(Session.class);
+        mockBytesMessage = mock(jakarta.jms.BytesMessage.class);
         mockProducer = mock(MessageProducer.class);
         mockTextMessage = mock(TextMessage.class);
 

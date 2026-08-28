@@ -42,6 +42,7 @@ public class AllTestCasesAuditTest {
     @Mock private AuthorizationService authorizationService;
     @Mock private ConfigService configService;
     @Mock private AlertService alertService;
+    @Mock private ReportService reportService;
     @Mock private GwoutDispatchRepository gwoutDispatchRepository;
     @Mock private GwoutRepository gwoutRepository;
 
@@ -51,7 +52,7 @@ public class AllTestCasesAuditTest {
     @BeforeEach
     void setUp() {
         when(authorizationService.isAmhsUserAuthorized(anyString())).thenReturn(true);
-        when(validationService.validateAmhsToSwim(anyString(), anyString()))
+        when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
         when(validationService.validateAftnAddress(anyString(), anyString()))
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
@@ -61,7 +62,9 @@ public class AllTestCasesAuditTest {
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
         when(validationService.validateAtsMessageHeader(any(), any()))
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
-        
+        when(validationService.validateRepertoire(any(), any()))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+
         Routing metarRule = new Routing();
         metarRule.setMessageType("METAR");
         metarRule.setSendTopic("ats/met/metar");
@@ -131,7 +134,7 @@ public class AllTestCasesAuditTest {
     @DisplayName("CTSW004: Generate NDR for Syntax Failure")
     void testCTSW004() {
         Gwout gwout = createGwout("TC-CTSW004", "VVTSZTZX", "VVHHZTZX", "application/json", "(FPL-INVALID-SYNTAX");
-        when(validationService.validateAmhsToSwim(anyString(), anyString()))
+        when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
                 .thenReturn(new MessageValidationService.ValidationResult(false, List.of("Syntax error in FPL")));
 
         service.processOutboundMessage(gwout);
@@ -157,7 +160,7 @@ public class AllTestCasesAuditTest {
     @DisplayName("CTSW006: Reject IPM Exceeding Max Size")
     void testCTSW006() {
         Gwout gwout = createGwout("TC-CTSW006", "VVNBZTZX", "VVHHZTZX", "text/plain", "A".repeat(200));
-        when(validationService.validateAmhsToSwim(anyString(), anyString()))
+        when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
                 .thenReturn(new MessageValidationService.ValidationResult(false,
                         List.of("Message size 200 bytes exceeds maximum 100 bytes (content-too-long)")));
 
@@ -168,15 +171,34 @@ public class AllTestCasesAuditTest {
     }
 
     @Test
-    @DisplayName("CTSW008 (corrected): content_type MIME filter removed — EUR Doc 047 §4.4.1.1 content-type "
-            + "is an X.400 IPM-1988 abstract-value, not a MIME string; test_case.md's original CTSW008 "
-            + "expectation was based on a misreading and is superseded")
-    void testCTSW008() {
+    @DisplayName("CTSW008: content-type là abstract-value X.400 (gwout.x400_content_type), KHÔNG phải "
+            + "chuỗi MIME — gwout.content_type không được dùng để lọc")
+    void testCTSW008_MimeContentTypeIsNotAFilter() {
+        // MIME content_type lạ không phải là căn cứ từ chối theo §4.4.1.1
         Gwout gwout = createGwout("TC-CTSW008", "VVNBZTZX", "VVHHZTZX", "application/unknown-mime-type", "METAR...");
+        gwout.setX400ContentType(22); // interpersonal-messaging-1988
 
         runFullOutboundPipeline(gwout);
 
         assertEquals(OutboundStatus.PUBLISHED.getValue(), gwout.getStatus());
+    }
+
+    @Test
+    @DisplayName("CTSW008: content-type khác interpersonal-messaging-1988(22) phải sinh NDR "
+            + "content-type-not-supported")
+    void testCTSW008_UnsupportedAbstractValueShouldBeRejected() {
+        // Appendix A/CTSW008: điện văn 2 (1984), 3 (edi-messaging 35), 4 (unidentified 0) đều bị từ chối
+        for (int abstractValue : new int[] { 2, 35, 0 }) {
+            Gwout gwout = createGwout("TC-CTSW008-" + abstractValue, "VVNBZTZX", "VVHHZTZX",
+                    "text/plain", "METAR...");
+            gwout.setX400ContentType(abstractValue);
+
+            service.processOutboundMessage(gwout);
+
+            assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus(),
+                    "content-type " + abstractValue + " phải bị từ chối");
+            assertEquals("content-type-not-supported", gwout.getRejectionDiagnostic());
+        }
     }
 
     @Test

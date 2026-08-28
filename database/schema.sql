@@ -120,10 +120,11 @@ CREATE TABLE `gwin_dispatch` (
 DROP TABLE IF EXISTS `gwout`;
 CREATE TABLE `gwout` (
   `msgid` bigint(20) NOT NULL AUTO_INCREMENT,
-  `address` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `address` mediumtext COLLATE utf8mb4_unicode_ci COMMENT 'Danh sách địa chỉ AFTN người nhận, phân cách dấu phẩy (CTSW010: tới 512 recipient)',
   `amhs_delivery_report` bit(1) DEFAULT NULL,
   `amhs_priority` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `amhs_registered_id` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `amhs_user_visible_string` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'FTBP user-visible-string (Table 2, 4.4.3.4.11)',
   `amhs_ttl` datetime(6) DEFAULT NULL,
   `amhsid` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `amqp_message_id` varchar(256) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -136,6 +137,8 @@ CREATE TABLE `gwout` (
   `number_of_attachment` int(11) DEFAULT NULL,
   `origin_eit` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `x400_content_type` int(11) DEFAULT NULL,
+  `content_length` int(11) DEFAULT NULL COMMENT 'Content-length của Probe (§4.4.6.2, CTSW011); NULL = bỏ qua kiểm tra',
+  `precedence` int(11) DEFAULT NULL COMMENT 'Precedence cao nhất của recipient responsible (Table 5); NULL = Basic IPM',
   `content_type` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `error_type` int(11) DEFAULT NULL,
   `filing_time` varchar(6) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -258,6 +261,9 @@ CREATE TABLE `mtcu_to` (
   `receiptNotification` int(11) DEFAULT NULL,
   `reportRequest` int(11) DEFAULT NULL,
   `receiveMessage_id` bigint(20) DEFAULT NULL,
+  `precedence` int(11) DEFAULT NULL COMMENT 'IPM recipient-extensions precedence: 14/28/57/71/107 (CTSW001, CTSW020)',
+  `responsibility` bit(1) DEFAULT NULL COMMENT 'MTE per-recipient-fields: 1=responsible, 0=not-responsible (CTSW001)',
+  `recipientType` varchar(10) DEFAULT NULL COMMENT 'IPM heading: primary | copy | blind-copy (CTSW009)',
   PRIMARY KEY (`id`),
   KEY `FK_46hkt85ow6q0wki3tm0kawxrw` (`receiveMessage_id`),
   CONSTRAINT `FK_46hkt85ow6q0wki3tm0kawxrw` FOREIGN KEY (`receiveMessage_id`) REFERENCES `mtcu_tmp` (`id`)
@@ -379,3 +385,47 @@ CREATE TABLE `users` (
   UNIQUE KEY `UK_6dotkott2kjsp8vw4d0m25fb7` (`email`),
   UNIQUE KEY `UK_r43af9ap4edm43mmtq01oddj6` (`username`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Bảng `gwout_report` - hàng đợi AMHS report (DR/NDR) gửi AMHS Component
+-- EUR Doc 047 §4.4.8; xem migration_2026-08-26_gwout_report.sql
+-- ============================================================
+DROP TABLE IF EXISTS `gwout_report`;
+CREATE TABLE `gwout_report` (
+  `id`                 bigint(20)   NOT NULL AUTO_INCREMENT,
+  `gwout_id`           bigint(20)   NOT NULL,
+  `mts_id`             varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `report_type`        varchar(3)   COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'DR | NDR',
+  `recipient`          varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `reason_code`        varchar(32)  COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `diagnostic_code`    varchar(64)  COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `supplementary_info` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status`             varchar(16)  COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `created_at`         datetime(6)  NOT NULL,
+  `sent_at`            datetime(6)  DEFAULT NULL,
+  `last_error`         text         COLLATE utf8mb4_unicode_ci,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_report` (`gwout_id`, `recipient`, `report_type`),
+  KEY `idx_status` (`status`),
+  CONSTRAINT `fk_report_gwout` FOREIGN KEY (`gwout_id`) REFERENCES `gwout` (`msgid`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Bảng `mtcu_ipn` - IPN (RN/NRN) nhận từ AMHS, do AMHS Component ghi
+-- EUR Doc 047 §4.4.7; xem migration_2026-08-26_amss_interface.sql
+-- ============================================================
+DROP TABLE IF EXISTS `mtcu_ipn`;
+CREATE TABLE `mtcu_ipn` (
+  `id`               bigint(20)   NOT NULL AUTO_INCREMENT,
+  `notification_type` varchar(3)   NOT NULL COMMENT 'RN | NRN',
+  `subject_ipm_id`    varchar(255) DEFAULT NULL,
+  `subject_mts_id`    varchar(255) DEFAULT NULL,
+  `or_address`        varchar(255) DEFAULT NULL,
+  `receipt_time`      varchar(255) DEFAULT NULL,
+  `non_receipt_reason`int(11)      DEFAULT NULL,
+  `received_at`       datetime     DEFAULT NULL,
+  `status`           varchar(16)  DEFAULT 'PENDING',
+  PRIMARY KEY (`id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_subject_ipm` (`subject_ipm_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

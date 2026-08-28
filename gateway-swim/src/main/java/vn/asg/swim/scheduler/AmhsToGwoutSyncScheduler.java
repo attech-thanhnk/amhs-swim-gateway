@@ -7,11 +7,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.OutboundStatus;
 import vn.asg.swim.repository.GwoutRepository;
 import vn.asg.swim.util.AddressUtil;
 import vn.asg.swim.model.AmqpProperties;
+import vn.asg.swim.service.AlertService;
 import vn.asg.swim.service.ConfigService;
 
 import java.nio.charset.StandardCharsets;
@@ -29,11 +31,13 @@ public class AmhsToGwoutSyncScheduler {
     private final EntityManager entityManager;
     private final GwoutRepository gwoutRepository;
     private final ConfigService configService;
+    private final AlertService alertService;
 
-    public AmhsToGwoutSyncScheduler(EntityManager entityManager, GwoutRepository gwoutRepository, ConfigService configService) {
+    public AmhsToGwoutSyncScheduler(EntityManager entityManager, GwoutRepository gwoutRepository, ConfigService configService, AlertService alertService) {
         this.entityManager = entityManager;
         this.gwoutRepository = gwoutRepository;
         this.configService = configService;
+        this.alertService = alertService;
     }
 
     private boolean tableMissingLogged = false;
@@ -62,14 +66,98 @@ public class AmhsToGwoutSyncScheduler {
     }
 
     /**
+     * EUR Doc 047 §4.4.3.4.4 / CTSW001: recipient có responsibility element = "responsible".
+     * mtcu_to.responsibility là bit(1) nên JDBC có thể trả về Boolean, Number hoặc byte[].
+     */
+    private boolean isResponsible(Object[] row) {
+        if (row == null || row.length <= 21 || row[21] == null) {
+            return false;
+        }
+        Object value = row[21];
+        if (value instanceof Boolean b) return b;
+        if (value instanceof Number n) return n.intValue() != 0;
+        if (value instanceof byte[] bytes) return bytes.length > 0 && bytes[0] != 0;
+        String s = value.toString().trim();
+        return "1".equals(s) || "true".equalsIgnoreCase(s);
+    }
+
+    /**
+     * Nạp nội dung nhị phân của file đính kèm (mtcu_tmp.data) cho MỘT bản tin.
+     * <p>
+     * Tách thành truy vấn riêng thay vì lấy kèm trong câu SELECT chính, vì câu chính quét tới
+     * 200 bản tin mỗi lượt còn cột {@code data} là longblob — kéo blob của mọi dòng sẽ rất nặng
+     * trong khi hầu hết bản tin ATS không có file đính kèm. Câu chính chỉ lấy
+     * {@code OCTET_LENGTH(data)} để biết có file hay không, có mới nạp.
+     *
+     * @return mảng byte của file, hoặc null nếu không có / đọc lỗi
+     */
+    private byte[] loadFtbpData(Long msgTmpId) {
+        try {
+            Object result = entityManager
+                    .createNativeQuery("SELECT data FROM mtcu_tmp WHERE id = :id")
+                    .setParameter("id", msgTmpId)
+                    .getSingleResult();
+            if (result instanceof byte[] bytes) {
+                return bytes;
+            }
+            if (result != null) {
+                log.warn("mtcu_tmp#{}: cột data có kiểu {} không mong đợi, bỏ qua",
+                        msgTmpId, result.getClass().getName());
+            }
+            return null;
+        } catch (Exception e) {
+            log.error("mtcu_tmp#{}: không nạp được nội dung file đính kèm: {}", msgTmpId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Ánh xạ giá trị bodyPartCharacterSet thô từ mtcu_tmp sang repertoire chuẩn
      * EUR Doc 047 §4.4.3.4.9 (Basic ISO-646 / Basic-1 ISO-8859-1).
+     * <p>
+     * Chấp nhận cả hai dạng amss có thể ghi:
+     * <ul>
+     *   <li>dạng chữ: "ISO 8859-1", "US-ASCII", "IA5", "ITA2"...</li>
+     *   <li>dạng character set registration number theo ISO 2375 mà CTSW018/CTSW019 dùng:
+     *       "1,6" = Basic ISO 646; "1,6,100" = ISO 8859-1; các số khác (Cyrillic 144,
+     *       Greek 126, Arabic 127, Hebrew 138, CJK...) trả về "ISO-REG-&lt;n&gt;" để
+     *       MessageValidationService áp dụng chính sách nội bộ của CTSW019.</li>
+     * </ul>
+     * Trả về null khi không nhận dạng được, khi đó amhs_content_encoding sẽ không được gán.
      */
     private String mapBodyPartCharset(String raw) {
         if (raw == null || raw.isBlank()) return null;
         String normalized = raw.trim().toUpperCase();
-        if (normalized.contains("8859")) return "ISO-8859-1";
+
+        // Dạng chữ
+        if (normalized.contains("ITA2")) return "ITA2";
+        if (normalized.contains("8859-1") || normalized.contains("8859 1")) return "ISO-8859-1";
         if (normalized.contains("646") || normalized.contains("ASCII") || normalized.contains("IA5")) return "ISO-646";
+
+        // Dạng character set registration number: "1,6" / "1 6 100" / "1,6,144"
+        if (normalized.matches("[0-9]+([,;\\s]+[0-9]+)*")) {
+            java.util.Set<Integer> regs = new java.util.LinkedHashSet<>();
+            for (String tok : normalized.split("[,;\\s]+")) {
+                try {
+                    regs.add(Integer.valueOf(tok));
+                } catch (NumberFormatException ignored) {
+                    // đã lọc bằng regex ở trên, không thể xảy ra
+                }
+            }
+            // 100 = phần bên phải của ISO 8859-1 (Western European supplementary set)
+            if (regs.contains(100)) return "ISO-8859-1";
+            // 1 = ISO 646 IRV, 6 = US-ASCII -> Basic ISO 646
+            java.util.Set<Integer> iso646 = java.util.Set.of(1, 6);
+            if (iso646.containsAll(regs)) return "ISO-646";
+            // Repertoire khác ISO 646: giữ lại registration number đầu tiên ngoài 1/6
+            for (Integer reg : regs) {
+                if (!iso646.contains(reg)) {
+                    return "ISO-REG-" + reg;
+                }
+            }
+        }
+
+        if (normalized.contains("8859")) return "ISO-8859-1";
         log.warn("Unrecognized bodyPartCharacterSet value '{}' from mtcu_tmp, leaving amhs_content_encoding unset", raw);
         return null;
     }
@@ -107,16 +195,19 @@ public class AmhsToGwoutSyncScheduler {
                     t.orAddress,
                     o.address AS recipient_address,
                     t.bodyPartCharacterSet,
-                    t.ftbpFileName,
-                    t.ftbpObjectSize,
-                    t.ftbpLastMod,
+                    t.file_name,
+                    OCTET_LENGTH(t.data) AS data_size,
+                    NULL AS unused_ftbp_last_mod,
                     t.numberOfAttachment,
                     t.originEncodeInformationType,
                     o.reportRequest,
                     o.mtaReportRequest,
-                    t.contentType
+                    t.contentType,
+                    t.subject,
+                    o.precedence,
+                    o.responsibility
                 FROM (
-                    SELECT id, content, atsFilingTime, atsPriority, atsOhi, bodyPartType, ipmId, messageId, orAddress, bodyPartCharacterSet, ftbpFileName, ftbpObjectSize, ftbpLastMod, numberOfAttachment, originEncodeInformationType, contentType
+                    SELECT id, content, atsFilingTime, atsPriority, atsOhi, bodyPartType, ipmId, messageId, orAddress, bodyPartCharacterSet, file_name, data, numberOfAttachment, originEncodeInformationType, contentType, subject
                     FROM mtcu_tmp
                     ORDER BY id DESC
                     LIMIT 200
@@ -161,6 +252,7 @@ public class AmhsToGwoutSyncScheduler {
             for (List<Object[]> msgRows : groupedByMessage.values()) {
                 Object[] row = msgRows.get(0);
                 try {
+                    Long msgTmpId = ((Number) row[0]).longValue();
                     String content = asString(row[1]);
                     String atsFilingTime = asString(row[2]);
                     String atsPriority = asString(row[3]);
@@ -170,9 +262,12 @@ public class AmhsToGwoutSyncScheduler {
                     String messageId = asString(row[7]);
                     String orAddress = asString(row[8]);
                     String bodyPartCharacterSet = asString(row[10]);
+                    // Server 188 cung cấp tên file và nội dung nhị phân của FTBP.
+                    // Kích thước lấy bằng OCTET_LENGTH(data) thay vì một cột riêng — không có
+                    // nguồn nào cho date-and-time-of-last-modification nên amhs_ftbp_last_mod
+                    // sẽ vắng mặt (hợp lệ: §4.4.3.4.2 ghi cả ba thuộc tính FTBP là optional).
                     String ftbpFileName = asString(row[11]);
-                    String ftbpObjectSize = asString(row[12]);
-                    String ftbpLastMod = asString(row[13]);
+                    long ftbpDataSize = row[12] instanceof Number n ? n.longValue() : 0L;
                     // §4.4.2.2: số body part của IPM, dùng để phát hiện IPM nhiều body part
                     Integer numberOfAttachment = null;
                     if (row.length > 14 && row[14] != null) {
@@ -185,12 +280,30 @@ public class AmhsToGwoutSyncScheduler {
 
                     // ICAO Doc 047: amhs_recipients phải liệt kê các recipient THẬT của IPM
                     // (không phải chính địa chỉ gateway VVTSSWIM dùng để nhận tin).
+                    //
+                    // CTSW001 (§4.4.3.4.4): chỉ gồm recipient có responsibility = "responsible".
+                    // mtcu_to.responsibility là bit(1): 1 = responsible, 0 = not-responsible,
+                    // NULL = AMHS Component chưa cung cấp -> giữ nguyên hành vi cũ (nhận tất cả)
+                    // để không làm mất recipient khi dữ liệu chưa sẵn sàng.
+                    boolean hasResponsibilityData = msgRows.stream()
+                            .anyMatch(r -> r.length > 21 && r[21] != null);
                     List<String> realRecipients = msgRows.stream()
+                            .filter(r -> !hasResponsibilityData || isResponsible(r))
                             .map(r -> AddressUtil.getShort(asString(r[9])))
                             .filter(java.util.Objects::nonNull)
                             .filter(a -> !a.equalsIgnoreCase(gatewayShortAddress))
                             .distinct()
                             .toList();
+
+                    // CTSW001 (Extended IPM): amhs_ats_pri và AMQP priority lấy từ precedence
+                    // CAO NHẤT trong các recipient "responsible" (Table 5), không phải từ
+                    // ATS-message-priority. CTSW020: precedence 107 phải báo Control Position.
+                    Integer highestPrecedence = msgRows.stream()
+                            .filter(r -> !hasResponsibilityData || isResponsible(r))
+                            .map(r -> r.length > 20 && r[20] instanceof Number n ? n.intValue() : null)
+                            .filter(java.util.Objects::nonNull)
+                            .max(Integer::compareTo)
+                            .orElse(null);
 
                     Gwout gwout = new Gwout();
                     if (messageId != null && messageId.length() > 200) messageId = messageId.substring(0, 200);
@@ -228,6 +341,15 @@ public class AmhsToGwoutSyncScheduler {
                                     bodyPartType);
                         }
                     }
+                    // §4.4.3.4.9: "Upon reception of a message with two body parts, one
+                    // file-transfer-body part and one text body part, the amhs_bodypart_type
+                    // application property shall contain the value file-transfer-body part."
+                    // Có nội dung nhị phân trong mtcu_tmp.data nghĩa là bản tin có FTBP, bất kể
+                    // bodyPartType báo giá trị nào — kể cả cặp text + FTBP (CTSW007 điện văn 1-2).
+                    if (ftbpDataSize > 0) {
+                        standardBodyPartType = "file-transfer-body-part";
+                        bodyType = "ftbp";
+                    }
                     gwout.setBodyPartType(standardBodyPartType);
                     gwout.setBodyType(bodyType);
                     gwout.setNumberOfAttachment(numberOfAttachment);
@@ -238,6 +360,11 @@ public class AmhsToGwoutSyncScheduler {
                     int rawContentType = asInt(row, 18);
                     gwout.setX400ContentType(rawContentType >= 0 ? rawContentType : null);
 
+                    // CTSW001 (§4.4.3.4.8): amhs_subject mang giá trị phần tử subject của IPM heading.
+                    String subject = row.length > 19 ? asString(row[19]) : null;
+                    if (subject != null && subject.length() > 200) subject = subject.substring(0, 200);
+                    gwout.setSubject(subject);
+
                     // CTSW003 (§4.4.8 / Doc 9880 §4.5.6.2.20): per-recipient-indicators quyết định
                     // có phải sinh Delivery Report hay không. Cần DR khi originator-report-request
                     // = report(2), HOẶC originating-MTA-report-request = report(2)/audited-report(3).
@@ -246,9 +373,11 @@ public class AmhsToGwoutSyncScheduler {
                             asInt(r, 16) == 2
                                     || asInt(r, 17) == 2
                                     || asInt(r, 17) == 3));
-                    // EUR Doc 047 §4.4.3.4.9: repertoire chỉ có ý nghĩa cho general-text-body-part
-                    // (ia5-text* luôn là "ia5", file-transfer-body-part không áp dụng)
-                    if ("general-text-body-part".equals(standardBodyPartType)) {
+                    // EUR Doc 047 §4.4.3.4.9: repertoire áp dụng cho general-text-body-part (CTSW018/019)
+                    // và cho ia5-text-body-part (CTSW017 phải phát hiện được repertoire ita2 để từ chối).
+                    // file-transfer-body-part không có repertoire.
+                    if ("general-text-body-part".equals(standardBodyPartType)
+                            || "ia5-text-body-part".equals(standardBodyPartType)) {
                         gwout.setBodyPartCharset(mapBodyPartCharset(bodyPartCharacterSet));
                     }
                     // EUR Doc 047 §4.4.3.4.2 Table 4: file-attribute các tham số FTBP chỉ áp dụng
@@ -256,10 +385,17 @@ public class AmhsToGwoutSyncScheduler {
                     if ("file-transfer-body-part".equals(standardBodyPartType)) {
                         gwout.setFtbpFileName(ftbpFileName != null && ftbpFileName.length() > 255
                                 ? ftbpFileName.substring(0, 255) : ftbpFileName);
-                        gwout.setFtbpObjectSize(ftbpObjectSize != null && ftbpObjectSize.length() > 20
-                                ? ftbpObjectSize.substring(0, 20) : ftbpObjectSize);
-                        gwout.setFtbpLastMod(ftbpLastMod != null && ftbpLastMod.length() > 20
-                                ? ftbpLastMod.substring(0, 20) : ftbpLastMod);
+                        if (ftbpDataSize > 0) {
+                            gwout.setFtbpObjectSize(String.valueOf(ftbpDataSize));
+                        }
+                        // §4.4.3.5.1: "For messages that contain an FTBP, the data of the FTBP
+                        // shall be used." Nội dung nhị phân được nạp riêng (chỉ với bản tin thật
+                        // sự có file) rồi mã hoá base64 vào gwout.text — OutboundDispatchService
+                        // giải mã lại khi dựng BytesMessage.
+                        byte[] ftbpData = loadFtbpData(msgTmpId);
+                        if (ftbpData != null && ftbpData.length > 0) {
+                            gwout.setText(java.util.Base64.getEncoder().encodeToString(ftbpData));
+                        }
                     }
 
                     // Convert originator to short format
@@ -275,17 +411,41 @@ public class AmhsToGwoutSyncScheduler {
                             ? String.join(",", realRecipients)
                             : gatewayShortAddress;
                     if (realRecipients.isEmpty()) {
+                        // §4.4.3.4.4: amhs_recipients phải là địa chỉ AFTN của những recipient mà
+                        // ITCU chịu trách nhiệm chuyển giao. Điền địa chỉ gateway vào đó là SAI,
+                        // nhưng vẫn giữ để bản tin không bị mất trong lúc AMHS Component bổ sung
+                        // recipient thật vào mtcu_to. Báo Control Position để bất thường này nhìn
+                        // thấy được thay vì chỉ nằm trong log.
                         log.warn("gwout sync: messageId={} has no real recipient other than the gateway ({}), falling back to gateway address",
                                 messageId, gatewayShortAddress);
+                        alertService.create(
+                                GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                                "Bản tin " + messageId + " không có recipient nào ngoài địa chỉ gateway ("
+                                        + gatewayShortAddress + "). amhs_recipients sẽ mang giá trị sai "
+                                        + "so với §4.4.3.4.4 — chờ AMHS Component ghi recipient thật vào mtcu_to.",
+                                "mtcu_tmp", msgTmpId);
                     }
-                    if (finalRecipient != null && finalRecipient.length() > 1000) finalRecipient = finalRecipient.substring(0, 1000);
+                    // CTSW010: KHÔNG cắt danh sách recipient. Cột gwout.address là MEDIUMTEXT nên
+                    // chứa được tối đa "Maximum message number of recipients" (512 recipient ~ 4.6KB).
+                    // Cắt chuỗi ở đây sẽ làm mất recipient âm thầm và bản tin bị chuyển thiếu người nhận,
+                    // trong khi §4.4.2.7 yêu cầu vượt ngưỡng thì phải TỪ CHỐI cả bản tin bằng NDR
+                    // "too-many-recipients" — việc đó do OutboundDispatchService thực hiện sau.
                     gwout.setAddress(finalRecipient);
                     
-                    int numericPriority = 2;
-                    if (atsPriority != null) {
-                        numericPriority = AmqpProperties.mapAtsPriorityToAmqp(atsPriority);
+                    // CTSW001 (§4.4.3.4.3 + Table 5): Extended IPM ưu tiên dùng precedence cao nhất;
+                    // Basic IPM (không có precedence) dùng ATS-message-priority như trước.
+                    gwout.setPrecedence(highestPrecedence);
+                    String effectivePriority = AmqpProperties.mapPrecedenceToAtsPriority(highestPrecedence);
+                    if (effectivePriority != null) {
+                        gwout.setAmhsPriority(effectivePriority);
+                    } else {
+                        effectivePriority = atsPriority;
+                        if (highestPrecedence != null) {
+                            log.warn("gwout sync: messageId={} có precedence {} không thuộc Table 5, "
+                                    + "giữ ATS-message-priority '{}'", messageId, highestPrecedence, atsPriority);
+                        }
                     }
-                    gwout.setSwimPriority(numericPriority);
+                    gwout.setSwimPriority(AmqpProperties.mapAtsPriorityToAmqp(effectivePriority));
 
                     gwout.setStatus(OutboundStatus.PENDING.getValue());
 

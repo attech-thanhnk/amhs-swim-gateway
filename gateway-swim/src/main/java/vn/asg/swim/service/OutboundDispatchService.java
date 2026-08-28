@@ -9,6 +9,7 @@ import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.GwoutDispatch;
 import vn.asg.swim.entity.OutboundStatus;
+import vn.asg.swim.model.AmqpProperties;
 import vn.asg.swim.repository.GwoutDispatchRepository;
 import vn.asg.swim.repository.GwoutRepository;
 
@@ -35,8 +36,34 @@ public class OutboundDispatchService {
     private final AuthorizationService authorizationService;
     private final ConfigService configService;
     private final AlertService alertService;
+    private final ReportService reportService;
     private final GwoutDispatchRepository gwoutDispatchRepository;
     private final GwoutRepository gwoutRepository;
+
+    /**
+     * Từ chối bản tin cho TOÀN BỘ recipient: cập nhật trạng thái, ghi traffic log, xếp NDR vào
+     * hàng đợi {@code gwout_report} để AMHS Component phát, và báo Control Position.
+     * <p>
+     * Gom chung mọi nhánh từ chối ở mức bản tin để bộ ba phần tử của NDR (reason-code,
+     * diagnostic-code, supplementary-information) luôn được ghi nhất quán ở cả ba nơi.
+     *
+     * @param alertMessage nội dung cảnh báo gửi Control Position, null nếu nhánh này không báo
+     */
+    private void rejectMessage(Gwout gwout, String rejectionReason, String diagnosticCode,
+            String supplementaryInfo, String actionTaken, String alertMessage) {
+        if (alertMessage != null) {
+            alertService.create(GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                    alertMessage, "gwout", gwout.getMsgid());
+        }
+        gwout.setStatus(OutboundStatus.FAILED.getValue());
+        gwout.setRejectionReason(rejectionReason);
+        gwout.setRejectionDiagnostic(diagnosticCode);
+        gwout.setRejectionSource("AMHS");
+        gwoutRepository.save(gwout);
+        conversionService.logAmhsToSwimRejected(gwout, actionTaken, diagnosticCode, supplementaryInfo);
+        // EUR Doc 047 §4.4.8: ITCU quyết định, AMHS Component phát NDR ra X.400
+        reportService.recordNdrForAll(gwout, diagnosticCode, supplementaryInfo);
+    }
 
     /**
      * Thực hiện kiểm tra, phân tích bản tin AMHS và chuyển tiếp nguyên văn sang SWIM.
@@ -49,12 +76,11 @@ public class OutboundDispatchService {
         if (origin == null || !origin.matches("^[A-Z]{8}$")) {
             log.warn("gwout#{} rejected: origin '{}' is invalid (must be 8 uppercase alphabetic characters, no digits, no spaces)",
                     gwout.getMsgid(), origin);
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("invalid-origin-format");
-            gwout.setRejectionDiagnostic("invalid-arguments");
-            gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwimRejected(gwout, "invalid_origin_format", "invalid-arguments",
-                    "unable to convert to AMQP due to unrecognized originator O/R address");
+            rejectMessage(gwout, "invalid-origin-format", "invalid-arguments",
+                    "unable to convert to AMQP due to unrecognized originator O/R address",
+                    "invalid_origin_format",
+                    "gwout#" + gwout.getMsgid() + " rejected: originator O/R address '" + origin
+                            + "' không hợp lệ");
             return;
         }
 
@@ -74,35 +100,25 @@ public class OutboundDispatchService {
         if (x400ContentType != null && x400ContentType != IPM_1988_CONTENT_TYPE) {
             log.warn("gwout#{} rejected: content-type {} khác interpersonal-messaging-1988(22)",
                     gwout.getMsgid(), x400ContentType);
-            alertService.create(
-                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                    "gwout#" + gwout.getMsgid() + " rejected: unsupported content-type " + x400ContentType,
-                    "gwout", gwout.getMsgid());
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("unsupported-content-type");
-            gwout.setRejectionDiagnostic("content-type-not-supported");
-            gwoutRepository.save(gwout);
             // CTSW008 chỉ yêu cầu non-delivery-reason-code + non-delivery-diagnostic-code.
-            conversionService.logAmhsToSwimRejected(gwout,
-                    "unsupported_content_type: " + x400ContentType, "content-type-not-supported", null);
+            rejectMessage(gwout, "unsupported-content-type", "content-type-not-supported", null,
+                    "unsupported_content_type: " + x400ContentType,
+                    "gwout#" + gwout.getMsgid() + " rejected: unsupported content-type " + x400ContentType);
             return;
         }
 
+        // CTSW006 (§4.4.2.6): so sánh với "Maximum message data size" phải dùng kích thước THẬT
+        // của payload. Với file-transfer-body-part, gwout.text chứa dữ liệu đã base64-encode nên
+        // dài hơn dữ liệu gốc khoảng 33% - phải giải mã trước khi đo.
         MessageValidationService.ValidationResult dirResult = validationService.validateAmhsToSwim(gwout.getText(),
-                gwout.getAddress());
+                gwout.getAddress(), payloadByteSize(gwout));
         if (!dirResult.isValid()) {
             log.warn("gwout#{} rejected by validation: {}", gwout.getMsgid(), dirResult.getErrorMessage());
-            alertService.create(
-                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                    "gwout#" + gwout.getMsgid() + " rejected: " + dirResult.getErrorMessage(),
-                    "gwout", gwout.getMsgid());
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("validation-failed");
-            gwout.setRejectionDiagnostic(ndrDiagnosticFor(dirResult.getErrorMessage()));
-            gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwimRejected(gwout, "validation_failed: " + dirResult.getErrorMessage(),
+            rejectMessage(gwout, "validation-failed",
                     ndrDiagnosticFor(dirResult.getErrorMessage()),
-                    ndrSupplementaryFor(dirResult.getErrorMessage()));
+                    ndrSupplementaryFor(dirResult.getErrorMessage()),
+                    "validation_failed: " + dirResult.getErrorMessage(),
+                    "gwout#" + gwout.getMsgid() + " rejected: " + dirResult.getErrorMessage());
             return;
         }
 
@@ -113,19 +129,11 @@ public class OutboundDispatchService {
         if (!headerResult.isValid()) {
             log.warn("gwout#{} rejected: ATS-message-header sai cú pháp - {}",
                     gwout.getMsgid(), headerResult.getErrorMessage());
-            alertService.create(
-                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                    "gwout#" + gwout.getMsgid() + " rejected: ATS-message-header syntax error - "
-                            + headerResult.getErrorMessage(),
-                    "gwout", gwout.getMsgid());
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("ats-header-syntax-error");
-            gwout.setRejectionDiagnostic("content-syntax-error");
-            gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwimRejected(gwout,
+            rejectMessage(gwout, "ats-header-syntax-error", "content-syntax-error",
+                    "unable to convert to AMQP due to ATS-message-header or Heading Fields syntax error",
                     "ats_header_syntax_error: " + headerResult.getErrorMessage(),
-                    "content-syntax-error",
-                    "unable to convert to AMQP due to ATS-message-header or Heading Fields syntax error");
+                    "gwout#" + gwout.getMsgid() + " rejected: ATS-message-header syntax error - "
+                            + headerResult.getErrorMessage());
             return;
         }
 
@@ -148,16 +156,9 @@ public class OutboundDispatchService {
                 validationService.validateEncodedInformationTypes(gwout.getOriginEit());
         if (!eitTypeResult.isValid()) {
             log.warn("gwout#{} rejected by EIT check: {}", gwout.getMsgid(), eitTypeResult.getErrorMessage());
-            alertService.create(
-                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                    "gwout#" + gwout.getMsgid() + " rejected: " + eitTypeResult.getErrorMessage(),
-                    "gwout", gwout.getMsgid());
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("unsupported-eit");
-            gwout.setRejectionDiagnostic("encoded-information-types-unsupported");
-            gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwimRejected(gwout, "unsupported_eit: " + eitTypeResult.getErrorMessage(),
-                    "encoded-information-types-unsupported", null);
+            rejectMessage(gwout, "unsupported-eit", "encoded-information-types-unsupported", null,
+                    "unsupported_eit: " + eitTypeResult.getErrorMessage(),
+                    "gwout#" + gwout.getMsgid() + " rejected: " + eitTypeResult.getErrorMessage());
             return;
         }
 
@@ -180,17 +181,9 @@ public class OutboundDispatchService {
             if (supplementary != null) {
                 log.warn("gwout#{} rejected: {} body part(s), type={}",
                         gwout.getMsgid(), bodyPartCount, gwout.getBodyPartType());
-                alertService.create(
-                        GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                        "gwout#" + gwout.getMsgid() + " rejected: " + supplementary,
-                        "gwout", gwout.getMsgid());
-                gwout.setStatus(OutboundStatus.FAILED.getValue());
-                gwout.setRejectionReason("unsupported-body-parts");
-                gwout.setRejectionDiagnostic("content-syntax-error");
-                gwoutRepository.save(gwout);
-                conversionService.logAmhsToSwimRejected(gwout,
+                rejectMessage(gwout, "unsupported-body-parts", "content-syntax-error", supplementary,
                         "unsupported_body_parts: " + bodyPartCount + " parts",
-                        "content-syntax-error", supplementary);
+                        "gwout#" + gwout.getMsgid() + " rejected: " + supplementary);
                 return;
             }
         }
@@ -210,30 +203,38 @@ public class OutboundDispatchService {
             MessageValidationService.ValidationResult eitResult = validationService.validateBodyPartType(gwout.getBodyPartType());
             if (!eitResult.isValid()) {
                 log.warn("gwout#{} rejected by EIT validation: {}", gwout.getMsgid(), eitResult.getErrorMessage());
-                alertService.create(
-                        GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                        "gwout#" + gwout.getMsgid() + " rejected: " + eitResult.getErrorMessage(),
-                        "gwout", gwout.getMsgid());
-                gwout.setStatus(OutboundStatus.FAILED.getValue());
-                gwout.setRejectionReason("unsupported-eit");
-                gwout.setRejectionDiagnostic("content-syntax-error");
-                gwoutRepository.save(gwout);
-                conversionService.logAmhsToSwimRejected(gwout, "unsupported_eit: " + eitResult.getErrorMessage(),
-                        "content-syntax-error", "unable to convert to AMQP due to unsupported body part type");
+                rejectMessage(gwout, "unsupported-eit", "content-syntax-error",
+                        "unable to convert to AMQP due to unsupported body part type",
+                        "unsupported_eit: " + eitResult.getErrorMessage(),
+                        "gwout#" + gwout.getMsgid() + " rejected: " + eitResult.getErrorMessage());
                 return;
             }
+        }
+
+        // CTSW017 (§4.4.2.3): ia5-text-body-part có repertoire ita2 không nằm trong Table 6 -> từ chối.
+        // CTSW019 (§4.4.2.3): general-text-body-part có repertoire khác ISO 646 -> theo chính sách
+        // nội bộ của AMHS Management Domain (cấu hình ALLOW_NON_ISO646_REPERTOIRE).
+        MessageValidationService.ValidationResult repertoireResult =
+                validationService.validateRepertoire(gwout.getBodyPartType(), gwout.getBodyPartCharset());
+        if (!repertoireResult.isValid()) {
+            String supplementary = repertoireResult.getErrorMessage().contains("unsupported-body-part-type")
+                    ? "unable to convert to AMQP due to unsupported body part type"
+                    : "unable to convert to AMQP due to unsupported encoded-information-types";
+            log.warn("gwout#{} rejected by repertoire check: {}", gwout.getMsgid(), repertoireResult.getErrorMessage());
+            rejectMessage(gwout, "unsupported-repertoire", "content-syntax-error", supplementary,
+                    "unsupported_repertoire: " + repertoireResult.getErrorMessage(),
+                    "gwout#" + gwout.getMsgid() + " rejected: " + repertoireResult.getErrorMessage());
+            return;
         }
 
         // CTSW005: Generate NDR if current time exceeds latest delivery time (amhsTtl)
         if (gwout.getAmhsTtl() != null && gwout.getAmhsTtl().isBefore(LocalDateTime.now())) {
             log.warn("gwout#{} TTL expired (latest-delivery-time exceeded)", gwout.getMsgid());
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("ttl-expired");
-            gwout.setRejectionDiagnostic("maximum-time-expired");
-            gwoutRepository.save(gwout);
             // CTSW005 chỉ yêu cầu non-delivery-reason-code + non-delivery-diagnostic-code,
             // không yêu cầu supplementary-information.
-            conversionService.logAmhsToSwimRejected(gwout, "ttl_expired", "maximum-time-expired", null);
+            rejectMessage(gwout, "ttl-expired", "maximum-time-expired", null, "ttl_expired",
+                    "gwout#" + gwout.getMsgid() + " rejected: latest-delivery-time exceeded ("
+                            + gwout.getAmhsTtl() + ")");
             return;
         }
 
@@ -265,15 +266,24 @@ public class OutboundDispatchService {
             return;
         }
 
-        // CTSW020 (§4.4.4.4): priority-indicator "SS" (tương đương precedence 107 theo Table 9)
-        // với recipient "responsible" -> phải log và báo Control Position, NHƯNG bản tin vẫn được
-        // chuyển tiếp sang SWIM. Mọi recipient trong gwout đều là "responsible" (§4.4.3.4.4).
-        if ("SS".equalsIgnoreCase(gwout.getAmhsPriority())) {
-            log.warn("gwout#{}: bản tin ưu tiên SS - báo Control Position (§4.4.4.4)", gwout.getMsgid());
+        // CTSW020 (§4.4.4.4): phải log và báo Control Position khi recipient có responsibility
+        // "responsible" VÀ một trong hai điều kiện sau, NHƯNG bản tin vẫn được chuyển sang SWIM:
+        //   - Extended IPM: precedence cao nhất của recipient-extensions bằng 107, hoặc
+        //   - Basic IPM: priority-indicator bằng "SS".
+        // gwout.address đã được AmhsToGwoutSyncScheduler lọc chỉ còn recipient "responsible"
+        // khi AMHS Component cung cấp cột mtcu_to.responsibility (§4.4.3.4.4).
+        Integer precedence = gwout.getPrecedence();
+        boolean ssByPrecedence = precedence != null && precedence == AmqpProperties.PRECEDENCE_SS;
+        boolean ssByPriority = precedence == null && "SS".equalsIgnoreCase(gwout.getAmhsPriority());
+        if (ssByPrecedence || ssByPriority) {
+            String basis = ssByPrecedence ? "precedence 107" : "ATS-message-priority SS";
+            log.warn("gwout#{}: bản tin ưu tiên cao nhất ({}) - báo Control Position (§4.4.4.4)",
+                    gwout.getMsgid(), basis);
             alertService.create(
                     GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                    "gwout#" + gwout.getMsgid() + ": bản tin AMHS ưu tiên SS gửi tới "
-                            + gwout.getAddress() + " - cần Control Position xử lý (§4.4.4.4)",
+                    "gwout#" + gwout.getMsgid() + ": bản tin AMHS ưu tiên cao nhất (" + basis
+                            + ") gửi tới " + gwout.getAddress()
+                            + " - cần Control Position xử lý (§4.4.4.4)",
                     "gwout", gwout.getMsgid());
         }
 
@@ -293,9 +303,10 @@ public class OutboundDispatchService {
             // Giống CTSW011, phần phát DR ra đường truyền X.400 do AMHS Component (amss) thực hiện;
             // ở đây ghi nhận để amss phát và để Control Position tra cứu được.
             if (Boolean.TRUE.equals(gwout.getAmhsDeliveryReport())) {
-                log.info("gwout#{} yêu cầu Delivery Report (CTSW003) - ghi nhận để AMHS Component phát DR",
+                log.info("gwout#{} yêu cầu Delivery Report (CTSW003) - xếp hàng để AMHS Component phát DR",
                         gwout.getMsgid());
                 conversionService.logAmhsToSwim(gwout, null, "OK", "dr_generated");
+                reportService.recordDrForAll(gwout);
             }
         } catch (Exception e) {
             log.error("gwout#{} processing failed: {}", gwout.getMsgid(), e.getMessage());
@@ -442,6 +453,10 @@ public class OutboundDispatchService {
             if (gwout.getOptionalHeading() != null) {
                 message.setStringProperty("amhs_ats_ohi", gwout.getOptionalHeading());
             }
+            // EUR Doc 047 §4.4.3.4.8: amhs_subject mang phần tử subject của IPM heading (CTSW001)
+            if (gwout.getSubject() != null && !gwout.getSubject().isBlank()) {
+                message.setStringProperty("amhs_subject", gwout.getSubject());
+            }
             // EUR Doc 047 Table 7 §4.4.3.4.9: dùng body part type đã chuẩn hóa (có thể là
             // general-text-body-part), không tự ý suy giảm về ia5-text-body-part từ bodyType thô
             String bodyPartType = gwout.getBodyPartType() != null ? gwout.getBodyPartType()
@@ -459,29 +474,45 @@ public class OutboundDispatchService {
                 if (gwout.getFtbpLastMod() != null) {
                     message.setStringProperty("amhs_ftbp_last_mod", gwout.getFtbpLastMod());
                 }
+                // Table 2 §4.4.3.4.10: amhs_registered_identifier là T1 - ánh xạ từ phần tử
+                // registered-identifier khi có, vắng mặt thì không gán property.
                 if (gwout.getAmhsRegisteredId() != null) {
                     message.setStringProperty("amhs_registered_identifier", gwout.getAmhsRegisteredId());
-                    // §4.4.4.6: registered-identifier khác OID mặc định thì
-                    // user-visible-string bắt buộc phải có kèm. Nguồn AMHS (mtcu_tmp) không có cột
-                    // nào cho giá trị này -> log + báo Control Position, vẫn gửi bản tin đi.
-                    if (!vn.asg.swim.model.AmqpProperties.isDefaultRegisteredIdentifier(gwout.getAmhsRegisteredId())) {
-                        log.warn("gwout#{}: amhs_registered_identifier '{}' khác OID mặc định nhưng "
-                                + "không có amhs_user_visible_string kèm theo", gwout.getMsgid(), gwout.getAmhsRegisteredId());
-                        alertService.create(
-                                GwAlert.TYPE_VALIDATION_ERROR,
-                                GwAlert.SEV_WARNING,
-                                "gwout#" + gwout.getMsgid() + ": amhs_registered_identifier '"
-                                        + gwout.getAmhsRegisteredId() + "' khác OID mặc định nhưng thiếu "
-                                        + "amhs_user_visible_string (§4.4.4.6)",
-                                "gwout", gwout.getMsgid());
-                    }
+                }
+                // Table 2 §4.4.3.4.11: amhs_user_visible_string là T1 - ánh xạ từ phần tử
+                // user-visible-string khi có.
+                if (gwout.getAmhsUserVisibleString() != null) {
+                    message.setStringProperty("amhs_user_visible_string", gwout.getAmhsUserVisibleString());
+                }
+                // §4.4.4.6: registered-identifier khác OID mặc định thì user-visible-string bắt buộc
+                // phải có kèm. Thiếu thì vẫn gửi bản tin đi nhưng phải báo Control Position.
+                if (gwout.getAmhsRegisteredId() != null
+                        && !AmqpProperties.isDefaultRegisteredIdentifier(gwout.getAmhsRegisteredId())
+                        && gwout.getAmhsUserVisibleString() == null) {
+                    log.warn("gwout#{}: amhs_registered_identifier '{}' khác OID mặc định nhưng "
+                            + "thiếu amhs_user_visible_string", gwout.getMsgid(), gwout.getAmhsRegisteredId());
+                    alertService.create(
+                            GwAlert.TYPE_VALIDATION_ERROR,
+                            GwAlert.SEV_WARNING,
+                            "gwout#" + gwout.getMsgid() + ": amhs_registered_identifier '"
+                                    + gwout.getAmhsRegisteredId() + "' khác OID mặc định nhưng thiếu "
+                                    + "amhs_user_visible_string (§4.4.4.6)",
+                            "gwout", gwout.getMsgid());
                 }
             } else if ("ia5-text".equals(bodyPartType) || "ia5-text-body-part".equals(bodyPartType)) {
                 message.setStringProperty("amhs_content_encoding", "IA5");
-            } else if ("general-text-body-part".equals(bodyPartType) && gwout.getBodyPartCharset() != null) {
+            } else if ("general-text-body-part".equals(bodyPartType)
+                    && isTable6ContentEncoding(gwout.getBodyPartCharset())) {
+                // EUR Doc 047 Table 6: amhs_content_encoding chỉ nhận IA5 / ISO-646 / ISO-8859-1.
+                // Repertoire khác (ISO-REG-n) đã qua được chính sách CTSW019 nên vẫn chuyển bản tin,
+                // nhưng không gán property với giá trị không có trong Table 6.
                 message.setStringProperty("amhs_content_encoding", gwout.getBodyPartCharset());
             }
             message.setStringProperty("amhs_message_signed", "unsigned");
+            // KHÔNG thuộc Table 2 - phần mở rộng có chủ đích của hệ thống này.
+            // Gateway vừa publish vừa subscribe trên cùng broker, nên cần dấu nhận biết bản tin
+            // do chính mình phát để AMQPSubscriberService bỏ qua (chống lặp vô hạn).
+            // Xem AMQPSubscriberService: "Loopback detected ... Dropping message".
             message.setStringProperty("amhs_gateway_id", configService.getGatewayId());
             // EUR Doc 047 §4.4.3.3.1: message-id shall be generated by the SWIM component, not the ITCU
             message.setJMSTimestamp(System.currentTimeMillis());
@@ -662,6 +693,38 @@ public class OutboundDispatchService {
     }
 
     /**
+     * Kích thước thật của payload tính bằng byte, dùng cho phép so sánh với "Maximum message
+     * data size" (EUR Doc 047 §4.4.2.6 / CTSW006).
+     * <p>
+     * Với file-transfer-body-part, nội dung nhị phân được lưu base64 trong {@code gwout.text}
+     * (xem {@link #publish}); đo trực tiếp trên chuỗi sẽ phồng khoảng 33% và có thể từ chối nhầm
+     * bản tin nằm sát ngưỡng. Trả về null khi không có payload để validator tự xử lý.
+     */
+    /**
+     * EUR Doc 047 Table 6 / §4.4.3.4.9: các giá trị hợp lệ của amhs_content_encoding.
+     */
+    private boolean isTable6ContentEncoding(String charset) {
+        return "IA5".equals(charset) || "ISO-646".equals(charset) || "ISO-8859-1".equals(charset);
+    }
+
+    private Integer payloadByteSize(Gwout gwout) {
+        String body = gwout.getText();
+        if (body == null) {
+            return null;
+        }
+        if ("ftbp".equalsIgnoreCase(gwout.getBodyType())) {
+            try {
+                return java.util.Base64.getDecoder().decode(body).length;
+            } catch (IllegalArgumentException e) {
+                // Không phải base64 hợp lệ -> nội dung đã là dữ liệu thô, đo trực tiếp
+                log.debug("gwout#{} body_type=ftbp nhưng text không phải base64, đo kích thước trực tiếp",
+                        gwout.getMsgid());
+            }
+        }
+        return body.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+    }
+
+    /**
      * Suy ra non-delivery-diagnostic-code theo ma trận EUR Doc 047 §4.4.2.6/§4.4.2.7
      * từ thông báo lỗi của MessageValidationService (đã gắn sẵn mã chẩn đoán trong ngoặc).
      */
@@ -688,62 +751,130 @@ public class OutboundDispatchService {
      * CTSW011 - CTSW013: Xử lý bản tin Probe nhận từ AMHS.
      */
     private void processAmhsProbe(Gwout gwout) {
-        // 1. CTSW013: Kiểm tra tính hợp lệ của Originator (Xác thực)
+        // 1. CTSW013 (§4.4.6.4): originator không chuyển đổi được sang AF-address -> từ chối
+        //    probe cho TOÀN BỘ recipient.
         String originator = gwout.getOrigin();
         if (!authorizationService.isAmhsUserAuthorized(originator)) {
-            log.warn("Probe gwout#{} REJECTED: AMHS originator '{}' not authorized", gwout.getMsgid(), originator);
-            alertService.create(
-                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                    "Unauthorized AMHS originator for Probe: " + originator,
-                    "gwout", gwout.getMsgid());
-
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("unknown-originator");
-            gwoutRepository.save(gwout);
-
-            conversionService.logAmhsToSwim(gwout, null, "REJECTED", "ndr_unknown_originator: " + originator);
+            rejectProbe(gwout, "Unknown originator: " + originator, "unknown-originator",
+                    "invalid-arguments",
+                    "unable to convert to AMQP due to unrecognized originator O/R address");
             return;
         }
 
-        // 2. CTSW012: Kiểm tra tính hợp lệ của Recipients
         String recipients = gwout.getAddress();
         if (recipients == null || recipients.isBlank()) {
-            rejectProbe(gwout, "Recipients list is empty", "empty-recipients", null);
+            rejectProbe(gwout, "Recipients list is empty", "empty-recipients", "unrecognised-OR-name", null);
+            return;
+        }
+        String[] recipientArray = recipients.trim().split("[,\\s]+");
+
+        // 2. CTSW016 (§4.4.6.1): current encoded-information-types của probe cũng phải hợp lệ.
+        MessageValidationService.ValidationResult eitResult =
+                validationService.validateEncodedInformationTypes(gwout.getOriginEit());
+        if (!eitResult.isValid()) {
+            rejectProbe(gwout, "Probe EIT rejected: " + eitResult.getErrorMessage(), "unsupported-eit",
+                    "encoded-information-types-unsupported", null);
             return;
         }
 
-        String[] recipientArray = recipients.trim().split("[,\\s]+");
-        for (String recipient : recipientArray) {
-            var formatResult = validationService.validateAftnAddress(recipient, "Recipient");
-            if (!formatResult.isValid()) {
-                // EUR Doc 047 §4.4.6.5: address conversion into an AF-address failed
-                rejectProbe(gwout, "Invalid recipient format: " + recipient, "invalid-recipient-format",
-                        "unrecognised-OR-name");
-                return;
-            }
-
-            if (!isRecipientKnown(recipient)) {
-                rejectProbe(gwout, "Unknown recipient: " + recipient, "unknown-recipient", "unrecognised-OR-name");
+        // 3. CTSW011 Probe 3 (§4.4.6.2): content-length khai báo trong probe vượt
+        //    "Maximum message data size" -> NDR content-too-long.
+        Integer contentLength = gwout.getContentLength();
+        if (contentLength != null) {
+            int maxSize = configService.getMaxMsgDataSize();
+            if (maxSize > 0 && contentLength > maxSize) {
+                rejectProbe(gwout,
+                        String.format("Probe content-length %d exceeds maximum %d", contentLength, maxSize),
+                        "content-too-long", "content-too-long",
+                        "unable to convert to AMQP due to the content size");
                 return;
             }
         }
 
-        // 3. CTSW011: Hợp lệ -> Phát sinh Delivery Report (DR)
-        log.info("Probe gwout#{} validated successfully. Generating Delivery Report (DR).", gwout.getMsgid());
-        gwout.setStatus(OutboundStatus.PUBLISHED.getValue()); // Coi như đã xử lý thành công
+        // 4. CTSW011 Probe 4/5 (§4.4.6.3): số recipient vượt "Maximum message number of recipients".
+        int maxRecipients = configService.getMaxMsgRecipients();
+        if (maxRecipients > 0 && recipientArray.length > maxRecipients) {
+            rejectProbe(gwout,
+                    String.format("Probe addresses %d recipients, exceeds maximum %d",
+                            recipientArray.length, maxRecipients),
+                    "too-many-recipients", "too-many-recipients",
+                    "unable to convert to AMQP due to number of recipients");
+            return;
+        }
+
+        // 5. CTSW012 (§4.4.6.5 + §4.4.6.6): xét TỪNG recipient. Recipient không chuyển đổi được
+        //    sang AF-address nhận NDR "unrecognised-OR-name", recipient hợp lệ nhận DR — kết quả
+        //    là một combined report chứ không phải từ chối cả probe.
+        List<String> deliverable = new java.util.ArrayList<>();
+        List<String> undeliverable = new java.util.ArrayList<>();
+        for (String recipient : recipientArray) {
+            var formatResult = validationService.validateAftnAddress(recipient, "Recipient");
+            if (!formatResult.isValid() || !isRecipientKnown(recipient)) {
+                undeliverable.add(recipient);
+            } else {
+                deliverable.add(recipient);
+            }
+        }
+
+        // Ghi nhận kết quả theo từng recipient. Các dòng gwout_report cùng gwout_id hợp thành
+        // combined report mà AMHS Component sẽ phát: DR cho recipient hợp lệ, NDR cho recipient
+        // không chuyển đổi được sang địa chỉ AF (§4.4.6.5 + §4.4.6.6).
+        for (String recipient : deliverable) {
+            conversionService.logAmhsToSwim(gwout, null, "OK", "dr_generated_probe: " + recipient);
+            reportService.recordDr(gwout, recipient);
+        }
+        for (String recipient : undeliverable) {
+            conversionService.logAmhsToSwimRejected(gwout,
+                    "ndr_unknown_recipient: " + recipient, "unrecognised-OR-name", null);
+            reportService.recordNdr(gwout, recipient, "unrecognised-OR-name", null);
+        }
+
+        if (!undeliverable.isEmpty()) {
+            log.warn("Probe gwout#{}: {} recipient(s) không chuyển đổi được sang AF-address ({}), "
+                            + "{} recipient(s) nhận DR",
+                    gwout.getMsgid(), undeliverable.size(), String.join(",", undeliverable), deliverable.size());
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                    "Probe gwout#" + gwout.getMsgid() + ": NDR cho recipient không xác định ["
+                            + String.join(",", undeliverable) + "]"
+                            + (deliverable.isEmpty() ? "" : ", DR cho [" + String.join(",", deliverable) + "]"),
+                    "gwout", gwout.getMsgid());
+            gwout.setRejectionReason("unknown-recipient");
+            gwout.setRejectionSource("AMHS");
+            gwout.setRejectionDiagnostic("unrecognised-OR-name");
+        }
+
+        // Probe được coi là xử lý xong khi có ít nhất một recipient nhận DR; nếu mọi recipient
+        // đều bị từ chối thì probe thất bại hoàn toàn.
+        gwout.setStatus(deliverable.isEmpty()
+                ? OutboundStatus.FAILED.getValue()
+                : OutboundStatus.PUBLISHED.getValue());
         gwoutRepository.save(gwout);
 
-        conversionService.logAmhsToSwim(gwout, null, "OK", "dr_generated_probe");
+        if (!deliverable.isEmpty()) {
+            log.info("Probe gwout#{} conveyance test OK cho {} recipient", gwout.getMsgid(), deliverable.size());
+        }
     }
 
-    private void rejectProbe(Gwout gwout, String reason, String rejectionCode, String ndrDiagnostic) {
+    /**
+     * Từ chối probe cho toàn bộ recipient: ghi nhận NDR, log traffic và báo Control Position
+     * (§3.1.1.1 - probe không được chuyển sang SWIM nhưng phải được log và báo CP).
+     */
+    private void rejectProbe(Gwout gwout, String reason, String rejectionCode, String ndrDiagnostic,
+            String supplementaryInfo) {
         log.warn("Probe gwout#{} REJECTED: {}", gwout.getMsgid(), reason);
+        alertService.create(
+                GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                "Probe gwout#" + gwout.getMsgid() + " rejected: " + reason,
+                "gwout", gwout.getMsgid());
         gwout.setStatus(OutboundStatus.FAILED.getValue());
         gwout.setRejectionReason(rejectionCode);
         gwout.setRejectionSource("AMHS");
         gwout.setRejectionDiagnostic(ndrDiagnostic);
         gwoutRepository.save(gwout);
-        conversionService.logAmhsToSwimRejected(gwout, "ndr_" + rejectionCode + ": " + reason, ndrDiagnostic, null);
+        conversionService.logAmhsToSwimRejected(gwout, "ndr_" + rejectionCode + ": " + reason,
+                ndrDiagnostic, supplementaryInfo);
+        reportService.recordNdrForAll(gwout, ndrDiagnostic, supplementaryInfo);
     }
 
     private boolean isRecipientKnown(String recipient) {
