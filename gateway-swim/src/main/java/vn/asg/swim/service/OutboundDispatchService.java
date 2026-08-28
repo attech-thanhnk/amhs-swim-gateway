@@ -12,6 +12,7 @@ import vn.asg.swim.entity.OutboundStatus;
 import vn.asg.swim.model.AmqpProperties;
 import vn.asg.swim.repository.GwoutDispatchRepository;
 import vn.asg.swim.repository.GwoutRepository;
+import vn.asg.swim.util.AmqpMessageIdUtil;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -518,7 +519,9 @@ public class OutboundDispatchService {
             message.setJMSTimestamp(System.currentTimeMillis());
 
             producer.send(message);
-            return message.getJMSMessageID();
+            // Cắt tiền tố "ID:" của tầng JMS như chiều vào vẫn làm, để gwout.amqp_message_id
+            // và gwin.message_id cùng một dạng (Control Position tìm LIKE trên cả hai cột).
+            return AmqpMessageIdUtil.clean(message.getJMSMessageID());
 
         } finally {
             // Giải phóng tài nguyên theo thứ tự ngược lại để tránh rò rỉ

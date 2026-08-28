@@ -14,6 +14,7 @@ import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.InboundStatus;
 import vn.asg.swim.model.ResolvedAddressing;
 import vn.asg.swim.repository.GwinRepository;
+import vn.asg.swim.util.AmqpMessageIdUtil;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -837,29 +838,9 @@ public class AMQPSubscriberService {
         }
         return "text";
     }
+    /** Chuyển sang {@link AmqpMessageIdUtil} để chiều ra dùng chung cùng một cách cắt. */
     private String cleanAmqpMessageId(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        String cleaned = raw.trim();
-        String[] qpidPrefixes = {
-            "ID:AMQP_NO_PREFIX:",
-            "ID:AMQP_STRING:",
-            "ID:AMQP_BINARY:",
-            "ID:AMQP_ULONG:",
-            "ID:AMQP_UUID:",
-            "ID:"
-        };
-        for (String prefix : qpidPrefixes) {
-            if (cleaned.startsWith(prefix)) {
-                cleaned = cleaned.substring(prefix.length()).trim();
-                break;
-            }
-        }
-        if (cleaned.isBlank() || "null".equalsIgnoreCase(cleaned)) {
-            return null;
-        }
-        return cleaned;
+        return AmqpMessageIdUtil.clean(raw);
     }
 
     private String safeGetStringProperty(Message msg, String key) {
