@@ -98,15 +98,30 @@ class IpnProcessingServiceTest {
 
         service.processIpn(ipn);
 
+        // gwout_report.gwout_id có khoá ngoại trỏ về gwout(msgid), nên phải GHI THẬT một dòng
+        // gwout cho sự kiện IPN lạc tuyến rồi mới xếp NDR - dùng đối tượng Gwout tạm trong bộ nhớ
+        // sẽ khiến INSERT vi phạm khoá ngoại và NDR mất im lặng.
         ArgumentCaptor<Gwout> captor = ArgumentCaptor.forClass(Gwout.class);
-        verify(reportService).recordNdrForAll(captor.capture(), eq("invalid-arguments"),
-                eq("unable to notify RN to SWIM due to misrouted RN"));
+        verify(gwoutRepository).saveAndFlush(captor.capture());
+        Gwout placeholder = captor.getValue();
         // NDR gửi về chính bên đã phát RN
-        assertEquals("VVHHZTZX", captor.getValue().getAddress());
+        assertEquals("VVHHZTZX", placeholder.getAddress());
+        assertEquals("misrouted-ipn", placeholder.getRejectionReason());
+        // amhsid/ipm_id phải để NULL: amhsid vướng uk_gwout_amhsid, còn ipm_id sẽ khiến
+        // findSubjectMessage() khớp trúng chính dòng này ở lần IPN sau
+        assertNull(placeholder.getAmhsid());
+        assertNull(placeholder.getIpmId());
+
+        // MTS-Identifier của bản tin chủ đề vẫn phải xuống tới amss để dựng NDR
+        verify(reportService).recordNdr(placeholder.getMsgid(), ipn.getSubjectMtsId(), "VVHHZTZX",
+                "invalid-arguments", "unable to notify RN to SWIM due to misrouted RN");
 
         verify(alertService).create(anyString(), eq(GwAlert.SEV_WARNING), contains("lạc tuyến"),
                 eq("mtcu_ipn"), eq(7L));
-        verify(conversionService).logAmhsToSwimRejected(any(Gwout.class), contains("ndr_misrouted_ipn"),
+        // Traffic log giữ subject IPM-Id/MTS-Id, bù cho việc hai cột tương ứng trên dòng gwout
+        // placeholder cố tình để NULL
+        verify(conversionService).logAmhsToSwim(eq(placeholder), isNull(), eq("REJECTED"),
+                contains("ndr_misrouted_ipn"), eq(ipn.getSubjectMtsId()), eq("IPM-KHONG-TON-TAI"),
                 eq("invalid-arguments"), eq("unable to notify RN to SWIM due to misrouted RN"));
         assertEquals(McuIpn.STATUS_PROCESSED, ipn.getStatus());
     }

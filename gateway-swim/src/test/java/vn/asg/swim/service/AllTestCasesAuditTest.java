@@ -28,7 +28,13 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Automated Verification Audit for all Test Cases in test_case.md (CTSW001 - CTSW020).
+ * Kiểm chứng đầu-cuối một số test case của Appendix A: chạy TRỌN pipeline chiều AMHS → SWIM
+ * (transform → tạo dispatch → publish) thay vì từng bước rời rạc như các test khác.
+ * <p>
+ * Phạm vi hiện tại: CTSW001, CTSW002, CTSW004, CTSW005, CTSW006, CTSW008, CTSW016, CTSW018.
+ * Đây KHÔNG phải bản audit đủ CTSW001–CTSW020 — các case còn lại được phủ ở
+ * {@code OutboundDispatchServiceTest}, {@code AmhsToGwoutSyncSchedulerTest},
+ * {@code IpnProcessingServiceTest} và {@code MessageValidationServiceTest}.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -99,10 +105,12 @@ public class AllTestCasesAuditTest {
 
         ArgumentCaptor<GwoutDispatch> dispatchCaptor = ArgumentCaptor.forClass(GwoutDispatch.class);
         verify(gwoutDispatchRepository, atLeastOnce()).save(dispatchCaptor.capture());
-        GwoutDispatch dispatch = dispatchCaptor.getValue();
-        when(gwoutDispatchRepository.findByGwoutId(gwout.getMsgid())).thenReturn(List.of(dispatch));
+        // Lấy TOÀN BỘ dispatch đã tạo, không chỉ dòng cuối: chỉ trả về một dòng thì nhánh gộp
+        // nhiều recipient thành một lần publish (§4.4.3.4.4) không bao giờ được đi qua.
+        List<GwoutDispatch> dispatches = dispatchCaptor.getAllValues();
+        when(gwoutDispatchRepository.findByGwoutId(gwout.getMsgid())).thenReturn(dispatches);
 
-        service.processDispatch(dispatch);
+        service.processDispatch(dispatches.get(0));
     }
 
     @Test

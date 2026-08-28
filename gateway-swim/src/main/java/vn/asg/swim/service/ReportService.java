@@ -49,7 +49,23 @@ public class ReportService {
      * chuyển đổi được sang địa chỉ AF.
      */
     public void recordNdr(Gwout gwout, String recipient, String diagnosticCode, String supplementaryInfo) {
-        save(gwout, recipient, GwoutReport.TYPE_NDR, GwoutReport.REASON_UNABLE_TO_TRANSFER,
+        recordNdr(gwout.getMsgid(), gwout.getAmhsid(), recipient, diagnosticCode, supplementaryInfo);
+    }
+
+    /**
+     * Xếp NDR khi MTS-Identifier không lấy được từ {@code gwout.amhsid}.
+     * <p>
+     * Dùng cho IPN lạc tuyến (CTSW015): bản tin chủ đề chưa từng đi qua gateway, nên dòng
+     * {@code gwout} sinh ra cho sự kiện đó phải để {@code amhsid} NULL (ràng buộc
+     * {@code uk_gwout_amhsid} không cho hai IPN cùng subject MTS-Id tồn tại song song). MTS-Id
+     * của bản tin chủ đề vẫn phải xuống tới amss để dựng NDR, nên truyền tường minh ở đây.
+     *
+     * @param gwoutId phải là một {@code gwout.msgid} CÓ THẬT - cột {@code gwout_report.gwout_id}
+     *                có khoá ngoại {@code fk_report_gwout} trỏ về {@code gwout(msgid)}
+     */
+    public void recordNdr(Long gwoutId, String mtsId, String recipient, String diagnosticCode,
+            String supplementaryInfo) {
+        save(gwoutId, mtsId, recipient, GwoutReport.TYPE_NDR, GwoutReport.REASON_UNABLE_TO_TRANSFER,
                 diagnosticCode, supplementaryInfo);
     }
 
@@ -67,27 +83,27 @@ public class ReportService {
      * Xếp DR cho MỘT recipient — CTSW011/CTSW012, xác nhận probe conveyance test thành công.
      */
     public void recordDr(Gwout gwout, String recipient) {
-        save(gwout, recipient, GwoutReport.TYPE_DR, null, null, null);
+        save(gwout.getMsgid(), gwout.getAmhsid(), recipient, GwoutReport.TYPE_DR, null, null, null);
     }
 
-    private void save(Gwout gwout, String recipient, String reportType, String reasonCode,
+    private void save(Long gwoutId, String mtsId, String recipient, String reportType, String reasonCode,
             String diagnosticCode, String supplementaryInfo) {
         if (recipient == null || recipient.isBlank()) {
-            log.warn("gwout#{}: bỏ qua {} vì thiếu recipient", gwout.getMsgid(), reportType);
+            log.warn("gwout#{}: bỏ qua {} vì thiếu recipient", gwoutId, reportType);
             return;
         }
         String trimmed = recipient.trim();
         try {
             // Idempotency: cùng (bản tin, recipient, loại report) chỉ ghi một lần
             if (reportRepository.findByGwoutIdAndRecipientAndReportType(
-                    gwout.getMsgid(), trimmed, reportType).isPresent()) {
-                log.debug("gwout#{}: {} cho {} đã tồn tại, bỏ qua", gwout.getMsgid(), reportType, trimmed);
+                    gwoutId, trimmed, reportType).isPresent()) {
+                log.debug("gwout#{}: {} cho {} đã tồn tại, bỏ qua", gwoutId, reportType, trimmed);
                 return;
             }
 
             GwoutReport report = new GwoutReport();
-            report.setGwoutId(gwout.getMsgid());
-            report.setMtsId(gwout.getAmhsid());
+            report.setGwoutId(gwoutId);
+            report.setMtsId(mtsId);
             report.setReportType(reportType);
             report.setRecipient(trimmed.length() > 100 ? trimmed.substring(0, 100) : trimmed);
             report.setReasonCode(reasonCode);
@@ -99,11 +115,11 @@ public class ReportService {
             report.setStatus(GwoutReport.STATUS_PENDING);
             reportRepository.save(report);
             log.info("gwout#{}: xếp hàng {} cho {} (diagnostic={})",
-                    gwout.getMsgid(), reportType, trimmed, diagnosticCode);
+                    gwoutId, reportType, trimmed, diagnosticCode);
         } catch (Exception e) {
             // Không để lỗi ghi report làm hỏng luồng xử lý bản tin chính
             log.error("gwout#{}: không ghi được {} cho {}: {}",
-                    gwout.getMsgid(), reportType, trimmed, e.getMessage());
+                    gwoutId, reportType, trimmed, e.getMessage());
         }
     }
 

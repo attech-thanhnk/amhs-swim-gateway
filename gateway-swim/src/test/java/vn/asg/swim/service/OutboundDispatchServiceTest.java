@@ -215,9 +215,13 @@ class OutboundDispatchServiceTest {
         // When
         service.processOutboundMessage(gwout);
 
-        // Then: Should fail at routing step
+        // Then: Should fail at routing step VÀ sinh NDR (§4.4.8) - trước đây nhánh này chỉ đặt
+        // status = FAILED nên người gửi X.400 không nhận được gì.
         assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
-        verify(conversionService).logAmhsToSwim(eq(gwout), any(), eq("ERROR"), contains("routing_failed"));
+        assertEquals("no-routing-rule", gwout.getRejectionReason());
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("routing_failed"),
+                eq("unrecognised-OR-name"), isNull());
+        verify(reportService).recordNdrForAll(eq(gwout), eq("unrecognised-OR-name"), isNull());
     }
 
     // ==================== RETRY LOGIC ====================
@@ -362,8 +366,6 @@ class OutboundDispatchServiceTest {
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
         // Chỉ VVHHZTZX nằm trong bảng tra địa chỉ
         when(configService.get("AUTHORIZED_AMHS_ADDRESSES")).thenReturn("VVHHZTZX");
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
-        when(routingService.isRecipientConfigured("VVZZZTZX")).thenReturn(false);
 
         service.processOutboundMessage(probe);
 
@@ -478,9 +480,8 @@ class OutboundDispatchServiceTest {
         when(validationService.validateAftnAddress("UNKNOWN", "Recipient")).thenReturn(
             new MessageValidationService.ValidationResult(true, List.of())
         );
-        // Not configured in whitelist or IN routing rule
-        when(configService.get("AUTHORIZED_AMHS_ADDRESSES")).thenReturn("");
-        when(routingService.isRecipientConfigured("UNKNOWN")).thenReturn(false);
+        // "UNKNOWN" chỉ có 7 ký tự -> không phải địa chỉ AFTN hợp lệ nên không chuyển đổi
+        // được sang AF-address (§4.4.6.5), không cần tới whitelist.
 
         // When
         service.processOutboundMessage(probe);
@@ -721,8 +722,6 @@ class OutboundDispatchServiceTest {
         when(validationService.validateAftnAddress(anyString(), eq("Recipient")))
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
         when(configService.get("AUTHORIZED_AMHS_ADDRESSES")).thenReturn("VVHHZTZX");
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
-        when(routingService.isRecipientConfigured("VVZZZTZX")).thenReturn(false);
 
         service.processOutboundMessage(probe);
 
@@ -1106,5 +1105,230 @@ class OutboundDispatchServiceTest {
         assertEquals("content-type-not-supported", gwout.getRejectionDiagnostic());
         verify(conversionService).logAmhsToSwimRejected(eq(gwout),
                 contains("unsupported_content_type"), eq("content-type-not-supported"), isNull());
+    }
+
+    // ==================== PROBE: TIÊU CHÍ TRA ĐỊA CHỈ AF (CTSW011/CTSW012) ====================
+
+    @Test
+    void testProbe_RecipientNotInWhitelist_ShouldStillGetDr() {
+        // §4.4.6.5 xét khả năng chuyển O/R address -> AF-address, xác định được từ chính khuôn
+        // địa chỉ. Trước đây hàm isRecipientKnown hỏi "có trong whitelist / rule IN không", nên
+        // với cấu hình thật (whitelist rỗng, rule IN chỉ có 2 địa chỉ) MỌI recipient khác đều bị
+        // NDR và CTSW011/CTSW012 không thể pass.
+        Gwout probe = new Gwout();
+        probe.setMsgid(2L);
+        probe.setOrigin("VVTSZYYX");
+        probe.setAddress("VVDNZTZX,VVCIZTZX");
+        probe.setBodyType("probe");
+
+        when(authorizationService.isAmhsUserAuthorized("VVTSZYYX")).thenReturn(true);
+        when(validationService.validateAftnAddress(anyString(), eq("Recipient")))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+        when(configService.get("AUTHORIZED_AMHS_ADDRESSES")).thenReturn("");
+        when(configService.getMaxMsgRecipients()).thenReturn(512);
+
+        service.processOutboundMessage(probe);
+
+        assertEquals(OutboundStatus.PUBLISHED.getValue(), probe.getStatus());
+        verify(reportService).recordDr(probe, "VVDNZTZX");
+        verify(reportService).recordDr(probe, "VVCIZTZX");
+        verify(reportService, never()).recordNdr(any(Gwout.class), anyString(), anyString(), any());
+    }
+
+    @Test
+    void testProbe_WhitelistConfigured_ShouldStillNarrowDown() {
+        // Khi AUTHORIZED_AMHS_ADDRESSES CÓ khai báo thì vẫn siết theo danh sách - đường lùi
+        // phòng khi bộ conformance test hành xử khác dự đoán.
+        Gwout probe = new Gwout();
+        probe.setMsgid(2L);
+        probe.setOrigin("VVTSZYYX");
+        probe.setAddress("VVDNZTZX,VVCIZTZX");
+        probe.setBodyType("probe");
+
+        when(authorizationService.isAmhsUserAuthorized("VVTSZYYX")).thenReturn(true);
+        when(validationService.validateAftnAddress(anyString(), eq("Recipient")))
+                .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
+        when(configService.get("AUTHORIZED_AMHS_ADDRESSES")).thenReturn("VVDNZTZX");
+        when(configService.getMaxMsgRecipients()).thenReturn(512);
+
+        service.processOutboundMessage(probe);
+
+        verify(reportService).recordDr(probe, "VVDNZTZX");
+        verify(reportService).recordNdr(probe, "VVCIZTZX", "unrecognised-OR-name", null);
+    }
+
+    // ==================== NDR CHO RECIPIENT SAI KHUÔN (§4.4.8) ====================
+
+    @Test
+    void testCreateDispatches_InvalidRecipient_ShouldNdrItButStillDeliverToOthers() throws Exception {
+        // Trước đây recipient sai khuôn chỉ bị log.warn rồi bỏ: bản tin vẫn đi nhưng thiếu người
+        // nhận và không để lại dấu vết nào.
+        setupValidScenario();
+        gwout.setAddress("VVHHZTZX,BAD1,VVDNZTZX");
+
+        service.createDispatches(gwout);
+
+        verify(reportService).recordNdr(gwout, "BAD1", "unrecognised-OR-name",
+                "unable to convert to AMQP due to unrecognized recipient O/R address");
+        // Hai recipient hợp lệ vẫn được tạo dispatch
+        verify(gwoutDispatchRepository, times(2)).save(any(GwoutDispatch.class));
+        assertNotEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+    }
+
+    @Test
+    void testCreateDispatches_AllRecipientsInvalid_ShouldRejectWholeMessage() throws Exception {
+        setupValidScenario();
+        gwout.setAddress("BAD1,BAD2");
+
+        service.createDispatches(gwout);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        assertEquals("invalid-recipients", gwout.getRejectionReason());
+        verify(reportService).recordNdrForAll(gwout, "unrecognised-OR-name",
+                "unable to convert to AMQP due to unrecognized recipient O/R address");
+        verify(gwoutDispatchRepository, never()).save(any(GwoutDispatch.class));
+    }
+
+    @Test
+    void testCreateDispatches_BlankAddress_ShouldQueueNdr() throws Exception {
+        setupValidScenario();
+        gwout.setAddress("   ");
+
+        service.createDispatches(gwout);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        assertEquals("no-recipients", gwout.getRejectionReason());
+        verify(reportService).recordNdrForAll(eq(gwout), eq("unrecognised-OR-name"), isNull());
+    }
+
+    // ==================== NDR CHO CÁC NHÁNH LỖI CÒN LẠI (§4.4.8) ====================
+
+    @Test
+    void testUnauthorizedOriginator_ShouldQueueNdr() throws Exception {
+        setupValidScenario();
+        when(authorizationService.isAmhsUserAuthorized("VVTSZYYX")).thenReturn(false);
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        assertEquals("unauthorized-originator", gwout.getRejectionReason());
+        verify(reportService).recordNdrForAll(gwout, "unrecognised-OR-name",
+                "unable to convert to AMQP due to unrecognized originator O/R address");
+    }
+
+    @Test
+    void testTypeDetectionFailure_ShouldQueueNdr() throws Exception {
+        setupValidScenario();
+        when(detectService.detect(anyString())).thenThrow(new RuntimeException("boom"));
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        assertEquals("type-detection-failed", gwout.getRejectionReason());
+        verify(reportService).recordNdrForAll(eq(gwout), eq("content-syntax-error"), isNull());
+    }
+
+    @Test
+    void testAllDispatchesDead_ShouldQueueNdrForDeadRecipientsOnly() throws Exception {
+        // Hết retry mà vẫn không publish được -> ITCU đã không chuyển giao được, phải trả NDR.
+        // Recipient đã SENT vẫn coi là thành công (report X.400 mang per-recipient-fields).
+        setupValidScenario();
+        // retryCount 2 -> lần thất bại này đẩy lên 3 = RETRY_MAX_COUNT nên dispatch thành DEAD
+        dispatch.setRetryCount(2);
+        dispatch.setRecipient("VVHHZTZX");
+
+        GwoutDispatch sent = new GwoutDispatch();
+        sent.setId(101L);
+        sent.setGwoutId(1L);
+        sent.setRecipient("VVDNZTZX");
+        sent.setStatus(GwoutDispatch.STATUS_SENT);
+        sent.setTopic("ats.met.metar");
+        when(gwoutDispatchRepository.findByGwoutId(1L)).thenReturn(List.of(dispatch, sent));
+        when(connectionManager.createSession()).thenThrow(new RuntimeException("broker down"));
+
+        service.processDispatch(dispatch);
+
+        assertEquals(GwoutDispatch.STATUS_DEAD, dispatch.getStatus());
+        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        verify(reportService).recordNdr(gwout, "VVHHZTZX", null,
+                "unable to convert to AMQP due to delivery failure to the SWIM component");
+        verify(reportService, never()).recordNdr(any(Gwout.class), eq("VVDNZTZX"), any(), any());
+    }
+
+    // ==================== THỨ TỰ CHUẨN HOÁ BODY PART TYPE (CTSW007) ====================
+
+    @Test
+    void testBodyPartCount_RawCode403PlusText_ShouldBeAccepted() throws Exception {
+        // Nguồn khác đường đồng bộ mtcu_tmp (amss ghi thẳng vào gwout cho Probe) có thể để lại
+        // mã thô "403". Nếu bước đếm body part chạy TRƯỚC khi chuẩn hoá thì phép so sánh với
+        // "file-transfer-body-part" không khớp và cặp text+FTBP hợp lệ bị từ chối nhầm.
+        setupValidScenario();
+        gwout.setNumberOfAttachment(2);
+        gwout.setBodyPartType("403");
+
+        service.processOutboundMessage(gwout);
+
+        assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
+        assertEquals("file-transfer-body-part", gwout.getBodyPartType());
+    }
+
+    // ==================== AMQP APPLICATION PROPERTIES - Table 2 ====================
+
+    @Test
+    void testPublish_ShouldSetTable2Properties() throws Exception {
+        setupValidScenario();
+        gwout.setIpmId("IPM-2026-0001");
+        gwout.setOptionalHeading("OHI-123");
+        gwout.setFilingTime("121200");
+        gwout.setAmhsPriority("FF");
+
+        service.processOutboundMessage(gwout);
+        service.processDispatch(dispatch);
+
+        // §4.4.3.4.7 originator, §4.4.3.4.4 recipients, §4.4.3.4.1 IPM-Identifier
+        verify(mockTextMessage).setStringProperty("amhs_originator", "VVTSZYYX");
+        verify(mockTextMessage).setStringProperty("amhs_recipients", "VVHHZTZX");
+        verify(mockTextMessage).setStringProperty("amhs_ipm_id", "IPM-2026-0001");
+        // §4.4.3.4.3 priority, §4.4.3.4.5 filing-time (CTSW001), §4.4.3.4.6 OHI (CTSW002)
+        verify(mockTextMessage).setStringProperty("amhs_ats_pri", "FF");
+        verify(mockTextMessage).setStringProperty("amhs_ats_ft", "121200");
+        verify(mockTextMessage).setStringProperty("amhs_ats_ohi", "OHI-123");
+        // §4.4.3.4.10
+        verify(mockTextMessage).setStringProperty("amhs_message_signed", "unsigned");
+    }
+
+    @Test
+    void testPublish_MultipleRecipients_ShouldJoinIntoOneAmhsRecipients() throws Exception {
+        // §4.4.3.4.4: 1 IPM AMHS chỉ sinh 1 message AMQP, amhs_recipients liệt kê đủ recipient
+        setupValidScenario();
+        GwoutDispatch second = new GwoutDispatch();
+        second.setId(101L);
+        second.setGwoutId(1L);
+        second.setRecipient("VVDNZTZX");
+        second.setStatus(GwoutDispatch.STATUS_PENDING);
+        second.setTopic("ats.met.metar");
+        when(gwoutDispatchRepository.findByGwoutId(1L)).thenReturn(List.of(dispatch, second));
+
+        service.processDispatch(dispatch);
+
+        verify(mockTextMessage).setStringProperty("amhs_recipients", "VVHHZTZX,VVDNZTZX");
+        verify(mockProducer, times(1)).send(any());
+    }
+
+    // ==================== CTSW009: LOẠI RECIPIENT ====================
+
+    @Test
+    void testCTSW009_CopyAndBlindCopyRecipients_ShouldBeTreatedAsPrimary() throws Exception {
+        // §4.4.3.4.4: "The use of CC recipients and BCC recipients should be avoided. If these
+        // elements are present in an AMHS IPM, they shall be handled as primary recipients."
+        // ITCU không phân biệt loại recipient: mọi địa chỉ trong gwout.address đều vào
+        // amhs_recipients và đều được tạo dispatch như nhau.
+        setupValidScenario();
+        gwout.setAddress("VVHHZTZX,VVDNZTZX,VVCIZTZX"); // primary, copy, blind-copy
+
+        service.createDispatches(gwout);
+
+        verify(gwoutDispatchRepository, times(3)).save(any(GwoutDispatch.class));
+        verify(reportService, never()).recordNdr(any(Gwout.class), anyString(), anyString(), any());
     }
 }

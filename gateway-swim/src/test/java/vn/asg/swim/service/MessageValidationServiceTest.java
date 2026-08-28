@@ -308,4 +308,41 @@ class MessageValidationServiceTest {
         // FTBP không có tham số repertoire
         assertTrue(service.validateRepertoire("file-transfer-body-part", "ISO-REG-144").isValid());
     }
+
+    // ==================== ĐỊNH NGHĨA ĐỊA CHỈ AFTN ====================
+
+    @Test
+    void testAftnAddress_EightUppercaseLetters_ShouldPass() {
+        assertTrue(service.validateAftnAddress("VVTSZTZX", "Recipient").isValid());
+        assertTrue(MessageValidationService.isValidAftnAddress("VVTSZTZX"));
+    }
+
+    @Test
+    void testAftnAddress_WithDigits_ShouldBeRejected() {
+        // ICAO Annex 10 Vol II: addressee indicator là 8 CHỮ CÁI. Trước đây validateAftnAddress
+        // cho phép cả chữ số trong khi OutboundDispatchService tự viết [A-Z]{8}, nên địa chỉ có
+        // chữ số qua được validator rồi bị bước tạo dispatch loại bỏ âm thầm.
+        var result = service.validateAftnAddress("VVTS1234", "Recipient");
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrorMessage().contains("uppercase letters"));
+        assertFalse(MessageValidationService.isValidAftnAddress("VVTS1234"));
+    }
+
+    @Test
+    void testAftnAddress_WrongLength_ShouldBeRejected() {
+        assertFalse(service.validateAftnAddress("VVTSZTZ", "Recipient").isValid());
+        assertFalse(service.validateAftnAddress("VVTSZTZXX", "Recipient").isValid());
+        assertFalse(MessageValidationService.isValidAftnAddress(null));
+    }
+
+    @Test
+    void testAtsHeader_FilingTimeLongerThanSixDigits_ShouldFail() {
+        // CTSW004: giá trị phải đi tới được đây nguyên vẹn. Nếu bước đồng bộ cắt về 6 ký tự thì
+        // "0704301234" biến thành "070430" hợp lệ và ca kiểm thử này biến mất.
+        var result = service.validateAtsMessageHeader("FF", "0704301234");
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrorMessage().contains("ATS-message-filing-time"));
+    }
 }

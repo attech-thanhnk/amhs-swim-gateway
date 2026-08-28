@@ -48,7 +48,7 @@ class AmhsToGwoutSyncSchedulerTest {
     @Test
     void testSyncAmhsToGwout_NoNewMessages() {
         // Given: Empty result list
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
         when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(new ArrayList<>());
@@ -81,7 +81,7 @@ class AmhsToGwoutSyncSchedulerTest {
         row[13] = null; // ftbpLastMod
         mockRows.add(row);
 
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
         when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
@@ -131,7 +131,7 @@ class AmhsToGwoutSyncSchedulerTest {
         rowRecipient2[9] = "/CN=VVHHZTZX/OU=VVHH/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
         mockRows.add(rowRecipient2);
 
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
         when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
@@ -168,7 +168,7 @@ class AmhsToGwoutSyncSchedulerTest {
         row[13] = null; // ftbpLastMod
         mockRows.add(row);
 
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
         when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
@@ -205,7 +205,7 @@ class AmhsToGwoutSyncSchedulerTest {
         row[13] = null;         // không còn nguồn cho ftbpLastMod
         mockRows.add(row);
 
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
         when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
@@ -249,7 +249,7 @@ class AmhsToGwoutSyncSchedulerTest {
         row[18] = 22;
         mockRows.add(row);
 
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
         when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
@@ -282,7 +282,7 @@ class AmhsToGwoutSyncSchedulerTest {
         row[18] = 22;
         mockRows.add(row);
 
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
         when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
@@ -326,7 +326,7 @@ class AmhsToGwoutSyncSchedulerTest {
         List<Object[]> mockRows = new ArrayList<>();
         mockRows.add(row);
 
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
         when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
@@ -403,7 +403,7 @@ class AmhsToGwoutSyncSchedulerTest {
         List<Object[]> mockRows = new ArrayList<>();
         mockRows.add(row);
 
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
         when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
@@ -453,7 +453,7 @@ class AmhsToGwoutSyncSchedulerTest {
         List<Object[]> mockRows = new ArrayList<>();
         mockRows.add(row);
 
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
         when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
@@ -543,7 +543,7 @@ class AmhsToGwoutSyncSchedulerTest {
             mockRows.add(row);
         }
 
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
         when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
@@ -659,7 +659,7 @@ class AmhsToGwoutSyncSchedulerTest {
             mockRows.add(row);
         }
 
-        when(configService.getDefaultOriginator()).thenReturn("VVTSSWIM");
+        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
         when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
@@ -674,5 +674,55 @@ class AmhsToGwoutSyncSchedulerTest {
                 "Phải giữ đủ 512 recipient, không được cắt bớt");
         assertTrue(address.length() > 1000,
                 "Chuỗi 512 recipient dài hơn giới hạn varchar(1000) cũ (~4.6KB)");
+    }
+
+    // ==================== CTSW004: filing-time sai khuôn ====================
+
+    @Test
+    void testCTSW004_MalformedFilingTime_ShouldNotBeTruncatedIntoAValidValue() {
+        // Cắt về 6 ký tự lúc đồng bộ sẽ biến "0704301234" thành "070430" hợp lệ, và
+        // validateAtsMessageHeader (chạy sau, ở OutboundDispatchService) mất luôn ca kiểm thử này.
+        // Cột gwout.filing_time đã nới lên varchar(32) để giữ nguyên giá trị hỏng.
+        Gwout gwout = syncOneRowWithFilingTime("0704301234");
+
+        assertEquals("0704301234", gwout.getFilingTime());
+    }
+
+    @Test
+    void testValidFilingTime_ShouldBeUnchanged() {
+        assertEquals("070430", syncOneRowWithFilingTime("070430").getFilingTime());
+    }
+
+    private Gwout syncOneRowWithFilingTime(String atsFilingTime) {
+        Object[] row = new Object[20];
+        row[0] = 60003L;
+        row[1] = "METAR VVNB 070430Z 15004KT 9999 FEW020 28/24 Q1010 NOSIG=";
+        row[2] = atsFilingTime;
+        row[3] = "FF";
+        row[4] = null;
+        row[5] = "401";
+        row[6] = "IPM-FT";
+        row[7] = "MSG-FT";
+        row[8] = "/CN=VVCIYMYX/OU=VVCI/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
+        row[9] = "/CN=VVTSSWIM/OU=VVTS/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
+        row[14] = 1;
+        row[15] = "ia5-text";
+        row[16] = 1;
+        row[17] = 1;
+        row[18] = 22;
+
+        List<Object[]> mockRows = new ArrayList<>();
+        mockRows.add(row);
+
+        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
+        when(entityManager.createNativeQuery(anyString())).thenReturn(query);
+        when(query.setParameter(anyString(), any())).thenReturn(query);
+        when(query.getResultList()).thenReturn(mockRows);
+
+        scheduler.syncAmhsToGwout();
+
+        org.mockito.ArgumentCaptor<Gwout> captor = org.mockito.ArgumentCaptor.forClass(Gwout.class);
+        verify(gwoutRepository).saveAndFlush(captor.capture());
+        return captor.getValue();
     }
 }

@@ -25,12 +25,24 @@ public interface GwoutRepository extends JpaRepository<Gwout, Long> {
         List<Gwout> findPendingForwardBatch(@Param("batchSize") int batchSize);
 
         /**
-         * Poll a batch of TRANSFORMED records (status = 1) for publishing to Solace.
+         * Poll a batch of TRANSFORMED records (status = 1) chưa có dòng gwout_dispatch nào,
+         * để tạo lệnh phân phối cho từng recipient.
+         * <p>
+         * Điều kiện NOT EXISTS là bắt buộc: gwout giữ nguyên status = 1 cho tới khi MỌI dispatch
+         * kết thúc, nên nếu publish lỗi và dispatch chuyển FAILED + next_retry_at ở tương lai,
+         * lượt poll kế tiếp (POLL_INTERVAL_MS) sẽ chọn lại chính bản tin đó và tạo THÊM một bộ
+         * dispatch đầy đủ. Các dòng cũ đến hạn retry sau đó sẽ publish lại cùng một IPM, vi phạm
+         * §4.4.3.4.4 ("1 IPM AMHS chỉ sinh ra 1 message AMQP duy nhất").
+         * <p>
+         * Ràng buộc UNIQUE uk_dispatch (gwout_id, recipient) ở tầng CSDL là lưới đỡ thứ hai.
          */
         @Query(value = """
-                        SELECT * FROM gwout
-                        WHERE status = 1
-                        ORDER BY swim_priority ASC, time ASC
+                        SELECT * FROM gwout g
+                        WHERE g.status = 1
+                          AND NOT EXISTS (
+                              SELECT 1 FROM gwout_dispatch d WHERE d.gwout_id = g.msgid
+                          )
+                        ORDER BY g.swim_priority ASC, g.time ASC
                         LIMIT :batchSize
                         FOR UPDATE
                         """, nativeQuery = true)

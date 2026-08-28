@@ -26,6 +26,10 @@ public class ConfigService {
     public static final String KEY_SERVER_PORT = "SERVER_PORT_SWIM";
     public static final String KEY_GATEWAY_ID = "GATEWAY_ID";
     public static final String KEY_ALLOW_NON_ISO646_REPERTOIRE = "ALLOW_NON_ISO646_REPERTOIRE";
+    public static final String KEY_GATEWAY_AMHS_ADDRESS = "GATEWAY_AMHS_ADDRESS";
+
+    /** Địa chỉ AFTN mặc định của gateway khi cấu hình chưa được khai báo. */
+    public static final String DEFAULT_GATEWAY_AMHS_ADDRESS = "VVTSSWIM";
 
     private final GatewayConfigRepository repository;
 
@@ -77,9 +81,35 @@ public class ConfigService {
 
     /**
      * Lấy AFTN originator mặc định.
+     * <p>
+     * Đây là địa chỉ ITCU dùng làm <b>originator</b> khi dựng bản tin AMHS ở chiều SWIM → AMHS.
+     * KHÔNG dùng key này làm địa chỉ gateway ở chiều AMHS → SWIM — xem
+     * {@link #getGatewayAmhsAddress()}.
      */
     public String getDefaultOriginator() {
         return get(KEY_DEFAULT_ORIGINATOR);
+    }
+
+    /**
+     * Địa chỉ AFTN mà gateway dùng để NHẬN bản tin từ AMHS (mặc định "VVTSSWIM").
+     * <p>
+     * EUR Doc 047 §4.4.3.4.4: {@code amhs_recipients} phải là danh sách recipient mà ITCU chịu
+     * trách nhiệm chuyển giao, nên chính địa chỉ gateway phải bị loại khỏi danh sách đó. Trước
+     * đây chiều AMHS → SWIM mượn tạm {@link #KEY_DEFAULT_ORIGINATOR}, nhưng hai khái niệm khác
+     * nhau: đặt originator của chiều SWIM → AMHS sang giá trị khác sẽ làm địa chỉ gateway không
+     * còn bị loại. Tách thành key riêng để hai chiều độc lập nhau.
+     */
+    public String getGatewayAmhsAddress() {
+        try {
+            String value = get(KEY_GATEWAY_AMHS_ADDRESS);
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        } catch (Exception e) {
+            log.warn("{} chưa khai báo trong gateway_config, dùng mặc định '{}'",
+                    KEY_GATEWAY_AMHS_ADDRESS, DEFAULT_GATEWAY_AMHS_ADDRESS);
+        }
+        return DEFAULT_GATEWAY_AMHS_ADDRESS;
     }
 
     /**

@@ -7,9 +7,11 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.McuIpn;
+import vn.asg.swim.entity.OutboundStatus;
 import vn.asg.swim.repository.GwoutRepository;
 import vn.asg.swim.repository.McuIpnRepository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -93,19 +95,35 @@ public class IpnProcessingService {
                         + ") chưa từng đi qua gateway - cần Control Position xử lý (§4.4.7.1)",
                 "mtcu_ipn", ipn.getId());
 
-        // NDR đi qua cùng hàng đợi gwout_report; dùng bản ghi Gwout tạm vì bản tin chủ đề
-        // không tồn tại trong gwout, recipient của NDR chính là bên đã phát IPN.
+        // NDR đi qua cùng hàng đợi gwout_report, mà gwout_report.gwout_id có khoá ngoại
+        // fk_report_gwout trỏ về gwout(msgid). Trước đây chỗ này dựng một Gwout tạm trong bộ nhớ
+        // với msgid = mtcu_ipn.id — một giá trị KHÔNG thuộc không gian id của gwout — nên INSERT
+        // luôn vi phạm khoá ngoại, ReportService nuốt lỗi và NDR của CTSW015 mất im lặng.
+        //
+        // Vì vậy phải GHI THẬT một dòng gwout cho sự kiện IPN lạc tuyến. Mọi cột gwout đều
+        // nullable trừ msgid nên chi phí không đáng kể, và amss không phải đổi gì: vẫn đọc
+        // gwout_report và gom theo gwout_id như với mọi bản tin khác.
         Gwout placeholder = new Gwout();
-        placeholder.setMsgid(ipn.getId());
-        placeholder.setAmhsid(ipn.getSubjectMtsId());
-        placeholder.setIpmId(ipn.getSubjectIpmId());
+        // amhsid để NULL: ràng buộc uk_gwout_amhsid không cho hai IPN lạc tuyến cùng subject
+        // MTS-Id cùng tồn tại. MTS-Id vẫn xuống tới amss qua tham số của recordNdr bên dưới.
+        // ipm_id để NULL: nếu điền, findSubjectMessage() sẽ khớp trúng chính dòng placeholder này
+        // ở lần IPN sau và rẽ nhầm sang nhánh §4.4.7.2 thay vì nhánh lạc tuyến §4.4.7.1.
         placeholder.setOrigin(ipn.getOrAddress());
         placeholder.setAddress(ipn.getOrAddress());
+        placeholder.setTime(LocalDateTime.now());
+        placeholder.setStatus(OutboundStatus.FAILED.getValue());
+        placeholder.setRejectionSource("AMHS");
+        placeholder.setRejectionReason("misrouted-ipn");
+        placeholder.setRejectionDiagnostic("invalid-arguments");
+        gwoutRepository.saveAndFlush(placeholder);
 
-        reportService.recordNdrForAll(placeholder, "invalid-arguments",
-                "unable to notify RN to SWIM due to misrouted RN");
-        conversionService.logAmhsToSwimRejected(placeholder,
+        reportService.recordNdr(placeholder.getMsgid(), ipn.getSubjectMtsId(), ipn.getOrAddress(),
+                "invalid-arguments", "unable to notify RN to SWIM due to misrouted RN");
+        // Traffic log giữ đủ subject IPM-Id / MTS-Id để Control Position tra ngược được,
+        // dù hai cột tương ứng trên dòng gwout placeholder cố tình để NULL.
+        conversionService.logAmhsToSwim(placeholder, null, "REJECTED",
                 "ndr_misrouted_ipn: " + ipn.getNotificationType() + " ipmId=" + ipn.getSubjectIpmId(),
+                ipn.getSubjectMtsId(), ipn.getSubjectIpmId(),
                 "invalid-arguments", "unable to notify RN to SWIM due to misrouted RN");
     }
 

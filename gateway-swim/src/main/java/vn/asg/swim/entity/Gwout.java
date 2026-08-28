@@ -39,8 +39,15 @@ public class Gwout {
     @Column(name = "time")
     private LocalDateTime time;
 
-    /** AMHS Filing Time (DDhhmm format) */
-    @Column(name = "filing_time", length = 6)
+    /**
+     * AMHS Filing Time, đúng khuôn phải là date-time group 6 chữ số (DDhhmm).
+     * <p>
+     * Cột rộng 32 chứ không phải 6 để giá trị SAI KHUÔN cũng lưu được nguyên vẹn: CTSW004 yêu cầu
+     * từ chối ATS-message-filing-time sai định dạng, mà nếu cắt về 6 ký tự ngay lúc đồng bộ thì
+     * một giá trị hỏng như "0704301234" biến thành "070430" hợp lệ và bước kiểm tra
+     * {@code validateAtsMessageHeader} không còn gì để bắt.
+     */
+    @Column(name = "filing_time", length = 32)
     private String filingTime;
 
     /** Plain text message content */

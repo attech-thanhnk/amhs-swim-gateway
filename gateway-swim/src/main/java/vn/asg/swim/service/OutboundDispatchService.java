@@ -74,7 +74,7 @@ public class OutboundDispatchService {
     @Transactional
     public void processOutboundMessage(Gwout gwout) {
         String origin = gwout.getOrigin();
-        if (origin == null || !origin.matches("^[A-Z]{8}$")) {
+        if (!MessageValidationService.isValidAftnAddress(origin)) {
             log.warn("gwout#{} rejected: origin '{}' is invalid (must be 8 uppercase alphabetic characters, no digits, no spaces)",
                     gwout.getMsgid(), origin);
             rejectMessage(gwout, "invalid-origin-format", "invalid-arguments",
@@ -140,15 +140,14 @@ public class OutboundDispatchService {
 
         if (!authorizationService.isAmhsUserAuthorized(gwout.getOrigin())) {
             log.warn("gwout#{} REJECTED: AMHS originator '{}' not authorized", gwout.getMsgid(), gwout.getOrigin());
-            alertService.create(
-                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+            // §4.4.8: ITCU không chuyển giao được thì người gửi X.400 phải nhận NDR. Trước đây
+            // nhánh này chỉ đặt status=FAILED nên bản tin biến mất khỏi cả hai phía mà bên gửi
+            // không nhận được gì.
+            rejectMessage(gwout, "unauthorized-originator", "unrecognised-OR-name",
+                    "unable to convert to AMQP due to unrecognized originator O/R address",
+                    "unauthorized_originator: " + gwout.getOrigin(),
                     "Unauthorized AMHS originator: " + gwout.getOrigin()
-                            + " (gwout#" + gwout.getMsgid() + ")",
-                    "gwout", gwout.getMsgid());
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("unauthorized-originator");
-            gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwim(gwout, null, "REJECTED", "unauthorized_originator: " + gwout.getOrigin());
+                            + " (gwout#" + gwout.getMsgid() + ")");
             return;
         }
 
@@ -161,6 +160,22 @@ public class OutboundDispatchService {
                     "unsupported_eit: " + eitTypeResult.getErrorMessage(),
                     "gwout#" + gwout.getMsgid() + " rejected: " + eitTypeResult.getErrorMessage());
             return;
+        }
+
+        // Chuẩn hoá mã số thô của bodyPartType TRƯỚC mọi bước so sánh bên dưới.
+        // AmhsToGwoutSyncScheduler đã chuẩn hoá cho bản tin đi qua đường đồng bộ mtcu_tmp, nhưng
+        // gwout còn có nguồn khác (amss ghi thẳng vào bảng cho Probe - xem gwout.body_type/
+        // content_length). Nếu để nguyên mã "403", phép so sánh với "file-transfer-body-part" ở
+        // bước đếm body part sẽ không khớp và cặp text+FTBP hợp lệ của CTSW007 bị từ chối nhầm.
+        if (gwout.getBodyPartType() != null) {
+            String rawType = gwout.getBodyPartType().trim();
+            if ("401".equals(rawType)) {
+                gwout.setBodyPartType("ia5-text-body-part");
+            } else if ("402".equals(rawType)) {
+                gwout.setBodyPartType("general-text-body-part");
+            } else if ("403".equals(rawType)) {
+                gwout.setBodyPartType("file-transfer-body-part");
+            }
         }
 
         // CTSW007 (§4.4.2.2 / §4.4.2.4): kiểm tra số lượng body part của IPM gốc.
@@ -189,18 +204,8 @@ public class OutboundDispatchService {
             }
         }
 
-        // CTSW016: Kiểm thử EIT/Body Part Type của bản tin đi
+        // CTSW016: Kiểm thử EIT/Body Part Type của bản tin đi (giá trị đã được chuẩn hoá ở trên)
         if (gwout.getBodyPartType() != null) {
-            String rawType = gwout.getBodyPartType().trim();
-            if ("401".equals(rawType)) {
-                gwout.setBodyPartType("ia5-text-body-part");
-            } else if ("402".equals(rawType)) {
-                gwout.setBodyPartType("general-text-body-part");
-            } else if ("403".equals(rawType)) {
-                gwout.setBodyPartType("file-transfer-body-part");
-            }
-
-            // Tự động chuẩn hóa mã số thô thành chuỗi chuẩn ICAO trước khi xác thực
             MessageValidationService.ValidationResult eitResult = validationService.validateBodyPartType(gwout.getBodyPartType());
             if (!eitResult.isValid()) {
                 log.warn("gwout#{} rejected by EIT validation: {}", gwout.getMsgid(), eitResult.getErrorMessage());
@@ -245,11 +250,10 @@ public class OutboundDispatchService {
             messageType = detectService.detect(body);
         } catch (Exception e) {
             log.error("gwout#{} failed to detect message type: {}", gwout.getMsgid(), e.getMessage());
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("type-detection-failed");
-            gwout.setRejectionDiagnostic("content-syntax-error");
-            gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwim(gwout, null, "ERROR", "type_detection_failed: " + e.getMessage());
+            rejectMessage(gwout, "type-detection-failed", "content-syntax-error", null,
+                    "type_detection_failed: " + e.getMessage(),
+                    "gwout#" + gwout.getMsgid() + " rejected: không nhận dạng được loại bản tin - "
+                            + e.getMessage());
             return;
         }
 
@@ -259,11 +263,9 @@ public class OutboundDispatchService {
             }
         } catch (Exception e) {
             log.error("gwout#{} failed to find routing rule: {}", gwout.getMsgid(), e.getMessage());
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("no-routing-rule");
-            gwout.setRejectionDiagnostic("unrecognised-OR-name");
-            gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwim(gwout, null, "ERROR", "routing_failed: " + e.getMessage());
+            rejectMessage(gwout, "no-routing-rule", "unrecognised-OR-name", null,
+                    "routing_failed: " + e.getMessage(),
+                    "gwout#" + gwout.getMsgid() + " rejected: " + e.getMessage());
             return;
         }
 
@@ -311,11 +313,13 @@ public class OutboundDispatchService {
             }
         } catch (Exception e) {
             log.error("gwout#{} processing failed: {}", gwout.getMsgid(), e.getMessage());
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("processing-failed");
-            gwout.setRejectionDiagnostic("system-failure");
-            gwoutRepository.save(gwout);
-            conversionService.logAmhsToSwim(gwout, null, "ERROR", "processing_failed: " + e.getMessage());
+            // Không gán non-delivery-diagnostic-code: lỗi nội bộ của ITCU không tương ứng với
+            // giá trị nào trong bảng liệt kê của Doc 9880 §4.5.2.4.11, và diagnostic-code là
+            // phần tử optional của NDR. Chỉ non-delivery-reason-code "unable-to-transfer" là
+            // bắt buộc, ReportService đã gán sẵn.
+            rejectMessage(gwout, "processing-failed", null, null,
+                    "processing_failed: " + e.getMessage(),
+                    "gwout#" + gwout.getMsgid() + " xử lý thất bại: " + e.getMessage());
         }
     }
 
@@ -580,10 +584,33 @@ public class OutboundDispatchService {
         if (!allDone)
             return;
 
-        boolean hasDead = all.stream().anyMatch(d -> GwoutDispatch.STATUS_DEAD.equals(d.getStatus()));
+        List<String> deadRecipients = all.stream()
+                .filter(d -> GwoutDispatch.STATUS_DEAD.equals(d.getStatus()))
+                .map(GwoutDispatch::getRecipient)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+
         gwoutRepository.findById(gwoutId).ifPresent(gwout -> {
-            gwout.setStatus(hasDead ? OutboundStatus.FAILED.getValue() : OutboundStatus.PUBLISHED.getValue());
+            gwout.setStatus(deadRecipients.isEmpty()
+                    ? OutboundStatus.PUBLISHED.getValue()
+                    : OutboundStatus.FAILED.getValue());
             gwoutRepository.save(gwout);
+
+            // §4.4.8: hết retry mà vẫn không publish được thì ITCU đã không chuyển giao được cho
+            // recipient đó -> phải trả NDR về người gửi X.400. Trước đây bản tin chỉ chuyển sang
+            // FAILED rồi dừng, nên bên gửi không nhận được gì.
+            // Chỉ những recipient DEAD mới nhận NDR; recipient đã SENT vẫn coi là chuyển giao
+            // thành công (report của X.400 mang per-recipient-fields).
+            for (String recipient : deadRecipients) {
+                conversionService.logAmhsToSwimRejected(gwout,
+                        "ndr_undeliverable: " + recipient, null,
+                        "unable to convert to AMQP due to delivery failure to the SWIM component");
+                // Không gán non-delivery-diagnostic-code: lỗi hạ tầng AMQP không tương ứng với
+                // giá trị nào trong Doc 9880 §4.5.2.4.11.
+                reportService.recordNdr(gwout, recipient, null,
+                        "unable to convert to AMQP due to delivery failure to the SWIM component");
+            }
         });
     }
 
@@ -615,37 +642,38 @@ public class OutboundDispatchService {
         String address = gwout.getAddress();
         if (address == null || address.isBlank()) {
             log.warn("gwout#{} has no recipients, skipping", gwout.getMsgid());
-            alertService.create(
-                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                    "gwout#" + gwout.getMsgid() + " has no recipients",
-                    "gwout", gwout.getMsgid());
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwoutRepository.save(gwout);
+            rejectMessage(gwout, "no-recipients", "unrecognised-OR-name", null,
+                    "no_recipients",
+                    "gwout#" + gwout.getMsgid() + " has no recipients");
             return;
         }
 
-        List<String> recipients = java.util.Arrays.stream(address.split("[,\\s]+"))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .filter(s -> {
-                    if (s.matches("^[A-Z]{8}$"))
-                        return true;
-                    log.warn("gwout#{} contains invalid AFTN address: {}", gwout.getMsgid(), s);
-                    return false;
-                })
-                .distinct()
-                .toList();
+        // Tách recipient hợp lệ khỏi recipient không chuyển đổi được sang địa chỉ AF.
+        // §4.4.8: recipient bị loại phải nhận NDR riêng chứ không được bỏ im lặng — cùng cơ chế
+        // per-recipient mà nhánh probe đã áp dụng cho CTSW012. Trước đây chỗ này chỉ log.warn
+        // nên bản tin vẫn đi nhưng thiếu người nhận và không để lại dấu vết nào.
+        List<String> recipients = new java.util.ArrayList<>();
+        List<String> unconvertible = new java.util.ArrayList<>();
+        for (String raw : address.split("[,\\s]+")) {
+            String candidate = raw.trim();
+            if (candidate.isEmpty()) {
+                continue;
+            }
+            if (MessageValidationService.isValidAftnAddress(candidate)) {
+                if (!recipients.contains(candidate)) {
+                    recipients.add(candidate);
+                }
+            } else if (!unconvertible.contains(candidate)) {
+                unconvertible.add(candidate);
+            }
+        }
 
         if (recipients.isEmpty()) {
             log.warn("gwout#{} has no valid AFTN recipients after filtering", gwout.getMsgid());
-            alertService.create(
-                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                    "gwout#" + gwout.getMsgid() + " has no valid AFTN recipients",
-                    "gwout", gwout.getMsgid());
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("invalid-recipients");
-            gwout.setRejectionDiagnostic("unrecognised-OR-name");
-            gwoutRepository.save(gwout);
+            rejectMessage(gwout, "invalid-recipients", "unrecognised-OR-name",
+                    "unable to convert to AMQP due to unrecognized recipient O/R address",
+                    "invalid_recipients: " + String.join(",", unconvertible),
+                    "gwout#" + gwout.getMsgid() + " has no valid AFTN recipients");
             return;
         }
 
@@ -654,31 +682,54 @@ public class OutboundDispatchService {
             messageType = detectService.detect(gwout.getText());
         } catch (Exception e) {
             log.error("gwout#{} failed to detect type in dispatch creation: {}", gwout.getMsgid(), e.getMessage());
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("type-detection-failed");
-            gwout.setRejectionDiagnostic("content-syntax-error");
-            gwoutRepository.save(gwout);
+            rejectMessage(gwout, "type-detection-failed", "content-syntax-error", null,
+                    "type_detection_failed: " + e.getMessage(),
+                    "gwout#" + gwout.getMsgid() + " rejected: không nhận dạng được loại bản tin - "
+                            + e.getMessage());
             return;
         }
 
         var ruleOpt = routingService.findBestMatchOut(messageType);
         if (ruleOpt.isEmpty()) {
             log.warn("gwout#{} has no routing rule matching type '{}'", gwout.getMsgid(), messageType);
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("no-routing-rule");
-            gwout.setRejectionDiagnostic("unrecognised-OR-name");
-            gwoutRepository.save(gwout);
+            rejectMessage(gwout, "no-routing-rule", "unrecognised-OR-name", null,
+                    "routing_failed: no rule for type=" + messageType,
+                    "gwout#" + gwout.getMsgid() + " rejected: không có rule định tuyến cho loại '"
+                            + messageType + "'");
             return;
         }
 
         String topic = ruleOpt.get().getSendTopic();
         if (topic == null || topic.isBlank()) {
             log.error("gwout#{} matching routing rule has null/empty send_topic", gwout.getMsgid());
-            gwout.setStatus(OutboundStatus.FAILED.getValue());
-            gwout.setRejectionReason("empty-send-topic");
-            gwout.setRejectionDiagnostic("system-failure");
-            gwoutRepository.save(gwout);
+            // Lỗi cấu hình phía ITCU: không có non-delivery-diagnostic-code nào của Doc 9880
+            // §4.5.2.4.11 diễn tả đúng, để trống thay vì bịa giá trị.
+            rejectMessage(gwout, "empty-send-topic", null, null,
+                    "empty_send_topic: rule cho type=" + messageType,
+                    "gwout#" + gwout.getMsgid() + " rejected: rule định tuyến thiếu send_topic");
             return;
+        }
+
+        // NDR cho từng recipient không chuyển đổi được, bản tin vẫn đi tới các recipient còn lại
+        // (§4.4.6.5/§4.4.6.6 - report của X.400 mang per-recipient-fields nên DR và NDR cùng tồn
+        // tại trong một report).
+        if (!unconvertible.isEmpty()) {
+            log.warn("gwout#{} có {} recipient không chuyển đổi được sang AF-address ({}), "
+                            + "sinh NDR riêng cho từng recipient",
+                    gwout.getMsgid(), unconvertible.size(), String.join(",", unconvertible));
+            alertService.create(
+                    GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                    "gwout#" + gwout.getMsgid() + ": NDR cho recipient không hợp lệ ["
+                            + String.join(",", unconvertible) + "], bản tin vẫn chuyển tới ["
+                            + String.join(",", recipients) + "]",
+                    "gwout", gwout.getMsgid());
+            for (String recipient : unconvertible) {
+                conversionService.logAmhsToSwimRejected(gwout,
+                        "ndr_unrecognised_recipient: " + recipient, "unrecognised-OR-name",
+                        "unable to convert to AMQP due to unrecognized recipient O/R address");
+                reportService.recordNdr(gwout, recipient, "unrecognised-OR-name",
+                        "unable to convert to AMQP due to unrecognized recipient O/R address");
+            }
         }
 
         for (String recipient : recipients) {
@@ -880,21 +931,35 @@ public class OutboundDispatchService {
         reportService.recordNdrForAll(gwout, ndrDiagnostic, supplementaryInfo);
     }
 
+    /**
+     * CTSW012 (§4.4.6.5): recipient của probe có chuyển đổi được sang địa chỉ AF hay không.
+     * <p>
+     * Phép chuyển O/R address → AF-address là xác định được từ chính khuôn địa chỉ, nên tiêu chí
+     * đúng là khuôn AFTN 8 chữ cái. Trước đây hàm này hỏi "recipient có nằm trong whitelist hoặc
+     * trong cột {@code recipients} của rule IN không" — sai bản chất, vì rule IN mô tả việc gateway
+     * có route SWIM cho địa chỉ đó, không liên quan tới khả năng chuyển đổi địa chỉ. Với cấu hình
+     * thật (whitelist rỗng, rule IN chỉ có hai địa chỉ), mọi recipient khác đều bị NDR
+     * "unrecognised-OR-name" và CTSW011/CTSW012 không thể pass.
+     * <p>
+     * {@code AUTHORIZED_AMHS_ADDRESSES} được giữ làm whitelist SIẾT tuỳ chọn: khi có khai báo thì
+     * chỉ địa chỉ trong danh sách mới được chấp nhận; khi rỗng thì chỉ xét khuôn.
+     */
     private boolean isRecipientKnown(String recipient) {
-        // 1. Kiểm tra trong whitelist cấu hình địa chỉ AMHS
-        String whitelist = configService.get("AUTHORIZED_AMHS_ADDRESSES");
-        if (whitelist != null && containsExact(whitelist, recipient)) {
-            return true;
+        if (!MessageValidationService.isValidAftnAddress(recipient)) {
+            return false;
         }
 
-        // 2. Kiểm tra địa chỉ mặc định
-        String defaultOrig = configService.getDefaultOriginator();
-        if (defaultOrig != null && defaultOrig.equalsIgnoreCase(recipient)) {
+        String whitelist;
+        try {
+            whitelist = configService.get("AUTHORIZED_AMHS_ADDRESSES");
+        } catch (Exception e) {
+            // Cấu hình chưa khai báo -> không siết
             return true;
         }
-
-        // 3. Kiểm tra xem có cấu hình trong bất kỳ rule IN nào không
-        return routingService.isRecipientConfigured(recipient);
+        if (whitelist == null || whitelist.isBlank()) {
+            return true;
+        }
+        return containsExact(whitelist, recipient);
     }
 
     private boolean containsExact(String configValue, String target) {

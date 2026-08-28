@@ -237,9 +237,28 @@ public class MessageValidationService {
     }
 
     /**
+     * ĐỊNH NGHĨA DUY NHẤT của địa chỉ AFTN trong toàn hệ thống: đúng 8 chữ cái viết hoa
+     * (ICAO Annex 10 Vol II - addressee indicator, Doc 9880 §4.5.2.4).
+     * <p>
+     * Trước đây tồn tại hai định nghĩa lệch nhau: {@code validateAftnAddress} cho phép cả chữ số
+     * ({@code [A-Z0-9]{8}}) trong khi {@code OutboundDispatchService} tự viết {@code [A-Z]{8}} ở
+     * hai chỗ. Hệ quả là địa chỉ có chữ số qua được validator nhưng bị bước tạo dispatch loại bỏ
+     * âm thầm. Mọi nơi phải gọi vào đây thay vì tự viết regex.
+     */
+    public static final String AFTN_ADDRESS_PATTERN = "[A-Z]{8}";
+
+    /**
+     * Kiểm tra nhanh khuôn địa chỉ AFTN, dùng cho các nhánh chỉ cần true/false.
+     * Cùng một tiêu chí với {@link #validateAftnAddress(String, String)}.
+     */
+    public static boolean isValidAftnAddress(String aftn) {
+        return aftn != null && aftn.trim().matches(AFTN_ADDRESS_PATTERN);
+    }
+
+    /**
      * EUR Doc 047 §4.5.2.4 - Kiểm thử định dạng địa chỉ AFTN
      *
-     * S-11, S-15: Địa chỉ AFTN phải có đúng 8 ký tự alphanumeric viết hoa
+     * S-11, S-15: Địa chỉ AFTN phải có đúng 8 chữ cái viết hoa
      */
     public ValidationResult validateAftnAddress(String aftn, String fieldName) {
         if (aftn == null || aftn.isBlank()) {
@@ -254,9 +273,9 @@ public class MessageValidationService {
                     fieldName, trimmed, trimmed.length()));
         }
 
-        // Phải là ký tự alphanumeric viết hoa
-        if (!trimmed.matches("[A-Z0-9]{8}")) {
-            return ValidationResult.failure(String.format("%s '%s' must contain only uppercase letters and digits",
+        // Phải là chữ cái viết hoa
+        if (!trimmed.matches(AFTN_ADDRESS_PATTERN)) {
+            return ValidationResult.failure(String.format("%s '%s' must contain only uppercase letters",
                     fieldName, trimmed));
         }
 

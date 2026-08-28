@@ -6,7 +6,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.OutboundStatus;
@@ -40,7 +39,6 @@ public class AmhsToGwoutSyncScheduler {
         this.alertService = alertService;
     }
 
-    private boolean tableMissingLogged = false;
 
     private String asString(Object obj) {
         if (obj == null) return null;
@@ -163,25 +161,29 @@ public class AmhsToGwoutSyncScheduler {
     }
 
     /**
-     * Periodically syncs new messages destined for VVTSSWIM from AMHS database 
+     * Quét mtcu_tmp lấy bản tin AMHS gửi tới địa chỉ của gateway và đồng bộ sang gwout.
+     * <p>
+     * KHÔNG gắn {@code @Transactional} ở mức phương thức, để mỗi {@code saveAndFlush} chạy trong
+     * transaction riêng của repository. Nếu gói cả lô vào một transaction thì một vi phạm ràng
+     * buộc (ví dụ {@code uk_gwout_amhsid} khi có hai instance cùng chạy) sẽ đánh dấu transaction
+     * rollback-only và huỷ luôn các bản tin còn lại trong lô, dù đã có try/catch từng bản tin.
+     * Với thứ tự quét ASC bên dưới, một dòng hỏng như vậy sẽ chặn vĩnh viễn cả hàng đợi.
      */
     @Scheduled(fixedDelay = 2000, initialDelay = 1000)
-    @Transactional
     public void syncAmhsToGwout() {
         log.info("AMHS sync scheduler tick - checking mtcu_tmp...");
         try {
-            String localAddress = "VVTSSWIM";
-            try {
-                String cfg = configService.getDefaultOriginator();
-                if (cfg != null && !cfg.isBlank()) {
-                    localAddress = cfg;
-                }
-            } catch (Exception e) {
-                log.warn("Failed to read default originator from config, fallback to 'VVTSSWIM'");
-            }
+            String localAddress = configService.getGatewayAmhsAddress();
             String localAddressPattern = "%" + localAddress + "%";
-            String vvtsswimPattern = "%VVTSSWIM%";
 
+            // Điều kiện lọc nằm TRONG subquery và sắp xếp ASC: lấy 200 bản tin CŨ NHẤT CHƯA
+            // ĐỒNG BỘ, không phải 200 bản tin mới nhất.
+            //
+            // Bản cũ dùng "ORDER BY id DESC LIMIT 200" rồi mới lọc NOT EXISTS ở ngoài, tức cửa sổ
+            // là "200 dòng mới nhất". Gateway dừng đủ lâu để mtcu_tmp nhận hơn 200 bản tin mới thì
+            // toàn bộ phần tồn đọng rơi khỏi cửa sổ VĨNH VIỄN - không log, không alert, bản tin
+            // mất hẳn. Ràng buộc uk_gwout_amhsid cho NOT EXISTS chạy bằng index lookup nên chi phí
+            // của thứ tự mới vẫn chấp nhận được.
             String sql = """
                 SELECT
                     t.id,
@@ -208,27 +210,26 @@ public class AmhsToGwoutSyncScheduler {
                     o.responsibility
                 FROM (
                     SELECT id, content, atsFilingTime, atsPriority, atsOhi, bodyPartType, ipmId, messageId, orAddress, bodyPartCharacterSet, file_name, data, numberOfAttachment, originEncodeInformationType, contentType, subject
-                    FROM mtcu_tmp
-                    ORDER BY id DESC
+                    FROM mtcu_tmp m
+                    WHERE m.messageId IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM gwout g WHERE g.amhsid = m.messageId
+                      )
+                      AND EXISTS (
+                          SELECT 1 FROM mtcu_to gw
+                          WHERE gw.receiveMessage_id = m.id
+                            AND gw.address LIKE :gatewayAddress
+                      )
+                    ORDER BY m.id ASC
                     LIMIT 200
                 ) t
                 JOIN mtcu_to o ON t.id = o.receiveMessage_id
-                WHERE t.messageId IS NOT NULL
-                  AND NOT EXISTS (
-                      SELECT 1 FROM gwout g WHERE g.amhsid = t.messageId
-                  )
-                  AND EXISTS (
-                      SELECT 1 FROM mtcu_to gw
-                      WHERE gw.receiveMessage_id = t.id
-                        AND (gw.address LIKE :gatewayAddress OR gw.address LIKE :vvtsswimPattern)
-                  )
                 ORDER BY t.id ASC, o.id ASC
             """;
 
             @SuppressWarnings("unchecked")
             List<Object[]> rows = entityManager.createNativeQuery(sql)
                     .setParameter("gatewayAddress", localAddressPattern)
-                    .setParameter("vvtsswimPattern", vvtsswimPattern)
                     .getResultList();
 
             log.info("AMHS sync query returned {} rows", rows != null ? rows.size() : 0);
@@ -312,7 +313,13 @@ public class AmhsToGwoutSyncScheduler {
                     gwout.setIpmId(ipmId);
                     gwout.setText(content);
                     gwout.setTime(LocalDateTime.now());
-                    if (atsFilingTime != null && atsFilingTime.length() > 6) atsFilingTime = atsFilingTime.substring(0, 6);
+                    // CTSW004: KHÔNG cắt về 6 ký tự. Cắt ở đây sẽ biến một filing-time hỏng như
+                    // "0704301234" thành "070430" hợp lệ và bước validateAtsMessageHeader mất
+                    // luôn ca kiểm thử. Cột gwout.filing_time đã được nới lên varchar(32) để giá
+                    // trị sai khuôn cũng lưu được nguyên vẹn cho bước từ chối phía sau.
+                    if (atsFilingTime != null && atsFilingTime.length() > 32) {
+                        atsFilingTime = atsFilingTime.substring(0, 32);
+                    }
                     gwout.setFilingTime(atsFilingTime);
                     if (atsOhi != null && atsOhi.length() > 60) atsOhi = atsOhi.substring(0, 60);
                     gwout.setOptionalHeading(atsOhi);
@@ -454,6 +461,19 @@ public class AmhsToGwoutSyncScheduler {
 
                 } catch (Exception e) {
                     log.error("Failed to sync AMHS message row: {}", e.getMessage(), e);
+                    // Với thứ tự quét ASC, một dòng hỏng nằm ở đầu hàng đợi sẽ được thử lại mỗi
+                    // 2 giây và chiếm chỗ trong cửa sổ 200 bản tin. Báo Control Position để tình
+                    // huống đó nhìn thấy được thay vì chỉ nằm trong log.
+                    try {
+                        Long failedId = row[0] instanceof Number n ? n.longValue() : null;
+                        alertService.create(
+                                GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
+                                "Không đồng bộ được bản tin AMHS mtcu_tmp#" + failedId
+                                        + " sang gwout: " + e.getMessage(),
+                                "mtcu_tmp", failedId);
+                    } catch (Exception alertError) {
+                        log.error("Không ghi được cảnh báo đồng bộ: {}", alertError.getMessage());
+                    }
                 }
             }
         } catch (Exception e) {

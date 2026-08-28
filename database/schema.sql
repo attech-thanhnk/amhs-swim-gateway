@@ -141,7 +141,7 @@ CREATE TABLE `gwout` (
   `precedence` int(11) DEFAULT NULL COMMENT 'Precedence cao nhất của recipient responsible (Table 5); NULL = Basic IPM',
   `content_type` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `error_type` int(11) DEFAULT NULL,
-  `filing_time` varchar(6) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `filing_time` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'ATS-message-filing-time (DDhhmm). Rộng 32 để giá trị sai khuôn cũng lưu nguyên vẹn cho CTSW004',
   `ipm_id` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `message_signed` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `optional_heading` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -176,7 +176,8 @@ CREATE TABLE `gwout_dispatch` (
   `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
   `topic` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `updated_at` datetime(6) NOT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_dispatch` (`gwout_id`,`recipient`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
