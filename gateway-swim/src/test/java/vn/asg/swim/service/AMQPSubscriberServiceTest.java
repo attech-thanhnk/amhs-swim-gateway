@@ -95,7 +95,7 @@ class AMQPSubscriberServiceTest {
             .thenReturn(validResult);
 
         when(authorizationService.isSwimUserAuthorized(any())).thenReturn(true);
-        when(atsmhsResolver.resolve(any(), any(), any())).thenReturn("ENHANCED");
+        when(atsmhsResolver.resolve(any(), any())).thenReturn("ENHANCED");
         when(atsmhsResolver.validateContent(any(), any(), anyBoolean())).thenReturn(true);
         when(configService.getMaxMsgRecipients()).thenReturn(20);
         // JpaRepository.save() luôn trả về entity đã persist, không bao giờ null. Mock mặc định trả
@@ -288,7 +288,7 @@ class AMQPSubscriberServiceTest {
     void testAtsmhsBasicMode_BinaryContent_ShouldReject() throws JMSException {
         // Given: BASIC mode cannot handle binary
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
-        when(atsmhsResolver.resolve(any(), any(), any())).thenReturn("BASIC");
+        when(atsmhsResolver.resolve(any(), any())).thenReturn("BASIC");
         when(atsmhsResolver.validateContent(eq("BASIC"), any(), eq(true)))
             .thenReturn(false);
 
@@ -341,7 +341,7 @@ class AMQPSubscriberServiceTest {
         // null -> check BASIC bị bỏ qua -> bản tin được accept. Ở đây KHÔNG mock validateContent để
         // resolver thật quyết định, nhằm kiểm đúng đường suy ra hasBinaryContent.
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
-        when(atsmhsResolver.resolve(any(), any(), any())).thenReturn("BASIC");
+        when(atsmhsResolver.resolve(any(), any())).thenReturn("BASIC");
         when(atsmhsResolver.validateContent(eq("BASIC"), any(), eq(true))).thenReturn(false);
         when(atsmhsResolver.validateContent(eq("BASIC"), any(), eq(false))).thenReturn(true);
 

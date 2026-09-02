@@ -576,11 +576,13 @@ public class AMQPSubscriberService {
         // (basic: ats_ft -> ATS-message-Filing-Time, ohi -> ATS-message-Optional-Heading-Info;
         // extended: ats_ft -> authorization-time, ohi -> originators-reference,
         // precedence-policy-identifier). Giá trị phải được lưu lại, không chỉ ghi log.
-        String atsmhsOverrideMode = getAppProperty(amqpMsg, "atsmhs_service_level");
-        if (atsmhsOverrideMode == null || atsmhsOverrideMode.isBlank()) {
-            atsmhsOverrideMode = getAppProperty(amqpMsg, "atsmhs-service-level");
-        }
-        String atsmhsServiceLevel = atsmhsResolver.resolve(atsmhsOverrideMode, contentType, amhsRecipients);
+        //
+        // Chế độ CHỈ đến từ gateway_config. Trước đây chỗ này còn đọc property
+        // "atsmhs_service_level" / "atsmhs-service-level" khỏi chính bản tin AMQP làm giá trị ghi
+        // đè — nghĩa là bên gửi SWIM tự quyết được mức dịch vụ. Đã bỏ: property đó không có trong
+        // Table 2, và nó vô hiệu hoá chốt §3.3.3.2 (bên gửi chỉ cần khai EXTENDED là đưa được nội
+        // dung nhị phân vào miền AMHS chỉ chở được text). Xem AtsmhsServiceLevelResolver#resolve.
+        String atsmhsServiceLevel = atsmhsResolver.resolve(contentType, amhsRecipients);
 
         // Chuyển đổi các thuộc tính ứng dụng sang định dạng JSON
         java.util.Map<String, String> props = new java.util.LinkedHashMap<>();

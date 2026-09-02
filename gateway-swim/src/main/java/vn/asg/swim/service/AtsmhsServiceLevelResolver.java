@@ -29,21 +29,29 @@ public class AtsmhsServiceLevelResolver {
     public static final String BASIC = "BASIC";
 
     /**
-     * EUR Doc 047 §3.3.3.1-5: Phân giải cấp độ dịch vụ ATSMHS
+     * EUR Doc 047 §3.3.3.1-5: Phân giải cấp độ dịch vụ ATSMHS.
+     * <p>
+     * Chế độ CHỈ đọc từ {@code gateway_config.ATSMHS_SERVICE_LEVEL}. Bản tin AMQP không được
+     * phép chỉ định mức dịch vụ:
+     * <ul>
+     *   <li>§3.3.3 xếp bốn chế độ vào nhóm yêu cầu C-08…C-12 — cấu hình của ITCU, không phải
+     *       thuộc tính bản tin. Table 2 (§4.5.2) không định nghĩa property nào cho việc này.</li>
+     *   <li>Mức dịch vụ là <b>năng lực của miền AMHS nhận</b>; bên gửi SWIM không có cách nào
+     *       biết điều đó. Ảnh hưởng hợp lệ của bên gửi đã đi qua {@code content-type} ở chế độ
+     *       CONTENT_BASED — một property thuộc chuẩn.</li>
+     *   <li>Cho bên gửi tự đặt EXTENDED sẽ vô hiệu hoá chốt an toàn §3.3.3.2 (BASIC không chở
+     *       được nội dung nhị phân) và đẩy lỗi xuống hạ nguồn.</li>
+     * </ul>
+     * Trước đây {@code AMQPSubscriberService} đọc property {@code atsmhs_service_level} khỏi bản
+     * tin làm giá trị ghi đè; đã bỏ.
      *
      * @param contentType AMQP content-type header
      * @param recipients  Danh sách địa chỉ AFTN phân tách bằng dấu cách
      * @return EXTENDED hoặc BASIC
      */
     public String resolve(String contentType, String recipients) {
-        return resolve(null, contentType, recipients);
-    }
-
-    public String resolve(String mode, String contentType, String recipients) {
+        String mode = configService.get(ConfigService.KEY_ATSMHS_SERVICE_LEVEL);
         if (mode == null || mode.isBlank()) {
-            mode = configService.get(ConfigService.KEY_ATSMHS_SERVICE_LEVEL);
-        }
-        if (mode == null) {
             mode = "CONTENT_BASED";
         }
 
