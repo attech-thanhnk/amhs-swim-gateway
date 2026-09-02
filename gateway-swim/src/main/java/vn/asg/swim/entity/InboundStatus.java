@@ -23,6 +23,8 @@ public enum InboundStatus {
     }
 
     public static InboundStatus fromValue(int value) {
+        if (value == 10) return DELIVERED;
+        if (value == 11) return FAILED;
         for (InboundStatus status : values()) {
             if (status.getValue() == value) {
                 return status;
