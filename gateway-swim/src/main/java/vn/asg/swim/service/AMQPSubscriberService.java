@@ -571,18 +571,12 @@ public class AMQPSubscriberService {
         ResolvedAddressing resolved = new ResolvedAddressing(amhsOriginator, amhsRecipients,
                 recipientsValid ? ResolvedAddressing.SOURCE_AMQP_PROPERTY : ResolvedAddressing.SOURCE_UNRESOLVED);
 
-        // CTSW103 (§3.3.3 / §4.5.2.10.1 / §4.5.3.7-9): phân giải ATSMHS service level TRƯỚC khi
-        // đóng gói properties, vì mức dịch vụ quyết định cách thành phần dựng IPM map các trường
-        // (basic: ats_ft -> ATS-message-Filing-Time, ohi -> ATS-message-Optional-Heading-Info;
-        // extended: ats_ft -> authorization-time, ohi -> originators-reference,
-        // precedence-policy-identifier). Giá trị phải được lưu lại, không chỉ ghi log.
-        //
-        // Chế độ CHỈ đến từ gateway_config. Trước đây chỗ này còn đọc property
-        // "atsmhs_service_level" / "atsmhs-service-level" khỏi chính bản tin AMQP làm giá trị ghi
-        // đè — nghĩa là bên gửi SWIM tự quyết được mức dịch vụ. Đã bỏ: property đó không có trong
-        // Table 2, và nó vô hiệu hoá chốt §3.3.3.2 (bên gửi chỉ cần khai EXTENDED là đưa được nội
-        // dung nhị phân vào miền AMHS chỉ chở được text). Xem AtsmhsServiceLevelResolver#resolve.
-        String atsmhsServiceLevel = atsmhsResolver.resolve(contentType, amhsRecipients);
+        // Lấy cấu hình atsmhs_service_level từ gateway_config để bàn giao cho AMHS Component
+        String atsmhsServiceLevel = configService.get(ConfigService.KEY_ATSMHS_SERVICE_LEVEL);
+        if (atsmhsServiceLevel == null || atsmhsServiceLevel.isBlank()) {
+            atsmhsServiceLevel = "CONTENT_BASED";
+        }
+        atsmhsServiceLevel = atsmhsServiceLevel.trim().toUpperCase();
 
         // Chuyển đổi các thuộc tính ứng dụng sang định dạng JSON
         java.util.Map<String, String> props = new java.util.LinkedHashMap<>();
