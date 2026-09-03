@@ -66,7 +66,8 @@ public class MessagesController {
                     cb.like(cb.lower(r.get("amhsRecipients")), kw),
                     cb.like(cb.lower(r.get("messageId")), kw),
                     cb.like(cb.lower(r.get("subject")), kw),
-                    cb.like(cb.lower(r.get("payloadContent")), kw)
+                    cb.like(cb.lower(r.get("payloadContent")), kw),
+                    cb.like(cb.lower(r.get("amqpProperties")), kw)
             ));
         }
 
@@ -174,6 +175,15 @@ public class MessagesController {
         String bodypartType = (String) parsedProps.get("amhs_bodypart_type");
         m.put("bodyPartType", bodypartType != null ? bodypartType : g.getBodyType());
 
+        String ftbpFileName = (String) parsedProps.get("amhs_ftbp_file_name");
+        m.put("ftbpFileName", ftbpFileName);
+
+        Object ftbpObjectSize = parsedProps.get("amhs_ftbp_object_size");
+        m.put("ftbpObjectSize", ftbpObjectSize != null ? String.valueOf(ftbpObjectSize) : null);
+
+        String ftbpLastMod = (String) parsedProps.get("amhs_ftbp_last_mod");
+        m.put("ftbpLastMod", ftbpLastMod);
+
         return m;
     }
 
@@ -206,7 +216,8 @@ public class MessagesController {
                     cb.like(cb.lower(r.get("ipmId")), kw),
                     cb.like(cb.lower(r.get("amqpMessageId")), kw),
                     cb.like(cb.lower(r.get("subject")), kw),
-                    cb.like(cb.lower(r.get("text")), kw)
+                    cb.like(cb.lower(r.get("text")), kw),
+                    cb.like(cb.lower(r.get("ftbpFileName")), kw)
             ));
         }
 
