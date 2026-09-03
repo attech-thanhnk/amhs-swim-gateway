@@ -502,14 +502,18 @@ public class AMQPSubscriberService {
         List<String> recipientsList = getAppPropertyAsList(amqpMsg, "amhs_recipients");
 
         boolean recipientsValid = true;
+        String recipientsError = null;
         if (recipientsList.isEmpty()) {
             recipientsValid = false;
+            recipientsError = "Mandatory field 'amhs_recipients' is missing or empty (§4.5.1.5)";
             log.warn("AMQP {}: Mandatory amhs_recipients field is missing or empty", amqpMsgId);
         } else {
             // EUR Doc 047 §3.3.2.4: 0 hoặc không cấu hình = không giới hạn
             int maxRecipients = configService.getMaxMsgRecipients();
             if (maxRecipients > 0 && recipientsList.size() > maxRecipients) {
                 recipientsValid = false;
+                recipientsError = String.format("Recipients count %d in 'amhs_recipients' exceeds maximum %d (too-many-recipients §4.5.1.8b)",
+                        recipientsList.size(), maxRecipients);
                 log.warn("AMQP {}: Recipients count {} exceeds maximum {}", amqpMsgId, recipientsList.size(), maxRecipients);
             }
         }
@@ -538,6 +542,7 @@ public class AMQPSubscriberService {
             }
             if (validRecipients.isEmpty()) {
                 recipientsValid = false;
+                recipientsError = "None of the recipients in 'amhs_recipients' could be translated to an AF-address (§4.5.2.9c)";
                 log.warn("AMQP {}: none of the recipients could be translated to an AF-address", amqpMsgId);
             } else {
                 recipientsList = validRecipients;
@@ -644,7 +649,7 @@ public class AMQPSubscriberService {
             if (!dataValid) errors.add("Mandatory field 'data/amqp-value' is missing or empty");
             if (!contentTypeSupported) errors.add(contentTypeError != null ? contentTypeError
                     : "Unsupported content-type: " + contentType);
-            if (!recipientsValid) errors.add("Mandatory field 'amhs_recipients' is missing or invalid");
+            if (!recipientsValid) errors.add(recipientsError != null ? recipientsError : "Mandatory field 'amhs_recipients' is missing or invalid");
             if (!validationResult.isValid()) errors.addAll(validationResult.getErrors());
 
             String errorMessage = String.join("; ", errors);
@@ -881,6 +886,33 @@ public class AMQPSubscriberService {
 
     private List<String> getAppPropertyAsList(Message msg, String key) {
         List<String> list = new ArrayList<>();
+        try {
+            Object obj = msg.getObjectProperty(key);
+            if (obj == null) {
+                String altKey = key.contains("-") ? key.replace("-", "_") : key.replace("_", "-");
+                if (!altKey.equals(key)) {
+                    obj = msg.getObjectProperty(altKey);
+                }
+            }
+            if (obj instanceof java.util.Collection<?> col) {
+                for (Object item : col) {
+                    if (item != null) {
+                        String s = item.toString().trim();
+                        if (!s.isBlank()) list.add(s);
+                    }
+                }
+                return list;
+            } else if (obj instanceof Object[] arr) {
+                for (Object item : arr) {
+                    if (item != null) {
+                        String s = item.toString().trim();
+                        if (!s.isBlank()) list.add(s);
+                    }
+                }
+                return list;
+            }
+        } catch (Exception ignored) {}
+
         String val = safeGetStringProperty(msg, key);
         if (val != null && !val.isBlank()) {
             String[] parts = val.trim().split("[,\\s]+");
