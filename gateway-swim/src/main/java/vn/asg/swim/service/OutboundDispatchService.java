@@ -30,7 +30,6 @@ public class OutboundDispatchService {
     private static final int IPM_1988_CONTENT_TYPE = 22;
 
     private final ConnectionManagerService connectionManager;
-    private final MessageDetectService detectService;
     private final RoutingService routingService;
     private final MessageConversionService conversionService;
     private final MessageValidationService validationService;
@@ -64,6 +63,20 @@ public class OutboundDispatchService {
         conversionService.logAmhsToSwimRejected(gwout, actionTaken, diagnosticCode, supplementaryInfo);
         // EUR Doc 047 §4.4.8: ITCU quyết định, AMHS Component phát NDR ra X.400
         reportService.recordNdrForAll(gwout, diagnosticCode, supplementaryInfo);
+    }
+
+    /**
+     * Ghi NDR cho MỘT recipient không chuyển giao được, bản tin vẫn đi tới các recipient còn lại.
+     * <p>
+     * Doc 9880 §4.5.2.4.11 dùng chung non-delivery-diagnostic-code {@code unrecognised-OR-name}
+     * cho cả địa chỉ sai khuôn lẫn địa chỉ không tra được đích publish; {@code actionTaken} phân
+     * biệt hai nguyên nhân trong traffic log để Control Position truy được.
+     */
+    private void recordRecipientNdr(Gwout gwout, String recipient, String actionTaken) {
+        final String supplementary = "unable to convert to AMQP due to unrecognized recipient O/R address";
+        conversionService.logAmhsToSwimRejected(gwout,
+                actionTaken + ": " + recipient, "unrecognised-OR-name", supplementary);
+        reportService.recordNdr(gwout, recipient, "unrecognised-OR-name", supplementary);
     }
 
     /**
@@ -241,31 +254,6 @@ public class OutboundDispatchService {
             rejectMessage(gwout, "ttl-expired", "maximum-time-expired", null, "ttl_expired",
                     "gwout#" + gwout.getMsgid() + " rejected: latest-delivery-time exceeded ("
                             + gwout.getAmhsTtl() + ")");
-            return;
-        }
-
-        String body = gwout.getText();
-        String messageType;
-        try {
-            messageType = detectService.detect(body);
-        } catch (Exception e) {
-            log.error("gwout#{} failed to detect message type: {}", gwout.getMsgid(), e.getMessage());
-            rejectMessage(gwout, "type-detection-failed", "content-syntax-error", null,
-                    "type_detection_failed: " + e.getMessage(),
-                    "gwout#" + gwout.getMsgid() + " rejected: không nhận dạng được loại bản tin - "
-                            + e.getMessage());
-            return;
-        }
-
-        try {
-            if (routingService.findBestMatchOut(messageType).isEmpty()) {
-                throw new RuntimeException("No routing rule for type=" + messageType);
-            }
-        } catch (Exception e) {
-            log.error("gwout#{} failed to find routing rule: {}", gwout.getMsgid(), e.getMessage());
-            rejectMessage(gwout, "no-routing-rule", "unrecognised-OR-name", null,
-                    "routing_failed: " + e.getMessage(),
-                    "gwout#" + gwout.getMsgid() + " rejected: " + e.getMessage());
             return;
         }
 
@@ -677,73 +665,69 @@ public class OutboundDispatchService {
             return;
         }
 
-        String messageType;
-        try {
-            messageType = detectService.detect(gwout.getText());
-        } catch (Exception e) {
-            log.error("gwout#{} failed to detect type in dispatch creation: {}", gwout.getMsgid(), e.getMessage());
-            rejectMessage(gwout, "type-detection-failed", "content-syntax-error", null,
-                    "type_detection_failed: " + e.getMessage(),
-                    "gwout#" + gwout.getMsgid() + " rejected: không nhận dạng được loại bản tin - "
-                            + e.getMessage());
+        // Tra đích publish theo ĐỊA CHỈ của từng recipient. EUR Doc 047 Appendix A §2.2 xác định
+        // các AMQP consumer là "configuration parameters which are jointly set up", còn CTSW009
+        // kiểm tra việc phân phối dựa trên địa chỉ recipient - không dựa trên nội dung bản tin.
+        // Mỗi recipient có thể ra một topic khác nhau; processDispatch() gom lại theo
+        // (gwout, topic) nên một IPM vẫn chỉ sinh một message AMQP cho mỗi topic (§4.4.3.4.4).
+        java.util.LinkedHashMap<String, String> topicByRecipient = new java.util.LinkedHashMap<>();
+        List<String> unroutable = new java.util.ArrayList<>();
+        for (String recipient : recipients) {
+            var ruleOpt = routingService.findTopicForRecipient(recipient);
+            if (ruleOpt.isEmpty()) {
+                log.warn("gwout#{}: recipient '{}' không khớp rule định tuyến OUT nào",
+                        gwout.getMsgid(), recipient);
+                unroutable.add(recipient);
+                continue;
+            }
+            topicByRecipient.put(recipient, ruleOpt.get().getSendTopic());
+        }
+
+        if (topicByRecipient.isEmpty()) {
+            log.warn("gwout#{} không có recipient nào tra được đích publish", gwout.getMsgid());
+            rejectMessage(gwout, "no-routing-rule", "unrecognised-OR-name",
+                    "unable to convert to AMQP due to unrecognized recipient O/R address",
+                    "routing_failed: no rule for recipients " + String.join(",", recipients),
+                    "gwout#" + gwout.getMsgid() + " rejected: không có rule định tuyến cho recipient ["
+                            + String.join(",", recipients) + "]");
             return;
         }
 
-        var ruleOpt = routingService.findBestMatchOut(messageType);
-        if (ruleOpt.isEmpty()) {
-            log.warn("gwout#{} has no routing rule matching type '{}'", gwout.getMsgid(), messageType);
-            rejectMessage(gwout, "no-routing-rule", "unrecognised-OR-name", null,
-                    "routing_failed: no rule for type=" + messageType,
-                    "gwout#" + gwout.getMsgid() + " rejected: không có rule định tuyến cho loại '"
-                            + messageType + "'");
-            return;
-        }
-
-        String topic = ruleOpt.get().getSendTopic();
-        if (topic == null || topic.isBlank()) {
-            log.error("gwout#{} matching routing rule has null/empty send_topic", gwout.getMsgid());
-            // Lỗi cấu hình phía ITCU: không có non-delivery-diagnostic-code nào của Doc 9880
-            // §4.5.2.4.11 diễn tả đúng, để trống thay vì bịa giá trị.
-            rejectMessage(gwout, "empty-send-topic", null, null,
-                    "empty_send_topic: rule cho type=" + messageType,
-                    "gwout#" + gwout.getMsgid() + " rejected: rule định tuyến thiếu send_topic");
-            return;
-        }
-
-        // NDR cho từng recipient không chuyển đổi được, bản tin vẫn đi tới các recipient còn lại
+        // NDR cho từng recipient không chuyển giao được - địa chỉ sai khuôn AFTN, hoặc đúng khuôn
+        // nhưng không có rule định tuyến nào khai báo. Bản tin vẫn đi tới các recipient còn lại
         // (§4.4.6.5/§4.4.6.6 - report của X.400 mang per-recipient-fields nên DR và NDR cùng tồn
         // tại trong một report).
-        if (!unconvertible.isEmpty()) {
-            log.warn("gwout#{} có {} recipient không chuyển đổi được sang AF-address ({}), "
-                            + "sinh NDR riêng cho từng recipient",
-                    gwout.getMsgid(), unconvertible.size(), String.join(",", unconvertible));
+        List<String> undeliverable = new java.util.ArrayList<>(unconvertible);
+        undeliverable.addAll(unroutable);
+        if (!undeliverable.isEmpty()) {
+            log.warn("gwout#{} có {} recipient không chuyển giao được ({}), sinh NDR riêng cho từng recipient",
+                    gwout.getMsgid(), undeliverable.size(), String.join(",", undeliverable));
             alertService.create(
                     GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                    "gwout#" + gwout.getMsgid() + ": NDR cho recipient không hợp lệ ["
-                            + String.join(",", unconvertible) + "], bản tin vẫn chuyển tới ["
-                            + String.join(",", recipients) + "]",
+                    "gwout#" + gwout.getMsgid() + ": NDR cho recipient ["
+                            + String.join(",", undeliverable) + "], bản tin vẫn chuyển tới ["
+                            + String.join(",", topicByRecipient.keySet()) + "]",
                     "gwout", gwout.getMsgid());
             for (String recipient : unconvertible) {
-                conversionService.logAmhsToSwimRejected(gwout,
-                        "ndr_unrecognised_recipient: " + recipient, "unrecognised-OR-name",
-                        "unable to convert to AMQP due to unrecognized recipient O/R address");
-                reportService.recordNdr(gwout, recipient, "unrecognised-OR-name",
-                        "unable to convert to AMQP due to unrecognized recipient O/R address");
+                recordRecipientNdr(gwout, recipient, "ndr_unrecognised_recipient");
+            }
+            for (String recipient : unroutable) {
+                recordRecipientNdr(gwout, recipient, "ndr_no_route");
             }
         }
 
-        for (String recipient : recipients) {
+        for (var entry : topicByRecipient.entrySet()) {
             GwoutDispatch dispatch = new GwoutDispatch();
             dispatch.setGwoutId(gwout.getMsgid());
-            dispatch.setRecipient(recipient);
-            dispatch.setTopic(topic);
-            dispatch.setMessageType(messageType);
+            dispatch.setRecipient(entry.getKey());
+            dispatch.setTopic(entry.getValue());
             dispatch.setStatus(GwoutDispatch.STATUS_PENDING);
             gwoutDispatchRepository.save(dispatch);
         }
 
         gwoutRepository.save(gwout);
-        log.debug("gwout#{} -> {} dispatch(es) created with topic={}", gwout.getMsgid(), recipients.size(), topic);
+        log.debug("gwout#{} -> {} dispatch(es) created, topics={}", gwout.getMsgid(),
+                topicByRecipient.size(), new java.util.LinkedHashSet<>(topicByRecipient.values()));
     }
 
     /**

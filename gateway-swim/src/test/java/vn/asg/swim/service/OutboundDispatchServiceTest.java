@@ -31,7 +31,6 @@ import static org.mockito.Mockito.*;
 class OutboundDispatchServiceTest {
 
     @Mock private ConnectionManagerService connectionManager;
-    @Mock private MessageDetectService detectService;
     @Mock private RoutingService routingService;
     @Mock private MessageConversionService conversionService;
     @Mock private MessageValidationService validationService;
@@ -73,7 +72,7 @@ class OutboundDispatchServiceTest {
         dispatch.setRetryCount(0);
 
         routing = new Routing();
-        routing.setMessageType("METAR");
+        routing.setRecipients("VVHHZTZX");
         routing.setSendTopic("ats.met.metar");
 
         // Default config mocks
@@ -201,27 +200,60 @@ class OutboundDispatchServiceTest {
     // ==================== ROUTING LOGIC ====================
 
     @Test
-    void testRoutingNotFound_ShouldFail() {
-        // Given: No routing rule for message type
-        when(gwoutRepository.findById(1L)).thenReturn(Optional.of(gwout));
-        MessageValidationService.ValidationResult validResult =
-            new MessageValidationService.ValidationResult(true, List.of());
-        when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
-            .thenReturn(validResult);
-        when(authorizationService.isAmhsUserAuthorized(anyString())).thenReturn(true);
-        when(detectService.detect(anyString())).thenReturn("UNKNOWN");
-        when(routingService.findBestMatchOut("UNKNOWN")).thenReturn(Optional.empty());
+    void testNoRuleForRecipient_ShouldRejectAndQueueNdr() {
+        // §4.4.8: recipient đúng khuôn AFTN nhưng không rule OUT nào khai báo địa chỉ đó, tức
+        // không có đích publish. Bản tin phải bị từ chối kèm NDR chứ không im lặng biến mất.
+        when(routingService.findTopicForRecipient(anyString())).thenReturn(Optional.empty());
 
-        // When
-        service.processOutboundMessage(gwout);
+        service.createDispatches(gwout);
 
-        // Then: Should fail at routing step VÀ sinh NDR (§4.4.8) - trước đây nhánh này chỉ đặt
-        // status = FAILED nên người gửi X.400 không nhận được gì.
         assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
         assertEquals("no-routing-rule", gwout.getRejectionReason());
-        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("routing_failed"),
-                eq("unrecognised-OR-name"), isNull());
-        verify(reportService).recordNdrForAll(eq(gwout), eq("unrecognised-OR-name"), isNull());
+        verify(gwoutDispatchRepository, never()).save(any());
+        verify(reportService).recordNdrForAll(eq(gwout), eq("unrecognised-OR-name"),
+                eq("unable to convert to AMQP due to unrecognized recipient O/R address"));
+    }
+
+    @Test
+    void testPerRecipientTopic_ShouldCreateDispatchWithItsOwnTopic() {
+        // CTSW009: đích được tra theo ĐỊA CHỈ từng recipient, nên hai recipient cấu hình khác
+        // đích sẽ sinh hai dispatch mang hai topic khác nhau.
+        gwout.setAddress("VVHHZTZX,VVNBZTZX");
+        Routing hcm = new Routing();
+        hcm.setRecipients("VVHHZTZX");
+        hcm.setSendTopic("ats/hcm/inbox");
+        Routing nbi = new Routing();
+        nbi.setRecipients("VVNBZTZX");
+        nbi.setSendTopic("ats/nbi/inbox");
+        when(routingService.findTopicForRecipient("VVHHZTZX")).thenReturn(Optional.of(hcm));
+        when(routingService.findTopicForRecipient("VVNBZTZX")).thenReturn(Optional.of(nbi));
+
+        service.createDispatches(gwout);
+
+        org.mockito.ArgumentCaptor<GwoutDispatch> captor =
+                org.mockito.ArgumentCaptor.forClass(GwoutDispatch.class);
+        verify(gwoutDispatchRepository, times(2)).save(captor.capture());
+        assertEquals(List.of("ats/hcm/inbox", "ats/nbi/inbox"),
+                captor.getAllValues().stream().map(GwoutDispatch::getTopic).toList());
+        assertEquals(List.of("VVHHZTZX", "VVNBZTZX"),
+                captor.getAllValues().stream().map(GwoutDispatch::getRecipient).toList());
+    }
+
+    @Test
+    void testPartiallyRoutableRecipients_ShouldNdrOnlyTheUnroutableOne() {
+        // §4.4.6.5/§4.4.6.6: report của X.400 mang per-recipient-fields nên recipient không tra
+        // được đích chỉ nhận NDR riêng, bản tin vẫn chuyển tới recipient còn lại.
+        gwout.setAddress("VVHHZTZX,VVNBZTZX");
+        when(routingService.findTopicForRecipient("VVHHZTZX")).thenReturn(Optional.of(routing));
+        when(routingService.findTopicForRecipient("VVNBZTZX")).thenReturn(Optional.empty());
+
+        service.createDispatches(gwout);
+
+        assertNotEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
+        verify(gwoutDispatchRepository, times(1)).save(any());
+        verify(reportService).recordNdr(eq(gwout), eq("VVNBZTZX"), eq("unrecognised-OR-name"),
+                eq("unable to convert to AMQP due to unrecognized recipient O/R address"));
+        verify(reportService, never()).recordNdrForAll(any(), any(), any());
     }
 
     // ==================== RETRY LOGIC ====================
@@ -996,8 +1028,7 @@ class OutboundDispatchServiceTest {
         when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
             .thenReturn(validResult);
         when(authorizationService.isAmhsUserAuthorized(anyString())).thenReturn(true);
-        when(detectService.detect(anyString())).thenReturn("METAR");
-        when(routingService.findBestMatchOut("METAR")).thenReturn(Optional.of(routing));
+        when(routingService.findTopicForRecipient(anyString())).thenReturn(Optional.of(routing));
 
         // gwout.text đã set sẵn ở setUp() để bypass empty check trong processDispatch
         dispatch.setTopic("ats.met.metar");
@@ -1214,18 +1245,6 @@ class OutboundDispatchServiceTest {
         assertEquals("unauthorized-originator", gwout.getRejectionReason());
         verify(reportService).recordNdrForAll(gwout, "unrecognised-OR-name",
                 "unable to convert to AMQP due to unrecognized originator O/R address");
-    }
-
-    @Test
-    void testTypeDetectionFailure_ShouldQueueNdr() throws Exception {
-        setupValidScenario();
-        when(detectService.detect(anyString())).thenThrow(new RuntimeException("boom"));
-
-        service.processOutboundMessage(gwout);
-
-        assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
-        assertEquals("type-detection-failed", gwout.getRejectionReason());
-        verify(reportService).recordNdrForAll(eq(gwout), eq("content-syntax-error"), isNull());
     }
 
     @Test

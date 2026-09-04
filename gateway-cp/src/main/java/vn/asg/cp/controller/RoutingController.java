@@ -48,9 +48,7 @@ public class RoutingController {
         routing.setDirection(request.getDirection());
         routing.setReceiveTopic(request.getReceiveTopic());
         routing.setRecipients(request.getRecipients());
-        routing.setOriginator(request.getOriginator());
         routing.setMessageType(request.getMessageType());
-        routing.setDetectPattern(request.getDetectPattern());
         routing.setSendTopic(request.getSendTopic());
         routing.setPriority(request.getPriority() != null ? request.getPriority() : 100);
         routing.setActive(request.getActive() != null ? request.getActive() : true);
@@ -88,12 +86,8 @@ public class RoutingController {
             existing.setReceiveTopic(request.getReceiveTopic());
         if (request.getRecipients() != null)
             existing.setRecipients(request.getRecipients());
-        if (request.getOriginator() != null)
-            existing.setOriginator(request.getOriginator());
         if (request.getMessageType() != null)
             existing.setMessageType(request.getMessageType());
-        if (request.getDetectPattern() != null)
-            existing.setDetectPattern(request.getDetectPattern());
         if (request.getSendTopic() != null)
             existing.setSendTopic(request.getSendTopic());
         if (request.getPriority() != null)

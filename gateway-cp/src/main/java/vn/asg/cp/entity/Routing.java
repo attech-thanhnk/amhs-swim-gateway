@@ -35,25 +35,15 @@ public class Routing {
     private String receiveTopic;
 
     @Column(name = "recipients", length = 500)
-    @Schema(description = "Space-separated AFTN addresses (for IN direction)",
+    @Schema(description = "AFTN recipient addresses. OUT: decides send_topic (comma/space separated, \"*\" suffix = prefix wildcard). IN: display label only",
             example = "VVHHZTZX VVTSZDYX")
     private String recipients;
 
-    @Column(name = "originator", length = 8)
-    @Schema(description = "AFTN originator address (for IN direction)",
-            example = "VVHHZQZX")
-    private String originator;
-
     // ========== OUTBOUND DIRECTION (AMHS → SWIM) ==========
     @Column(name = "message_type", length = 50)
-    @Schema(description = "Message type to detect (for OUT direction only)",
+    @Schema(description = "Display label only - the engine does not read this column",
             example = "METAR")
     private String messageType;
-
-    @Column(name = "detect_pattern", length = 255)
-    @Schema(description = "Content prefix pattern used to detect this message type (for OUT direction only)",
-            example = "METAR ")
-    private String detectPattern;
 
     @Column(name = "send_topic", length = 100)
     @Schema(description = "AMQP topic to publish (for OUT direction only)",

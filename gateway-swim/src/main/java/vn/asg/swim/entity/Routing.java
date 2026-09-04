@@ -21,23 +21,25 @@ public class Routing {
     @Column(name = "direction", length = 3, nullable = false)
     private String direction; // 'IN' or 'OUT'
 
-    // ========== INBOUND DIRECTION (SWIM → AMHS) ==========
+    // ========== INBOUND DIRECTION (SWIM -> AMHS) ==========
     @Column(name = "receive_topic", length = 100)
     private String receiveTopic;
 
+    /**
+     * Chiều OUT: danh sách địa chỉ AFTN người nhận quyết định send_topic - xem
+     * {@code RoutingService.findTopicForRecipient}. Chấp nhận nhiều mục phân cách bằng dấu phẩy
+     * hoặc khoảng trắng, mỗi mục là địa chỉ đầy đủ hoặc tiền tố kết thúc bằng {@code *}.
+     * <p>
+     * Chiều IN: chỉ là nhãn hiển thị trên Control Position. Người nhận thật của chiều đó lấy từ
+     * application property {@code amhs_recipients} của bản tin AMQP (§4.5.1.5), không lấy ở đây.
+     */
     @Column(name = "recipients", length = 500)
     private String recipients;
 
-    @Column(name = "originator", length = 8)
-    private String originator;
-
-    // ========== OUTBOUND DIRECTION (AMHS → SWIM) ==========
+    // ========== OUTBOUND DIRECTION (AMHS -> SWIM) ==========
+    /** Nhãn loại bản tin, chỉ để hiển thị trên Control Position - engine không đọc cột này. */
     @Column(name = "message_type", length = 50)
     private String messageType;
-
-    /** Mẫu nhận diện loại bản tin từ nội dung thô (prefix). Ví dụ: "METAR ", "(FPL-" */
-    @Column(name = "detect_pattern", length = 255)
-    private String detectPattern;
 
     @Column(name = "send_topic", length = 100)
     private String sendTopic;
@@ -93,28 +95,12 @@ public class Routing {
         this.recipients = recipients;
     }
 
-    public String getOriginator() {
-        return originator;
-    }
-
-    public void setOriginator(String originator) {
-        this.originator = originator;
-    }
-
     public String getMessageType() {
         return messageType;
     }
 
     public void setMessageType(String messageType) {
         this.messageType = messageType;
-    }
-
-    public String getDetectPattern() {
-        return detectPattern;
-    }
-
-    public void setDetectPattern(String detectPattern) {
-        this.detectPattern = detectPattern;
     }
 
     public String getSendTopic() {

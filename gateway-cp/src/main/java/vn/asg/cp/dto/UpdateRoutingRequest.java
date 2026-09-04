@@ -16,21 +16,13 @@ public class UpdateRoutingRequest {
             example = "ats/met/metar")
     private String receiveTopic;
 
-    @Schema(description = "Space-separated AFTN addresses (for IN direction)",
+    @Schema(description = "AFTN recipient addresses. OUT: decides send_topic (comma/space separated, \"*\" suffix = prefix wildcard). IN: display label only",
             example = "VVHHZTZX VVTSZDYX")
     private String recipients;
 
-    @Schema(description = "AFTN originator address (for IN direction)",
-            example = "VVHHZQZX")
-    private String originator;
-
-    @Schema(description = "Message type to detect (for OUT direction)",
+    @Schema(description = "Display label only - the engine does not read this column",
             example = "METAR")
     private String messageType;
-
-    @Schema(description = "Content prefix pattern used to detect this message type (for OUT direction)",
-            example = "METAR ")
-    private String detectPattern;
 
     @Schema(description = "AMQP topic to publish (for OUT direction)",
             example = "ats/met/metar")

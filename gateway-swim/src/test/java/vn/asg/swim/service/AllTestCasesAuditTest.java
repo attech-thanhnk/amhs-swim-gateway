@@ -41,7 +41,6 @@ import static org.mockito.Mockito.*;
 public class AllTestCasesAuditTest {
 
     @Mock private ConnectionManagerService connectionManager;
-    @Mock private MessageDetectService detectService;
     @Mock private RoutingService routingService;
     @Mock private MessageConversionService conversionService;
     @Mock private MessageValidationService validationService;
@@ -72,10 +71,9 @@ public class AllTestCasesAuditTest {
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
 
         Routing metarRule = new Routing();
-        metarRule.setMessageType("METAR");
+        metarRule.setRecipients("*");
         metarRule.setSendTopic("ats/met/metar");
-        when(routingService.findBestMatchOut(anyString())).thenReturn(Optional.of(metarRule));
-        when(detectService.detect(anyString())).thenReturn("METAR");
+        when(routingService.findTopicForRecipient(anyString())).thenReturn(Optional.of(metarRule));
 
         Session session = mock(Session.class);
         MessageProducer producer = mock(MessageProducer.class);

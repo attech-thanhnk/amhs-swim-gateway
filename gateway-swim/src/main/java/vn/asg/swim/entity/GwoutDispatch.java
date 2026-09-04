@@ -43,10 +43,6 @@ public class GwoutDispatch {
     @Column(name = "recipient", length = 100, nullable = false)
     private String recipient;
 
-    /** Loại bản tin được nhận dạng. Ví dụ: METAR, FPL */
-    @Column(name = "message_type", length = 50)
-    private String messageType;
-
     /**
      * Topic AMQP tương ứng sau khi phân giải. NULL nếu lỗi định tuyến.
      */
@@ -125,14 +121,6 @@ public class GwoutDispatch {
 
     public void setRecipient(String recipient) {
         this.recipient = recipient;
-    }
-
-    public String getMessageType() {
-        return messageType;
-    }
-
-    public void setMessageType(String messageType) {
-        this.messageType = messageType;
     }
 
     public String getTopic() {

@@ -40,10 +40,6 @@ public class GwoutDispatch {
     @Column(name = "recipient", length = 100, nullable = false)
     private String recipient;
 
-    /** Loại điện văn đã nhận dạng. Ví dụ: METAR, FPL, UNKNOWN */
-    @Column(name = "message_type", length = 50)
-    private String messageType;
-
     /**
      * Topic AMQP đã xác định. Ví dụ: metar.vvhh, fpl.vvhf. NULL nếu routing thất
      * bại

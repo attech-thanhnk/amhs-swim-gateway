@@ -18,22 +18,14 @@ public class CreateRoutingRequest {
             example = "ats/met/metar")
     private String receiveTopic;
 
-    @Schema(description = "Space-separated AFTN addresses (required for IN direction)",
+    @Schema(description = "AFTN recipient addresses. OUT: decides send_topic (comma/space separated, \"*\" suffix = prefix wildcard). IN: display label only",
             example = "VVHHZTZX VVTSZDYX")
     private String recipients;
 
-    @Schema(description = "AFTN originator address (required for IN direction)",
-            example = "VVHHZQZX")
-    private String originator;
-
     // ========== OUTBOUND DIRECTION (AMHS → SWIM) ==========
-    @Schema(description = "Message type to detect (required for OUT direction)",
+    @Schema(description = "Display label only - the engine does not read this column",
             example = "METAR")
     private String messageType;
-
-    @Schema(description = "Content prefix pattern used to detect this message type (for OUT direction)",
-            example = "METAR ")
-    private String detectPattern;
 
     @Schema(description = "AMQP topic to publish (required for OUT direction)",
             example = "ats/met/metar")
