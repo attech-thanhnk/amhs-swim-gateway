@@ -346,16 +346,35 @@ class OutboundDispatchServiceTest {
         service.processDispatch(dispatch);
 
         // Then: chỉ 1 lần publish (send) duy nhất, amhs_recipients gộp cả 2 địa chỉ
-        verify(mockProducer, times(1)).send(any());
+        verify(mockProducer, times(1)).send(any(), anyInt(), anyInt(), anyLong());
         verify(mockTextMessage).setStringProperty("amhs_recipients", "VVHHZTZX,VVCIZTZX");
         assertEquals(GwoutDispatch.STATUS_SENT, dispatch.getStatus());
         assertEquals(GwoutDispatch.STATUS_SENT, dispatch2.getStatus());
 
         // Dispatch anh em (dispatch2) không còn PENDING/FAILED nên vòng lặp poller kế tiếp sẽ bỏ qua
         service.processDispatch(dispatch2);
-        verify(mockProducer, times(1)).send(any());
+        verify(mockProducer, times(1)).send(any(), anyInt(), anyInt(), anyLong());
     }
 
+
+    @Test
+    void testAmqpHeaderPriority_ShouldComeFromSwimPriority() throws Exception {
+        // CTSW001: "Verify the priority, both in the AMQP Application properties (amhs_ats_pri)
+        // and AMQP Header (priority) according to tables 3 and 5".
+        //
+        // Dac ta JMS: gia tri JMSPriority gan len doi tuong Message bi BO QUA khi gui;
+        // send(Message) dung priority cua producer (mac dinh 4). Vi vay priority BAT BUOC phai
+        // di qua tham so cua send(), neu khong moi ban tin ra broker deu mang priority 4.
+        setupValidScenario();
+        gwout.setAmhsPriority("KK");
+        gwout.setSwimPriority(2);
+
+        service.processDispatch(dispatch);
+
+        verify(mockProducer).send(any(), eq(jakarta.jms.DeliveryMode.PERSISTENT), eq(2), anyLong());
+        verify(mockTextMessage).setStringProperty("amhs_ats_pri", "KK");
+        verify(mockTextMessage, never()).setJMSPriority(anyInt());
+    }
     // ==================== PROBE AND EIT TESTS ====================
 
     @Test
@@ -1331,7 +1350,7 @@ class OutboundDispatchServiceTest {
         service.processDispatch(dispatch);
 
         verify(mockTextMessage).setStringProperty("amhs_recipients", "VVHHZTZX,VVDNZTZX");
-        verify(mockProducer, times(1)).send(any());
+        verify(mockProducer, times(1)).send(any(), anyInt(), anyInt(), anyLong());
     }
 
     // ==================== CTSW009: LOẠI RECIPIENT ====================
