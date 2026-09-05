@@ -13,7 +13,6 @@ import vn.asg.swim.repository.GwoutRepository;
 import vn.asg.swim.util.AddressUtil;
 import vn.asg.swim.model.AmqpProperties;
 import vn.asg.swim.service.AlertService;
-import vn.asg.swim.service.ConfigService;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -29,13 +28,11 @@ public class AmhsToGwoutSyncScheduler {
     @PersistenceContext
     private final EntityManager entityManager;
     private final GwoutRepository gwoutRepository;
-    private final ConfigService configService;
     private final AlertService alertService;
 
-    public AmhsToGwoutSyncScheduler(EntityManager entityManager, GwoutRepository gwoutRepository, ConfigService configService, AlertService alertService) {
+    public AmhsToGwoutSyncScheduler(EntityManager entityManager, GwoutRepository gwoutRepository, AlertService alertService) {
         this.entityManager = entityManager;
         this.gwoutRepository = gwoutRepository;
-        this.configService = configService;
         this.alertService = alertService;
     }
 
@@ -161,7 +158,7 @@ public class AmhsToGwoutSyncScheduler {
     }
 
     /**
-     * Quét mtcu_tmp lấy bản tin AMHS gửi tới địa chỉ của gateway và đồng bộ sang gwout.
+     * Quét mtcu_tmp lấy bản tin AMHS có recipient là AMQP consumer đã khai báo và đồng bộ sang gwout.
      * <p>
      * KHÔNG gắn {@code @Transactional} ở mức phương thức, để mỗi {@code saveAndFlush} chạy trong
      * transaction riêng của repository. Nếu gói cả lô vào một transaction thì một vi phạm ràng
@@ -173,17 +170,6 @@ public class AmhsToGwoutSyncScheduler {
     public void syncAmhsToGwout() {
         log.info("AMHS sync scheduler tick - checking mtcu_tmp...");
         try {
-            String localAddress = configService.getGatewayAmhsAddress();
-            String localAddressPattern = "%" + localAddress + "%";
-
-            // Điều kiện lọc nằm TRONG subquery và sắp xếp ASC: lấy 200 bản tin CŨ NHẤT CHƯA
-            // ĐỒNG BỘ, không phải 200 bản tin mới nhất.
-            //
-            // Bản cũ dùng "ORDER BY id DESC LIMIT 200" rồi mới lọc NOT EXISTS ở ngoài, tức cửa sổ
-            // là "200 dòng mới nhất". Gateway dừng đủ lâu để mtcu_tmp nhận hơn 200 bản tin mới thì
-            // toàn bộ phần tồn đọng rơi khỏi cửa sổ VĨNH VIỄN - không log, không alert, bản tin
-            // mất hẳn. Ràng buộc uk_gwout_amhsid cho NOT EXISTS chạy bằng index lookup nên chi phí
-            // của thứ tự mới vẫn chấp nhận được.
             String sql = """
                 SELECT
                     t.id,
@@ -216,9 +202,15 @@ public class AmhsToGwoutSyncScheduler {
                           SELECT 1 FROM gwout g WHERE g.amhsid = m.messageId
                       )
                       AND EXISTS (
-                          SELECT 1 FROM mtcu_to gw
+                          SELECT 1
+                          FROM mtcu_to gw
+                          JOIN routing r ON r.direction = 'OUT' AND r.active = 1
                           WHERE gw.receiveMessage_id = m.id
-                            AND gw.address LIKE :gatewayAddress
+                            AND (
+                                  r.recipients LIKE CONCAT('%',
+                                      SUBSTRING_INDEX(SUBSTRING_INDEX(gw.address, '/CN=', -1), '/', 1), '%')
+                               OR r.recipients LIKE '%*%'
+                            )
                       )
                     ORDER BY m.id ASC
                     LIMIT 200
@@ -229,7 +221,6 @@ public class AmhsToGwoutSyncScheduler {
 
             @SuppressWarnings("unchecked")
             List<Object[]> rows = entityManager.createNativeQuery(sql)
-                    .setParameter("gatewayAddress", localAddressPattern)
                     .getResultList();
 
             log.info("AMHS sync query returned {} rows", rows != null ? rows.size() : 0);
@@ -239,14 +230,12 @@ public class AmhsToGwoutSyncScheduler {
             }
 
             // Gộp các dòng mtcu_to theo message: 1 IPM có thể có nhiều recipient,
-            // câu SQL ở trên trả về 1 dòng cho MỖI recipient (bao gồm cả chính gateway).
+            // câu SQL ở trên trả về 1 dòng cho MỖI recipient.
             java.util.LinkedHashMap<Long, List<Object[]>> groupedByMessage = new java.util.LinkedHashMap<>();
             for (Object[] row : rows) {
                 Long msgTmpId = ((Number) row[0]).longValue();
                 groupedByMessage.computeIfAbsent(msgTmpId, k -> new java.util.ArrayList<>()).add(row);
             }
-
-            final String gatewayShortAddress = localAddress;
 
             log.info("Found {} new AMHS messages to sync to gwout", groupedByMessage.size());
 
@@ -279,10 +268,12 @@ public class AmhsToGwoutSyncScheduler {
                         }
                     }
 
-                    // ICAO Doc 047: amhs_recipients phải liệt kê các recipient THẬT của IPM
-                    // (không phải chính địa chỉ gateway VVTSSWIM dùng để nhận tin).
+                    // CTSW001 (§4.4.3.4.4): amhs_recipients gồm recipient-name của các
+                    // per-recipient-fields có responsibility = "responsible" - KHÔNG có bộ lọc
+                    // nào khác. Bản trước còn gạt thêm địa chỉ AMHS của chính gateway; luật đó
+                    // không có trong đặc tả và chỉ đúng khi bản tin được đánh địa chỉ tới gateway
+                    // thay vì tới AMQP consumer. Xem chú thích của câu SQL bên trên.
                     //
-                    // CTSW001 (§4.4.3.4.4): chỉ gồm recipient có responsibility = "responsible".
                     // mtcu_to.responsibility là bit(1): 1 = responsible, 0 = not-responsible,
                     // NULL = AMHS Component chưa cung cấp -> giữ nguyên hành vi cũ (nhận tất cả)
                     // để không làm mất recipient khi dữ liệu chưa sẵn sàng.
@@ -292,7 +283,6 @@ public class AmhsToGwoutSyncScheduler {
                             .filter(r -> !hasResponsibilityData || isResponsible(r))
                             .map(r -> AddressUtil.getShort(asString(r[9])))
                             .filter(java.util.Objects::nonNull)
-                            .filter(a -> !a.equalsIgnoreCase(gatewayShortAddress))
                             .distinct()
                             .toList();
 
@@ -411,33 +401,31 @@ public class AmhsToGwoutSyncScheduler {
                     if (finalOrigin != null && finalOrigin.length() > 200) finalOrigin = finalOrigin.substring(0, 200);
                     gwout.setOrigin(finalOrigin);
                     
-                    // amhs_recipients = danh sách recipient THẬT (không phải chính gateway), phân cách dấu phẩy.
-                    // Trường hợp hiếm khi IPM chỉ addressed tới mỗi gateway (không có recipient thật nào khác),
-                    // fallback về địa chỉ gateway để không làm mất bản tin.
-                    String finalRecipient = !realRecipients.isEmpty()
-                            ? String.join(",", realRecipients)
-                            : gatewayShortAddress;
+                    // Danh sách rỗng chỉ còn xảy ra khi MỌI recipient của IPM đều mang
+                    // responsibility = not-responsible: theo §4.4.3.4.4 thì ITCU không chịu trách
+                    // nhiệm chuyển giao cho ai cả, không có gì để đưa sang SWIM. Vẫn ghi một dòng
+                    // gwout FAILED thay vì bỏ qua, để bản tin không bị quét lại vô hạn mỗi 2 giây
+                    // và để Control Position tra cứu được.
                     if (realRecipients.isEmpty()) {
-                        // §4.4.3.4.4: amhs_recipients phải là địa chỉ AFTN của những recipient mà
-                        // ITCU chịu trách nhiệm chuyển giao. Điền địa chỉ gateway vào đó là SAI,
-                        // nhưng vẫn giữ để bản tin không bị mất trong lúc AMHS Component bổ sung
-                        // recipient thật vào mtcu_to. Báo Control Position để bất thường này nhìn
-                        // thấy được thay vì chỉ nằm trong log.
-                        log.warn("gwout sync: messageId={} has no real recipient other than the gateway ({}), falling back to gateway address",
-                                messageId, gatewayShortAddress);
+                        log.warn("gwout sync: messageId={} không có recipient nào 'responsible', không chuyển sang SWIM",
+                                messageId);
                         alertService.create(
                                 GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                                "Bản tin " + messageId + " không có recipient nào ngoài địa chỉ gateway ("
-                                        + gatewayShortAddress + "). amhs_recipients sẽ mang giá trị sai "
-                                        + "so với §4.4.3.4.4 — chờ AMHS Component ghi recipient thật vào mtcu_to.",
+                                "Bản tin " + messageId + " không có recipient nào mang responsibility "
+                                        + "'responsible' — ITCU không chịu trách nhiệm chuyển giao (§4.4.3.4.4).",
                                 "mtcu_tmp", msgTmpId);
+                        gwout.setAddress("");
+                        gwout.setStatus(OutboundStatus.FAILED.getValue());
+                        gwout.setRejectionReason("no-responsible-recipient");
+                        gwoutRepository.saveAndFlush(gwout);
+                        continue;
                     }
                     // CTSW010: KHÔNG cắt danh sách recipient. Cột gwout.address là MEDIUMTEXT nên
                     // chứa được tối đa "Maximum message number of recipients" (512 recipient ~ 4.6KB).
                     // Cắt chuỗi ở đây sẽ làm mất recipient âm thầm và bản tin bị chuyển thiếu người nhận,
                     // trong khi §4.4.2.7 yêu cầu vượt ngưỡng thì phải TỪ CHỐI cả bản tin bằng NDR
                     // "too-many-recipients" — việc đó do OutboundDispatchService thực hiện sau.
-                    gwout.setAddress(finalRecipient);
+                    gwout.setAddress(String.join(",", realRecipients));
                     
                     // CTSW001 (§4.4.3.4.3 + Table 5): Extended IPM ưu tiên dùng precedence cao nhất;
                     // Basic IPM (không có precedence) dùng ATS-message-priority như trước.

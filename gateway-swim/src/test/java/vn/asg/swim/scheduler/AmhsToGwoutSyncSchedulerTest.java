@@ -10,7 +10,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.OutboundStatus;
 import vn.asg.swim.repository.GwoutRepository;
-import vn.asg.swim.service.ConfigService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,8 +31,6 @@ class AmhsToGwoutSyncSchedulerTest {
     @Mock
     private GwoutRepository gwoutRepository;
 
-    @Mock
-    private ConfigService configService;
 
     @Mock
     private vn.asg.swim.service.AlertService alertService;
@@ -42,15 +39,13 @@ class AmhsToGwoutSyncSchedulerTest {
 
     @BeforeEach
     void setUp() {
-        scheduler = new AmhsToGwoutSyncScheduler(entityManager, gwoutRepository, configService, alertService);
+        scheduler = new AmhsToGwoutSyncScheduler(entityManager, gwoutRepository, alertService);
     }
 
     @Test
     void testSyncAmhsToGwout_NoNewMessages() {
         // Given: Empty result list
-        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
-        when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(new ArrayList<>());
 
         // When
@@ -81,9 +76,7 @@ class AmhsToGwoutSyncSchedulerTest {
         row[13] = null; // ftbpLastMod
         mockRows.add(row);
 
-        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
-        when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
 
         // When
@@ -105,44 +98,42 @@ class AmhsToGwoutSyncSchedulerTest {
     }
 
     @Test
-    void testSyncAmhsToGwout_MultipleRecipients_ShouldJoinRealRecipientsExcludingGateway() {
-        // Given: 1 IPM (mtcu_tmp.id=59296) có 3 dòng mtcu_to: gateway (VVTSSWIM) + 2 recipient thật
+    void testSyncAmhsToGwout_MultipleRecipients_ShouldJoinAllRecipients() {
+        // Given: 1 IPM (mtcu_tmp.id=59296) có 3 dòng mtcu_to - cả ba đều là recipient của IPM
         List<Object[]> mockRows = new ArrayList<>();
 
-        Object[] rowGateway = new Object[14];
-        rowGateway[0] = 59296L;
-        rowGateway[1] = "METAR VVCI 070130Z 21005KT 150V250 9999 BKN019 31/26 Q1002 NOSIG=";
-        rowGateway[2] = "070130";
-        rowGateway[3] = "FF";
-        rowGateway[4] = null;
-        rowGateway[5] = "401";
-        rowGateway[6] = "IPM-126";
-        rowGateway[7] = "MSG-126";
-        rowGateway[8] = "/CN=VVCIYMYX/OU=VVCI/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
-        rowGateway[9] = "/CN=VVTSSWIM/OU=VVTS/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
-        rowGateway[10] = "ISO-8859-1";
-        mockRows.add(rowGateway);
+        Object[] rowRecipient0 = new Object[14];
+        rowRecipient0[0] = 59296L;
+        rowRecipient0[1] = "METAR VVCI 070130Z 21005KT 150V250 9999 BKN019 31/26 Q1002 NOSIG=";
+        rowRecipient0[2] = "070130";
+        rowRecipient0[3] = "FF";
+        rowRecipient0[4] = null;
+        rowRecipient0[5] = "401";
+        rowRecipient0[6] = "IPM-126";
+        rowRecipient0[7] = "MSG-126";
+        rowRecipient0[8] = "/CN=VVCIYMYX/OU=VVCI/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
+        rowRecipient0[9] = "/CN=VVTSOPTB/OU=VVTS/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
+        rowRecipient0[10] = "ISO-8859-1";
+        mockRows.add(rowRecipient0);
 
-        Object[] rowRecipient1 = rowGateway.clone();
+        Object[] rowRecipient1 = rowRecipient0.clone();
         rowRecipient1[9] = "/CN=VVCIZTZX/OU=VVCI/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
         mockRows.add(rowRecipient1);
 
-        Object[] rowRecipient2 = rowGateway.clone();
+        Object[] rowRecipient2 = rowRecipient0.clone();
         rowRecipient2[9] = "/CN=VVHHZTZX/OU=VVHH/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
         mockRows.add(rowRecipient2);
 
-        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
-        when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
 
         // When
         scheduler.syncAmhsToGwout();
 
-        // Then: chỉ 1 gwout được tạo (gộp theo mtcu_tmp.id), amhs_recipients gồm 2 recipient thật, không có VVTSSWIM
+        // Then: chỉ 1 gwout được tạo (gộp theo mtcu_tmp.id), amhs_recipients liệt kê đủ 3 recipient (§4.4.3.4.4)
         verify(gwoutRepository, times(1)).saveAndFlush(argThat(gwout -> {
             assertEquals("MSG-126", gwout.getAmhsid());
-            assertEquals("VVCIZTZX,VVHHZTZX", gwout.getAddress());
+            assertEquals("VVTSOPTB,VVCIZTZX,VVHHZTZX", gwout.getAddress());
             return true;
         }));
     }
@@ -168,9 +159,7 @@ class AmhsToGwoutSyncSchedulerTest {
         row[13] = null; // ftbpLastMod
         mockRows.add(row);
 
-        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
-        when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
 
         // When
@@ -205,9 +194,7 @@ class AmhsToGwoutSyncSchedulerTest {
         row[13] = null;         // không còn nguồn cho ftbpLastMod
         mockRows.add(row);
 
-        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
-        when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
 
         // When
@@ -249,9 +236,7 @@ class AmhsToGwoutSyncSchedulerTest {
         row[18] = 22;
         mockRows.add(row);
 
-        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
-        when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
 
         scheduler.syncAmhsToGwout();
@@ -282,9 +267,7 @@ class AmhsToGwoutSyncSchedulerTest {
         row[18] = 22;
         mockRows.add(row);
 
-        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
-        when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
 
         scheduler.syncAmhsToGwout();
@@ -326,9 +309,7 @@ class AmhsToGwoutSyncSchedulerTest {
         List<Object[]> mockRows = new ArrayList<>();
         mockRows.add(row);
 
-        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
-        when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
 
         scheduler.syncAmhsToGwout();
@@ -403,9 +384,7 @@ class AmhsToGwoutSyncSchedulerTest {
         List<Object[]> mockRows = new ArrayList<>();
         mockRows.add(row);
 
-        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
-        when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
 
         scheduler.syncAmhsToGwout();
@@ -453,9 +432,7 @@ class AmhsToGwoutSyncSchedulerTest {
         List<Object[]> mockRows = new ArrayList<>();
         mockRows.add(row);
 
-        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
-        when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
 
         scheduler.syncAmhsToGwout();
@@ -543,9 +520,7 @@ class AmhsToGwoutSyncSchedulerTest {
             mockRows.add(row);
         }
 
-        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
-        when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
 
         scheduler.syncAmhsToGwout();
@@ -659,9 +634,7 @@ class AmhsToGwoutSyncSchedulerTest {
             mockRows.add(row);
         }
 
-        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
-        when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
 
         scheduler.syncAmhsToGwout();
@@ -714,9 +687,7 @@ class AmhsToGwoutSyncSchedulerTest {
         List<Object[]> mockRows = new ArrayList<>();
         mockRows.add(row);
 
-        when(configService.getGatewayAmhsAddress()).thenReturn("VVTSSWIM");
         when(entityManager.createNativeQuery(anyString())).thenReturn(query);
-        when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.getResultList()).thenReturn(mockRows);
 
         scheduler.syncAmhsToGwout();
