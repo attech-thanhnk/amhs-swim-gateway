@@ -611,6 +611,12 @@ public class AMQPSubscriberService {
             props.put("amhs_user_visible_string", amhsUserVisibleString);
         if (notificationRequests != null)
             props.put("notification_requests", notificationRequests);
+        // CTSW113 (§4.5.3.4): amss đọc khoá này để đặt phần tử notification-requests khi dựng IPM.
+        // Tách khỏi "notification_requests" ở trên - khoá kia là giá trị THÔ do SWIM gửi, khoá này
+        // là giá trị ĐÃ CHUẨN HOÁ mà ITCU quyết định, nên amss không phải diễn giải lại.
+        String amhsNotificationRequest = resolveNotificationRequest(notificationRequests, atsPriority);
+        if (amhsNotificationRequest != null)
+            props.put("amhs_notification_request", amhsNotificationRequest);
         if (contentType != null)
             props.put("content_type", contentType);
         if (subject != null)
@@ -752,6 +758,10 @@ public class AMQPSubscriberService {
 
         Gwin gwin = new Gwin();
         gwin.setMessageId(amqpMsgId);
+        // Ghi lại IPM ID của bản tin ITCU gốc để đối chiếu RN/NRN bay ngược về sau này
+        gwin.setIpmId(amhsIpmId);
+        // Ghi lại ATS-message-priority để quyết định chấp nhận hay từ chối RN sau này
+        gwin.setAtsPriority(atsPriority);
         gwin.setSource(queue);
         gwin.setSubject(subject);
         gwin.setAmhsRecipients(amhsRecipients);
@@ -823,6 +833,37 @@ public class AMQPSubscriberService {
     @PreDestroy
     public void destroy() {
         stopAll();
+    }
+
+    /**
+     * Giá trị cho phần tử notification-requests của IPM mà amss sắp dựng (CTSW113, §4.5.3.4).
+     * <p>
+     * Ba mức, theo thứ tự:
+     * <ol>
+     *   <li>SWIM gửi tường minh {@code notification_requests} thì tôn trọng ý định đó, chỉ chuẩn
+     *       hoá về "rn"/"nrn" viết thường, phân cách dấu phẩy.</li>
+     *   <li>Không gửi gì mà bản tin ưu tiên SS thì đặt {@code rn,nrn} — CTSW113 gửi bản tin
+     *       priority "6" (= SS theo Table 9) và đòi hai giá trị này xuất hiện đồng thời.</li>
+     *   <li>Còn lại: không đặt. Xin RN cho bản tin khác SS sẽ tự mâu thuẫn, vì §4.4.7.2 bắt ITCU
+     *       từ chối đúng những RN có bản tin chủ đề priority khác SS.</li>
+     * </ol>
+     * Nhánh 2 dựa trên cách đọc CTSW113 chứ không phải nguyên văn §4.5.3.4 (Appendix A không
+     * chép lại điều khoản đó). Nếu §4.5.3.4 quy định đặt rn+nrn cho MỌI bản tin bất kể priority
+     * thì bỏ điều kiện SS ở đây là xong.
+     */
+    private String resolveNotificationRequest(String notificationRequests, String atsPriority) {
+        if (notificationRequests != null && !notificationRequests.isBlank()) {
+            List<String> normalized = new ArrayList<>();
+            for (String token : notificationRequests.split(",")) {
+                String value = token.trim().toLowerCase();
+                if (("rn".equals(value) || "nrn".equals(value) || "ipm-return".equals(value))
+                        && !normalized.contains(value)) {
+                    normalized.add(value);
+                }
+            }
+            return normalized.isEmpty() ? null : String.join(",", normalized);
+        }
+        return "SS".equalsIgnoreCase(atsPriority) ? "rn,nrn" : null;
     }
 
     /**

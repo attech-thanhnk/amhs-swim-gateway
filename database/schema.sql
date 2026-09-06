@@ -80,6 +80,9 @@ CREATE TABLE `gwin` (
   `cpa` varchar(1) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `error_type` int(11) DEFAULT NULL,
   `message_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ipm_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'IPM-Identifier ITCU dựng - đối chiếu RN/NRN đến',
+  `mts_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'MTS-Identifier do MTA cấp, ITCU ghi ngược - đối chiếu DR/NDR đến',
+  `ats_priority` varchar(2) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'ATS-message-priority SS/DD/FF/GG/KK',
   `origin` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `payload_content` mediumtext COLLATE utf8mb4_unicode_ci,
   `priority` tinyint(4) DEFAULT NULL,
@@ -92,7 +95,9 @@ CREATE TABLE `gwin` (
   `text` mediumtext COLLATE utf8mb4_unicode_ci,
   `time` datetime(6) DEFAULT NULL,
   PRIMARY KEY (`msgid`),
-  UNIQUE KEY `UK_4fnpvr4qibr3cidpyiei72g3h` (`message_id`)
+  UNIQUE KEY `UK_4fnpvr4qibr3cidpyiei72g3h` (`message_id`),
+  KEY `idx_gwin_ipm_id` (`ipm_id`),
+  KEY `idx_gwin_mts_id` (`mts_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=532 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
@@ -422,4 +427,28 @@ CREATE TABLE `mtcu_ipn` (
   PRIMARY KEY (`id`),
   KEY `idx_status` (`status`),
   KEY `idx_subject_ipm` (`subject_ipm_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Bảng `mtcu_report` — DR/NDR nhận từ AMHS (§4.4.1.3, CTSW114)
+-- ============================================================
+-- amss ghi, ITCU đọc. Ngược chiều với `gwout_report` (ITCU ghi, amss đọc).
+DROP TABLE IF EXISTS `mtcu_report`;
+CREATE TABLE `mtcu_report` (
+  `id`              bigint(20)   NOT NULL AUTO_INCREMENT,
+  `report_type`     varchar(3)   NOT NULL COMMENT 'DR | NDR',
+  `gwin_id`         bigint(20)   DEFAULT NULL,
+  `subject_mts_id`  varchar(255) DEFAULT NULL,
+  `subject_ipm_id`  varchar(255) DEFAULT NULL,
+  `recipient`       varchar(255) DEFAULT NULL,
+  `reason_code`     varchar(64)  DEFAULT NULL,
+  `diagnostic_code` varchar(64)  DEFAULT NULL COMMENT 'Để trống là hợp lệ (CTSW114)',
+  `supplementary_info` varchar(512) DEFAULT NULL,
+  `report_time`     varchar(255) DEFAULT NULL,
+  `received_at`     datetime     DEFAULT NULL,
+  `status`          varchar(16)  DEFAULT 'PENDING',
+  PRIMARY KEY (`id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_subject_mts` (`subject_mts_id`),
+  KEY `idx_gwin_id` (`gwin_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

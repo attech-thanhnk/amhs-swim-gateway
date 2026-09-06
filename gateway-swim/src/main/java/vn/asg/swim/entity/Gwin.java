@@ -24,6 +24,31 @@ public class Gwin {
     @Column(name = "message_id", length = 255, unique = true)
     private String messageId;
 
+    /**
+     * IPM-Identifier của IPM do ITCU dựng ra cho bản tin này.
+     * <p>
+     * Lấy từ application property amhs_ipm_id của bản tin AMQP. Đây là khoá để đối
+     * chiếu RN/NRN bay ngược về (mtcu_ipn.subject_ipm_id).
+     */
+    @Column(name = "ipm_id", length = 255)
+    private String ipmId;   
+
+    /**
+     * MTS-Identifier do MTA cấp lúc amss submit bản tin ra X.400.
+     * <p>
+     * Chỉ amss biết giá trị này nên amss phải ghi ngược vào đây. Là khoá đối chiếu chính của
+     * NDR tham chiếu bản tin gốc qua MTS-Identifier.
+     */
+    @Column(name = "mts_id", length = 255)
+    private String mtsId;
+
+    /**
+     * ATS-message-priority của bản tin, suy từ AMQP priority.
+     * Cần giá trị này để quyết định chấp nhận hay từ chối RN.
+     */
+    @Column(name = "ats_priority", length = 2)
+    private String atsPriority;
+
     /** AMQP Source Topic. Example: ats.met.metar */
     @Column(name = "source", length = 200)
     private String source;
@@ -147,6 +172,12 @@ public class Gwin {
     public void setRejectionDiagnostic(String rejectionDiagnostic) { this.rejectionDiagnostic = rejectionDiagnostic; }
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }
+    public String getIpmId() { return ipmId; }
+    public void setIpmId(String ipmId) { this.ipmId = ipmId; }
+    public String getMtsId() { return mtsId; }
+    public void setMtsId(String mtsId) { this.mtsId = mtsId; }
+    public String getAtsPriority() { return atsPriority; }
+    public void setAtsPriority(String atsPriority) { this.atsPriority = atsPriority; }
     public String getRejectionSource() { return rejectionSource; }
     public String getErrorSource() { return rejectionSource; }
     public void setRejectionSource(String rejectionSource) { this.rejectionSource = rejectionSource; }

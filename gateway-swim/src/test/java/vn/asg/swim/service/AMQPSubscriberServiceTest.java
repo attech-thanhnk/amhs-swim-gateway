@@ -288,7 +288,8 @@ class AMQPSubscriberServiceTest {
     void testAtsmhsBasicMode_BinaryContent_ShouldReject() throws JMSException {
         // Given: BASIC mode cannot handle binary
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
-        when(atsmhsResolver.resolve(any(), any())).thenReturn("BASIC");
+        // Code doc che do thang tu gateway_config (khong qua resolver), nen phai stub dung cho nay
+        when(configService.get(ConfigService.KEY_ATSMHS_SERVICE_LEVEL)).thenReturn("BASIC");
         when(atsmhsResolver.validateContent(eq("BASIC"), any(), eq(true)))
             .thenReturn(false);
 
@@ -341,7 +342,8 @@ class AMQPSubscriberServiceTest {
         // null -> check BASIC bị bỏ qua -> bản tin được accept. Ở đây KHÔNG mock validateContent để
         // resolver thật quyết định, nhằm kiểm đúng đường suy ra hasBinaryContent.
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
-        when(atsmhsResolver.resolve(any(), any())).thenReturn("BASIC");
+        // Code doc che do thang tu gateway_config (khong qua resolver), nen phai stub dung cho nay
+        when(configService.get(ConfigService.KEY_ATSMHS_SERVICE_LEVEL)).thenReturn("BASIC");
         when(atsmhsResolver.validateContent(eq("BASIC"), any(), eq(true))).thenReturn(false);
         when(atsmhsResolver.validateContent(eq("BASIC"), any(), eq(false))).thenReturn(true);
 
@@ -636,6 +638,48 @@ class AMQPSubscriberServiceTest {
             String props = gwin.getAmqpProperties();
             return props.contains("notification_requests") && props.contains("RN") && props.contains("NRN");
         }));
+    }
+
+    @Test
+    void testAmhsNotificationRequest_ExplicitValueFromSwim_ShouldBeNormalised() throws JMSException {
+        // amss đọc amhs_notification_request để đặt phần tử notification-requests khi dựng IPM.
+        // SWIM gửi tường minh thì tôn trọng, chỉ chuẩn hoá chữ thường và bỏ trùng.
+        when(amqpMessage.getStringProperty("notification_requests")).thenReturn("RN, NRN, RN");
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        verify(gwinRepository).save(argThat(gwin ->
+                gwin.getAmqpProperties().contains("\"amhs_notification_request\":\"rn,nrn\"")));
+    }
+
+    @Test
+    void testAmhsNotificationRequest_SsPriorityWithoutExplicitValue_ShouldDefaultToRnAndNrn()
+            throws JMSException {
+        // CTSW113 gửi bản tin priority "6" (= SS theo Table 9) và đòi notification-requests mang
+        // đồng thời "RN" và "NRN" - SWIM không phải gửi kèm property nào.
+        when(amqpMessage.getStringProperty("notification_requests")).thenReturn(null);
+        when(amqpMessage.getStringProperty("amhs_ats_pri")).thenReturn("SS");
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        verify(gwinRepository).save(argThat(gwin ->
+                gwin.getAmqpProperties().contains("\"amhs_notification_request\":\"rn,nrn\"")));
+    }
+
+    @Test
+    void testAmhsNotificationRequest_NonSsPriority_ShouldNotBeSet() throws JMSException {
+        // Xin RN cho bản tin khác SS là tự mâu thuẫn: §4.4.7.2 bắt ITCU từ chối đúng những RN có
+        // bản tin chủ đề priority khác SS.
+        when(amqpMessage.getStringProperty("notification_requests")).thenReturn(null);
+        when(amqpMessage.getStringProperty("amhs_ats_pri")).thenReturn("FF");
+        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
+
+        service.handleMessage(amqpMessage, "swim.test.queue");
+
+        verify(gwinRepository).save(argThat(gwin ->
+                !gwin.getAmqpProperties().contains("amhs_notification_request")));
     }
 
     // ==================== REGISTERED IDENTIFIER (§4.5.2.13/.14) ====================
