@@ -16,22 +16,6 @@ import java.util.Map;
 
 /**
  * Phản hồi AMHS bay ngược về cho điện văn đã gửi ở chiều SWIM → AMHS: RN, NRN, DR, NDR.
- * <p>
- * EUR Doc 047 §2.2.1.1 cấm chuyển chúng sang môi trường SWIM, nên Control Position là điểm đến
- * duy nhất. Appendix A CTSW014, CTSW015, CTSW113 và CTSW114 đều yêu cầu <i>"stores the message
- * for appropriate processing at the Control Position"</i> — một dòng cảnh báo tóm tắt trên màn
- * hình Alerts là chưa đủ, operator phải tra được chính bản ghi.
- * <p>
- * Đọc bảng {@code cp} bằng <b>native query</b> chứ không phải JPA entity, vì hai lý do đã từng
- * gây lỗi thật:
- * <ol>
- *   <li>Tên cột camelCase — Spring Boot áp naming strategy chuyển {@code subjectIPM} thành
- *       {@code subject_ipm} kể cả khi khai báo {@code @Column} tường minh.</li>
- *   <li>Bảng {@code cp} dùng charset utf8mb3 còn {@code gwin} dùng utf8mb4 — JOIN hai varchar
- *       khác collation sẽ nổ "Illegal mix of collations", nên ở đây không JOIN.</li>
- * </ol>
- * Ba cột {@code reasonCode}, {@code diagnosticCode}, {@code subjectMTS} phục vụ nhánh NDR có thể
- * chưa tồn tại; controller tự dò và lùi về bộ cột cơ bản để màn hình vẫn mở được.
  */
 @RestController
 @RequestMapping("/api/control-traffic")

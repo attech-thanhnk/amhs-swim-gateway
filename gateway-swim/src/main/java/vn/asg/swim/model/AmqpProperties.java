@@ -204,10 +204,6 @@ public class AmqpProperties {
         };
     }
 
-    public static String mapPriorityToAts(int priority) {
-        return mapPriorityToAmhs(priority);
-    }
-
     /**
      * EUR Doc 047 v3.0 §4.4.3.2.2 Table 3 (ATS Priority to AMQP Priority conversion):
      * SS=6, DD=5, FF=4, GG=3, KK=2. Default AMQP priority per the same section's note is 4.

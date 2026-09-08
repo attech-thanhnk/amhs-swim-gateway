@@ -145,19 +145,12 @@ public class MessageValidationService {
     }
 
     /**
-     * EUR Doc 047 §4.4.1 - Kiểm thử bản tin chiều AMHS → SWIM
+     * EUR Doc 047 §4.4.1 - Kiểm thử bản tin chiều AMHS → SWIM.
      *
      * Thực hiện kiểm tra:
      * - C-03: Chiều chuyển đổi định dạng có cho phép AMHS → SWIM
      * - C-05: Kích thước bản tin trong giới hạn cho phép
      * - C-07: Số lượng người nhận trong giới hạn cho phép
-     */
-    public ValidationResult validateAmhsToSwim(String payload, String recipients) {
-        return validateAmhsToSwim(payload, recipients, null);
-    }
-
-    /**
-     * EUR Doc 047 §4.4.1 - Kiểm thử bản tin chiều AMHS → SWIM, có truyền kích thước payload thật.
      *
      * @param payloadByteSize kích thước THẬT của payload tính bằng byte, hoặc null để tự đo trên
      *                        chuỗi {@code payload}. Với file-transfer-body-part, nội dung nhị phân
@@ -268,40 +261,6 @@ public class MessageValidationService {
         if (!trimmed.matches(AFTN_ADDRESS_PATTERN)) {
             return ValidationResult.failure(String.format("%s '%s' must contain only uppercase letters",
                     fieldName, trimmed));
-        }
-
-        return ValidationResult.success();
-    }
-
-    /**
-     * EUR Doc 047 - Kiểm thử danh sách địa chỉ AFTN phân tách bằng dấu cách
-     *
-     * S-09, S-11: Kiểm thử danh sách người nhận (recipients list)
-     */
-    public ValidationResult validateAftnRecipients(String recipients) {
-        if (recipients == null || recipients.isBlank()) {
-            return ValidationResult.failure("Recipients list is empty");
-        }
-
-        List<String> errors = new ArrayList<>();
-        String[] addresses = recipients.trim().split("[,\\s]+");
-
-        // S-09: Kiểm tra số lượng người nhận (EUR Doc 047 §3.3.2.4: 0 hoặc không cấu hình = không giới hạn)
-        int maxRecipients = configService.getMaxMsgRecipients();
-        if (maxRecipients > 0 && addresses.length > maxRecipients) {
-            errors.add(String.format("Recipients count %d exceeds maximum %d", addresses.length, maxRecipients));
-        }
-
-        // S-11: Kiểm thử định dạng của từng địa chỉ cụ thể
-        for (int i = 0; i < addresses.length; i++) {
-            ValidationResult result = validateAftnAddress(addresses[i], "Recipient[" + i + "]");
-            if (!result.isValid()) {
-                errors.addAll(result.getErrors());
-            }
-        }
-
-        if (!errors.isEmpty()) {
-            return ValidationResult.failure(errors);
         }
 
         return ValidationResult.success();
@@ -461,13 +420,5 @@ public class MessageValidationService {
             return ValidationResult.success();
         }
         return ValidationResult.failure("Unsupported Encoded Information Type (EIT) / Body Part Type: " + bodyPartType);
-    }
-
-    /**
-     * Kiểm tra xem chiều chuyển đổi hiện tại có cho phép chiều mong muốn hay không
-     */
-    public boolean isDirectionAllowed(String direction) {
-        String configDir = configService.getConversionDir();
-        return "BOTH".equals(configDir) || configDir.equals(direction);
     }
 }

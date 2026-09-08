@@ -114,7 +114,7 @@ class MessageValidationServiceTest {
         when(configService.getMaxMsgDataSize()).thenReturn(100);
         when(configService.getMaxMsgRecipients()).thenReturn(512);
 
-        var result = service.validateAmhsToSwim("A".repeat(101), "VVHHZTZX");
+        var result = service.validateAmhsToSwim("A".repeat(101), "VVHHZTZX", null);
 
         assertFalse(result.isValid());
         assertTrue(result.getErrorMessage().contains("content-too-long"));
@@ -134,7 +134,7 @@ class MessageValidationServiceTest {
             tooMany.append(",VVHHZTZX");
         }
 
-        var result = service.validateAmhsToSwim("METAR VVTS", tooMany.toString());
+        var result = service.validateAmhsToSwim("METAR VVTS", tooMany.toString(), null);
 
         assertFalse(result.isValid());
         assertTrue(result.getErrorMessage().contains("too-many-recipients"));
@@ -153,7 +153,7 @@ class MessageValidationServiceTest {
             atMax.append(",VVHHZTZX");
         }
 
-        var result = service.validateAmhsToSwim("METAR VVTS", atMax.toString());
+        var result = service.validateAmhsToSwim("METAR VVTS", atMax.toString(), null);
 
         assertTrue(result.isValid());
     }

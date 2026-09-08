@@ -6,8 +6,6 @@ import org.springframework.stereotype.Service;
 import vn.asg.swim.entity.GatewayConfig;
 import vn.asg.swim.repository.GatewayConfigRepository;
 
-import java.util.Arrays;
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -21,7 +19,6 @@ public class ConfigService {
     public static final String KEY_ATSMHS_SERVICE_LEVEL = "ATSMHS_SERVICE_LEVEL";
     public static final String KEY_AUTHORIZED_AMHS_USERS = "AUTHORIZED_AMHS_USERS";
     public static final String KEY_AUTHORIZED_SWIM_USERS = "AUTHORIZED_SWIM_USERS";
-    public static final String KEY_STRICT_COMPLIANCE_MODE = "STRICT_COMPLIANCE_MODE";
     public static final String KEY_MAX_MSG_DATA_SIZE = "MAX_MSG_DATA_SIZE";
     public static final String KEY_SERVER_PORT = "SERVER_PORT_SWIM";
     public static final String KEY_GATEWAY_ID = "GATEWAY_ID";
@@ -44,14 +41,6 @@ public class ConfigService {
                     log.error("CRITICAL CONFIG MISSING: '{}' is not defined in gateway_config table!", key);
                     return new IllegalStateException("Mandatory configuration '" + key + "' missing in Database");
                 });
-    }
-
-    /**
-     * Lấy danh sách cấu hình dạng phân tách bởi dấu phẩy.
-     */
-    public List<String> getCommaSeparatedConfig(String key) {
-        String val = get(key);
-        return Arrays.asList(val.split("\\s*,\\s*"));
     }
 
     /**
@@ -110,13 +99,6 @@ public class ConfigService {
                     KEY_GATEWAY_AMHS_ADDRESS, DEFAULT_GATEWAY_AMHS_ADDRESS);
         }
         return DEFAULT_GATEWAY_AMHS_ADDRESS;
-    }
-
-    /**
-     * Kiểm tra chế độ tuân thủ nghiêm ngặt (Strict Compliance Mode).
-     */
-    public boolean isStrictComplianceMode() {
-        return getBoolean(KEY_STRICT_COMPLIANCE_MODE);
     }
 
     /**

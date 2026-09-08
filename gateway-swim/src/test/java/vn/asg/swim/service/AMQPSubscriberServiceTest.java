@@ -85,7 +85,6 @@ class AMQPSubscriberServiceTest {
         when(amqpMessage.getStringProperty("amhs_originator")).thenReturn("VVHHZPZX");
 
         when(configService.getGatewayId()).thenReturn("ASG-GW-01");
-        when(configService.isStrictComplianceMode()).thenReturn(false);
 
         MessageValidationService.ValidationResult validResult =
             new MessageValidationService.ValidationResult(true, List.of());
@@ -241,16 +240,17 @@ class AMQPSubscriberServiceTest {
     // ==================== MISSING MESSAGE-ID ====================
 
     @Test
-    void testMissingMessageId_StrictMode_ShouldReject() throws JMSException {
-        // Given: No message-id in strict mode
+    void testMissingMessageId_ShouldReject() throws JMSException {
+        // Given: No message-id. EUR Doc 047 S-06 quy định message-id là bắt buộc, không phụ thuộc
+        // chế độ tuân thủ nào - trước đây có hai test riêng cho "strict"/"non-strict" nhưng cả hai
+        // chạy đúng một nhánh code.
         when(amqpMessage.getJMSMessageID()).thenReturn(null);
-        when(configService.isStrictComplianceMode()).thenReturn(true);
 
         // When
         service.handleMessage(amqpMessage, "swim.test.queue");
 
         // Then: Should reject but still persist the failed message for audit
-        verify(gwinRepository).save(argThat(gwin -> 
+        verify(gwinRepository).save(argThat(gwin ->
             gwin.getStatus().equals(InboundStatus.FAILED.getValue()) &&
             "validation-failed".equals(gwin.getRejectionReason()) &&
             gwin.getRejectionDiagnostic().contains("Missing messageId")
@@ -262,24 +262,6 @@ class AMQPSubscriberServiceTest {
             eq("gwin"),
             isNull()
         );
-    }
-
-    @Test
-    void testMissingMessageId_NonStrictMode_StillRejected() throws JMSException {
-        // Given: No message-id, non-strict mode (EUR Doc 047 S-06: message-id is mandatory
-        // regardless of compliance mode -> isStrictComplianceMode() has no effect here)
-        when(amqpMessage.getJMSMessageID()).thenReturn(null);
-        when(configService.isStrictComplianceMode()).thenReturn(false);
-        when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
-
-        // When
-        service.handleMessage(amqpMessage, "swim.test.queue");
-
-        // Then: Rejected but still persisted for audit, same as strict mode
-        verify(gwinRepository).save(argThat(gwin -> 
-            gwin.getStatus().equals(InboundStatus.FAILED.getValue()) &&
-            "validation-failed".equals(gwin.getRejectionReason())
-        ));
     }
 
     // ==================== ATSMHS SERVICE LEVEL ====================

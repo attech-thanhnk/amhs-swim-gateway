@@ -39,8 +39,7 @@ INSERT IGNORE INTO `gateway_config` (`config_key`, `config_value`, `description`
 ('RETRY_DELAY_3RD_SECONDS', '300', 'Thời gian chờ retry lần 3 (s)', '2026-06-02 15:27:02'),
 ('RETRY_MAX_COUNT', '3', 'Số lần retry tối đa khi lỗi gửi tin', '2026-06-02 15:27:02'),
 ('SERVER_PORT_CP', '8180', 'Cổng Dashboard', '2026-06-02 15:27:02'),
-('SERVER_PORT_SWIM', '8181', 'Cổng SWIM Component', '2026-06-02 15:27:02'),
-('STRICT_COMPLIANCE_MODE', 'false', 'Bật chế độ kiểm tra EUR Doc 047 (S-06)', '2026-06-02 15:27:02');
+('SERVER_PORT_SWIM', '8181', 'Cổng SWIM Component', '2026-06-02 15:27:02');
 
 -- ============================================================
 -- Seed data for table `accounts`
