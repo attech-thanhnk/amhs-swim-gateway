@@ -34,7 +34,7 @@ import static org.mockito.Mockito.*;
  * Phạm vi hiện tại: CTSW001, CTSW002, CTSW004, CTSW005, CTSW006, CTSW008, CTSW016, CTSW018.
  * Đây KHÔNG phải bản audit đủ CTSW001–CTSW020 — các case còn lại được phủ ở
  * {@code OutboundDispatchServiceTest}, {@code AmhsToGwoutSyncSchedulerTest},
- * {@code IpnProcessingServiceTest} và {@code MessageValidationServiceTest}.
+ * {@code AmhsFeedbackServiceTest} và {@code MessageValidationServiceTest}.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)

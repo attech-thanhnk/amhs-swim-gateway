@@ -1,96 +1,169 @@
 package vn.asg.cp.controller;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import vn.asg.cp.dto.AmhsFeedbackDto;
 import vn.asg.cp.dto.ApiResponse;
-import vn.asg.cp.entity.McuIpn;
-import vn.asg.cp.entity.McuReport;
-import vn.asg.cp.repository.McuIpnRepository;
-import vn.asg.cp.repository.McuReportRepository;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Lưu lượng điều khiển AMHS bay ngược về gateway — IPN (RN/NRN) và Report (DR/NDR).
+ * Phản hồi AMHS bay ngược về cho điện văn đã gửi ở chiều SWIM → AMHS: RN, NRN, DR, NDR.
  * <p>
- * Đây KHÔNG phải bản tin, mà là phản hồi cho bản tin gateway đã gửi ở chiều SWIM → AMHS.
- * EUR Doc 047 §2.2.1.1 cấm chuyển chúng sang môi trường SWIM, nên điểm đến duy nhất là
- * Control Position.
+ * EUR Doc 047 §2.2.1.1 cấm chuyển chúng sang môi trường SWIM, nên Control Position là điểm đến
+ * duy nhất. Appendix A CTSW014, CTSW015, CTSW113 và CTSW114 đều yêu cầu <i>"stores the message
+ * for appropriate processing at the Control Position"</i> — một dòng cảnh báo tóm tắt trên màn
+ * hình Alerts là chưa đủ, operator phải tra được chính bản ghi.
  * <p>
- * Appendix A đòi hỏi đúng điều đó ở bốn test case — CTSW014, CTSW015, CTSW113 và CTSW114 đều
- * yêu cầu <i>"stores the message for appropriate processing at the Control Position"</i>.
- * Một dòng cảnh báo tóm tắt trên màn hình Alerts là chưa đủ: operator phải tra được chính
- * bản ghi RN/NRN/NDR.
- * <p>
- * Hai bảng do AMHS Component ghi và ITCU xử lý; Control Position chỉ đọc. Nếu bảng chưa tồn
- * tại trên môi trường đang chạy thì trả danh sách rỗng kèm cảnh báo, để màn hình vẫn mở được.
+ * Đọc bảng {@code cp} bằng <b>native query</b> chứ không phải JPA entity, vì hai lý do đã từng
+ * gây lỗi thật:
+ * <ol>
+ *   <li>Tên cột camelCase — Spring Boot áp naming strategy chuyển {@code subjectIPM} thành
+ *       {@code subject_ipm} kể cả khi khai báo {@code @Column} tường minh.</li>
+ *   <li>Bảng {@code cp} dùng charset utf8mb3 còn {@code gwin} dùng utf8mb4 — JOIN hai varchar
+ *       khác collation sẽ nổ "Illegal mix of collations", nên ở đây không JOIN.</li>
+ * </ol>
+ * Ba cột {@code reasonCode}, {@code diagnosticCode}, {@code subjectMTS} phục vụ nhánh NDR có thể
+ * chưa tồn tại; controller tự dò và lùi về bộ cột cơ bản để màn hình vẫn mở được.
  */
 @RestController
 @RequestMapping("/api/control-traffic")
 @RequiredArgsConstructor
+@Slf4j
 public class ControlTrafficController {
 
-    private final McuIpnRepository ipnRepository;
-    private final McuReportRepository reportRepository;
+    @PersistenceContext
+    private final EntityManager entityManager;
+
+    private static final String BASE_COLUMNS =
+            "id, ipnType, subjectIPM, origin, recipient, receiptTime, "
+            + "nonReceipReason, discardReason, supplementaryInfomation, status";
+
+    private static final String NDR_COLUMNS = "reasonCode, diagnosticCode, subjectMTS";
+
+    private Boolean ndrColumnsPresent = null;
 
     /**
-     * IPN đến — CTSW014, CTSW015, CTSW113.
+     * Danh sách phản hồi, mới nhất trước.
      *
-     * @param type lọc theo RN hoặc NRN; bỏ trống để lấy tất cả
+     * @param type lọc theo RN / NRN / DR / NDR; bỏ trống để lấy tất cả
      */
-    @GetMapping("/ipn")
-    public ResponseEntity<ApiResponse<List<McuIpn>>> listIpn(
+    @GetMapping("/feedback")
+    public ResponseEntity<ApiResponse<List<AmhsFeedbackDto>>> list(
             @RequestParam(value = "type", required = false) String type) {
         try {
-            List<McuIpn> data = (type == null || type.isBlank())
-                    ? ipnRepository.findAllByOrderByIdDesc()
-                    : ipnRepository.findByNotificationTypeOrderByIdDesc(type.trim().toUpperCase());
-            return ResponseEntity.ok(ApiResponse.ok(data));
+            return ResponseEntity.ok(ApiResponse.ok(query(type)));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.ok(tableUnavailable("mtcu_ipn", e), List.of()));
-        }
-    }
-
-    /**
-     * Report đến — CTSW114. NDR nghĩa là bản tin đã gửi đi KHÔNG tới được người nhận.
-     *
-     * @param type lọc theo DR hoặc NDR; bỏ trống để lấy tất cả
-     */
-    @GetMapping("/report")
-    public ResponseEntity<ApiResponse<List<McuReport>>> listReport(
-            @RequestParam(value = "type", required = false) String type) {
-        try {
-            List<McuReport> data = (type == null || type.isBlank())
-                    ? reportRepository.findAllByOrderByIdDesc()
-                    : reportRepository.findByReportTypeOrderByIdDesc(type.trim().toUpperCase());
-            return ResponseEntity.ok(ApiResponse.ok(data));
-        } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.ok(tableUnavailable("mtcu_report", e), List.of()));
+            log.warn("Chưa đọc được bảng cp: {}", e.getMessage());
+            return ResponseEntity.ok(ApiResponse.ok(
+                    "Chưa đọc được bảng cp (" + e.getMessage()
+                            + "). Bảng này do AMHS Component cung cấp.",
+                    List.of()));
         }
     }
 
     /** Số liệu tóm tắt cho thẻ đếm trên đầu màn hình. */
     @GetMapping("/summary")
     public ResponseEntity<ApiResponse<Map<String, Long>>> summary() {
-        long rn = countQuietly(() -> (long) ipnRepository.findByNotificationTypeOrderByIdDesc(McuIpn.TYPE_RN).size());
-        long nrn = countQuietly(() -> (long) ipnRepository.findByNotificationTypeOrderByIdDesc(McuIpn.TYPE_NRN).size());
-        long dr = countQuietly(() -> (long) reportRepository.findByReportTypeOrderByIdDesc(McuReport.TYPE_DR).size());
-        long ndr = countQuietly(() -> (long) reportRepository.findByReportTypeOrderByIdDesc(McuReport.TYPE_NDR).size());
-        return ResponseEntity.ok(ApiResponse.ok(Map.of("rn", rn, "nrn", nrn, "dr", dr, "ndr", ndr)));
-    }
-
-    private long countQuietly(java.util.function.Supplier<Long> supplier) {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        counts.put("ndr", 0L);
+        counts.put("dr", 0L);
+        counts.put("nrn", 0L);
+        counts.put("rn", 0L);
         try {
-            return supplier.get();
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = entityManager
+                    .createNativeQuery("SELECT ipnType, COUNT(*) FROM cp GROUP BY ipnType")
+                    .getResultList();
+            for (Object[] row : rows) {
+                String key = row[0] == null ? null : row[0].toString().trim().toLowerCase();
+                if (key != null && counts.containsKey(key)) {
+                    counts.put(key, ((Number) row[1]).longValue());
+                }
+            }
         } catch (Exception e) {
-            return 0L;
+            log.warn("Chưa đếm được bảng cp: {}", e.getMessage());
         }
+        return ResponseEntity.ok(ApiResponse.ok(counts));
     }
 
-    private String tableUnavailable(String table, Exception e) {
-        return "Chưa đọc được bảng " + table + " (" + e.getMessage()
-                + "). Bảng này do AMHS Component cung cấp.";
+    private List<AmhsFeedbackDto> query(String type) {
+        boolean withNdr = hasNdrColumns();
+        String columns = withNdr ? BASE_COLUMNS + ", " + NDR_COLUMNS : BASE_COLUMNS;
+        boolean filtered = type != null && !type.isBlank();
+
+        String sql = "SELECT " + columns + " FROM cp"
+                + (filtered ? " WHERE ipnType = :type" : "")
+                + " ORDER BY id DESC LIMIT 500";
+
+        var nativeQuery = entityManager.createNativeQuery(sql);
+        if (filtered) {
+            nativeQuery.setParameter("type", type.trim().toUpperCase());
+        }
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = nativeQuery.getResultList();
+
+        List<AmhsFeedbackDto> result = new ArrayList<>();
+        for (Object[] row : rows) {
+            AmhsFeedbackDto dto = new AmhsFeedbackDto();
+            dto.setId(toLong(row[0]));
+            dto.setIpnType(toStr(row[1]));
+            dto.setSubjectIpm(toStr(row[2]));
+            dto.setOrigin(toStr(row[3]));
+            dto.setRecipient(toStr(row[4]));
+            dto.setReceiptTime(toStr(row[5]));
+            dto.setNonReceiptReason(toInt(row[6]));
+            dto.setDiscardReason(toInt(row[7]));
+            dto.setSupplementaryInfo(toStr(row[8]));
+            dto.setStatus(toInt(row[9]));
+            if (withNdr) {
+                dto.setReasonCode(toStr(row[10]));
+                dto.setDiagnosticCode(toStr(row[11]));
+                dto.setSubjectMts(toStr(row[12]));
+            }
+            result.add(dto);
+        }
+        return result;
+    }
+
+    /**
+     * Dò một lần xem ba cột NDR đã tồn tại chưa. Dò bằng information_schema thay vì bắt lỗi của
+     * câu SELECT, để một lần thiếu cột không làm bẩn transaction đang chạy.
+     */
+    private boolean hasNdrColumns() {
+        if (ndrColumnsPresent != null) {
+            return ndrColumnsPresent;
+        }
+        try {
+            Number found = (Number) entityManager.createNativeQuery("""
+                    SELECT COUNT(*) FROM information_schema.columns
+                     WHERE table_schema = DATABASE() AND table_name = 'cp'
+                       AND column_name IN ('reasonCode', 'diagnosticCode', 'subjectMTS')
+                    """).getSingleResult();
+            ndrColumnsPresent = found != null && found.intValue() == 3;
+        } catch (Exception e) {
+            ndrColumnsPresent = false;
+        }
+        return ndrColumnsPresent;
+    }
+
+    private Long toLong(Object v) {
+        return v instanceof Number n ? n.longValue() : null;
+    }
+
+    private Integer toInt(Object v) {
+        return v instanceof Number n ? n.intValue() : null;
+    }
+
+    private String toStr(Object v) {
+        return v == null ? null : v.toString();
     }
 }

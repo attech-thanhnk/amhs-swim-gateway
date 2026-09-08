@@ -236,15 +236,6 @@ public class MessageValidationService {
         return ValidationResult.success();
     }
 
-    /**
-     * ĐỊNH NGHĨA DUY NHẤT của địa chỉ AFTN trong toàn hệ thống: đúng 8 chữ cái viết hoa
-     * (ICAO Annex 10 Vol II - addressee indicator, Doc 9880 §4.5.2.4).
-     * <p>
-     * Trước đây tồn tại hai định nghĩa lệch nhau: {@code validateAftnAddress} cho phép cả chữ số
-     * ({@code [A-Z0-9]{8}}) trong khi {@code OutboundDispatchService} tự viết {@code [A-Z]{8}} ở
-     * hai chỗ. Hệ quả là địa chỉ có chữ số qua được validator nhưng bị bước tạo dispatch loại bỏ
-     * âm thầm. Mọi nơi phải gọi vào đây thay vì tự viết regex.
-     */
     public static final String AFTN_ADDRESS_PATTERN = "[A-Z]{8}";
 
     /**
@@ -333,58 +324,98 @@ public class MessageValidationService {
             // Không có thông tin EIT -> coi như "unspecified", được phép (§4.4.2.1a)
             return ValidationResult.success();
         }
-        for (String part : eit.trim().split("[,;]+")) {
-            String token = part.trim().toLowerCase();
-            if (token.isEmpty()) {
-                continue;
-            }
-            if (!isAllowedEit(token)) {
+        for (String value : splitEitValues(eit)) {
+            if (!isAllowedEit(value.toLowerCase())) {
                 return ValidationResult.failure(
-                        "Unsupported encoded-information-types: " + part.trim());
+                        "Unsupported encoded-information-types: " + value);
             }
         }
         return ValidationResult.success();
     }
 
+    private static final java.util.regex.Pattern EIT_VALUE_PATTERN =
+            java.util.regex.Pattern.compile("\\{[^}]*\\}|[^,;\\s]+");
+
+    /** {@code {id-cs-eit-authority N}} dạng ký hiệu. */
+    private static final java.util.regex.Pattern EIT_AUTHORITY_PATTERN =
+            java.util.regex.Pattern.compile("authority\\D+(\\d+)");
+
+    /** Built-in EIT {@code undefined(0)} - arc {joint-iso-itu-t mhs(6) mts(3) eit(4)}. */
+    private static final String EIT_OID_UNDEFINED = "2.6.3.4.0";
+
+    /** Built-in EIT {@code ia5-text(2)}. */
+    private static final String EIT_OID_IA5_TEXT = "2.6.3.4.2";
+
+    /** {@code {id-eit-file-transfer 0}} - arc {joint-iso-itu-t mhs(6) ipms(1) eit(12)}. */
+    private static final String EIT_OID_FILE_TRANSFER = "2.6.1.12.0";
+
+    /**
+     * Các arc OID mà {@code {id-cs-eit-authority N}} được mã hoá theo, arc cuối cùng chính là N.
+     * <p>
+     * Quan sát trên dữ liệu thật của {@code mtcu_tmp.originEncodeInformationType}: AMHS Component
+     * ghi EIT bằng OID dạng số chứ không phải chuỗi ký hiệu, nên nhánh so khớp theo chữ
+     * "authority" không bao giờ khớp được với bản tin thật.
+     */
+    private static final List<String> EIT_AUTHORITY_OID_PREFIXES = List.of(
+            "1.0.10021.7.1.0.",         // arc ICAO/ATN
+            "2.16.840.1.101.2.1.22.");  // arc còn lại quan sát được trên đường truyền
+
+    /** §4.4.2.1a 3-6: chỉ {@code {id-cs-eit-authority 1/2/6/100}} được phép. */
+    private static final java.util.Set<String> ALLOWED_EIT_AUTHORITIES =
+            java.util.Set.of("1", "2", "6", "100");
+
+    /**
+     * Tách chuỗi EIT thành từng giá trị riêng.
+     */
+    private static List<String> splitEitValues(String eit) {
+        List<String> values = new ArrayList<>();
+        java.util.regex.Matcher matcher = EIT_VALUE_PATTERN.matcher(eit);
+        while (matcher.find()) {
+            String value = matcher.group().trim();
+            if (!value.isEmpty()) {
+                values.add(value);
+            }
+        }
+        return values;
+    }
+
     private boolean isAllowedEit(String token) {
-        // "unspecified" / "unknown" (built-in 0, OID 2.6.3.4.0)
-        if (token.contains("unspecified") || token.contains("unknown") || token.equals("2.6.3.4.0")) {
+        // ----- Dạng ký hiệu -----
+        // "unspecified" / "unknown" (built-in 0)
+        if (token.contains("unspecified") || token.contains("unknown")) {
             return true;
         }
-        // ia5-text: basic, externally-defined {id-eit-ia5-text}, OID 2.6.3.4.2
-        if (token.contains("ia5-text") || token.contains("ia5text") || token.equals("2.6.3.4.2")) {
+        // ia5-text: basic hoặc externally-defined {id-eit-ia5-text}
+        if (token.contains("ia5-text") || token.contains("ia5text")) {
             return true;
         }
         // {id-eit-file-transfer 0}
         if (token.contains("file-transfer") || token.contains("filetransfer")) {
             return true;
         }
-        // {id-cs-eit-authority N}: chỉ 1, 2, 6, 100 được phép (§4.4.2.1a 3-6)
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("authority\\D+(\\d+)").matcher(token);
-        if (m.find()) {
-            String n = m.group(1);
-            return "1".equals(n) || "2".equals(n) || "6".equals(n) || "100".equals(n);
+        // {id-cs-eit-authority N}
+        java.util.regex.Matcher matcher = EIT_AUTHORITY_PATTERN.matcher(token);
+        if (matcher.find()) {
+            return ALLOWED_EIT_AUTHORITIES.contains(matcher.group(1));
+        }
+
+        // ----- Dạng OID số (dạng AMHS Component dùng thật) -----
+        String oid = token.replaceAll("[{}\\s]", "");
+        if (EIT_OID_UNDEFINED.equals(oid) || EIT_OID_IA5_TEXT.equals(oid)
+                || EIT_OID_FILE_TRANSFER.equals(oid)) {
+            return true;
+        }
+        for (String prefix : EIT_AUTHORITY_OID_PREFIXES) {
+            if (oid.startsWith(prefix)) {
+                // Phần đuôi phải đúng là số N, arc thừa (ví dụ "1.5") không khớp tập cho phép
+                return ALLOWED_EIT_AUTHORITIES.contains(oid.substring(prefix.length()));
+            }
         }
         return false;
     }
 
     /**
      * EUR Doc 047 §4.4.2.3 - Kiểm tra repertoire của body part (CTSW017 và CTSW019).
-     * <p>
-     * <b>ia5-text-body-part</b> (CTSW017): tham số X.400 {@code repertoire} là kiểu liệt kê chỉ
-     * nhận ita2(2) hoặc ia5(5); vắng mặt thì mặc định là ia5. Giá trị ita2 không nằm trong Table 6
-     * nên không chuyển đổi được sang AMQP -> từ chối với supplementary-information
-     * "unsupported body part type".
-     * <p>
-     * <b>general-text-body-part</b> (CTSW018/CTSW019): repertoire Basic ISO 646 luôn được chấp nhận.
-     * Repertoire khác ISO 646 (ISO 8859-x, Cyrillic, Arabic, Greek, Hebrew, CJK...) được chuyển đổi
-     * hay bị từ chối là tuỳ chính sách nội bộ của AMHS Management Domain, khai báo qua cấu hình
-     * {@code ALLOW_NON_ISO646_REPERTOIRE}. Khi từ chối, supplementary-information là
-     * "unsupported encoded-information-types".
-     *
-     * @param repertoire giá trị repertoire đã chuẩn hoá (ITA2 / ISO-646 / ISO-8859-1 / ...),
-     *                   null hoặc rỗng nghĩa là không khai báo -> chấp nhận theo mặc định.
      */
     public ValidationResult validateRepertoire(String bodyPartType, String repertoire) {
         if (bodyPartType == null || repertoire == null || repertoire.isBlank()) {

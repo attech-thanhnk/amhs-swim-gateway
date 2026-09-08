@@ -492,40 +492,17 @@ public class OutboundDispatchService {
                 message.setStringProperty("amhs_content_encoding", "IA5");
             } else if ("general-text-body-part".equals(bodyPartType)
                     && isTable6ContentEncoding(gwout.getBodyPartCharset())) {
-                // EUR Doc 047 Table 6: amhs_content_encoding chỉ nhận IA5 / ISO-646 / ISO-8859-1.
-                // Repertoire khác (ISO-REG-n) đã qua được chính sách CTSW019 nên vẫn chuyển bản tin,
-                // nhưng không gán property với giá trị không có trong Table 6.
                 message.setStringProperty("amhs_content_encoding", gwout.getBodyPartCharset());
             }
             message.setStringProperty("amhs_message_signed", "unsigned");
-            // KHÔNG thuộc Table 2 - phần mở rộng có chủ đích của hệ thống này.
-            // Gateway vừa publish vừa subscribe trên cùng broker, nên cần dấu nhận biết bản tin
-            // do chính mình phát để AMQPSubscriberService bỏ qua (chống lặp vô hạn).
-            // Xem AMQPSubscriberService: "Loopback detected ... Dropping message".
             message.setStringProperty("amhs_gateway_id", configService.getGatewayId());
-            // EUR Doc 047 §4.4.3.3.1: message-id do SWIM component sinh, ITCU không tự đặt.
-            // JMSTimestamp cũng vậy - đặc tả JMS quy định provider ghi đè khi send(), nên gán
-            // trước ở đây là vô nghĩa.
-
-            // CTSW001: "Verify the priority, both in the AMQP Application properties
-            // (amhs_ats_pri) and AMQP Header (priority) according to tables 3 and 5".
-            //
-            // PHẢI truyền priority qua tham số của send(). Đặc tả JMS quy định giá trị
-            // JMSPriority gán lên đối tượng Message bị BỎ QUA khi gửi: send(Message) dùng
-            // priority của MessageProducer (mặc định 4). Bản trước gọi
-            // message.setJMSPriority(...) rồi send(message) nên mọi bản tin ra broker đều mang
-            // priority 4 bất kể ATS-message-priority là gì - đo trên broker ngày 04/09/2026:
-            // bản tin KK (swim_priority=2) vẫn tới nơi với JMSPriority=4.
             int amqpPriority = gwout.getSwimPriority() != null
                     ? gwout.getSwimPriority()
                     : Message.DEFAULT_PRIORITY;
             producer.send(message, DeliveryMode.PERSISTENT, amqpPriority, Message.DEFAULT_TIME_TO_LIVE);
-            // Cắt tiền tố "ID:" của tầng JMS như chiều vào vẫn làm, để gwout.amqp_message_id
-            // và gwin.message_id cùng một dạng (Control Position tìm LIKE trên cả hai cột).
             return AmqpMessageIdUtil.clean(message.getJMSMessageID());
 
         } finally {
-            // Giải phóng tài nguyên theo thứ tự ngược lại để tránh rò rỉ
             if (producer != null) {
                 try {
                     producer.close();

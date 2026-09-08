@@ -410,45 +410,48 @@ CREATE TABLE `gwout_report` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
--- Bảng `mtcu_ipn` - IPN (RN/NRN) nhận từ AMHS, do AMHS Component ghi
--- EUR Doc 047 §4.4.7; xem migration_2026-08-26_amss_interface.sql
+-- Bảng `cp` — phản hồi AMHS bay ngược về (RN / NRN / DR / NDR)
 -- ============================================================
-DROP TABLE IF EXISTS `mtcu_ipn`;
-CREATE TABLE `mtcu_ipn` (
-  `id`               bigint(20)   NOT NULL AUTO_INCREMENT,
-  `notification_type` varchar(3)   NOT NULL COMMENT 'RN | NRN',
-  `subject_ipm_id`    varchar(255) DEFAULT NULL,
-  `subject_mts_id`    varchar(255) DEFAULT NULL,
-  `or_address`        varchar(255) DEFAULT NULL,
-  `receipt_time`      varchar(255) DEFAULT NULL,
-  `non_receipt_reason`int(11)      DEFAULT NULL,
-  `received_at`       datetime     DEFAULT NULL,
-  `status`           varchar(16)  DEFAULT 'PENDING',
+-- EUR Doc 047 §4.4.7 (IPN) và §4.4.1.3 (Report). Appendix A CTSW014, CTSW015, CTSW113, CTSW114.
+--
+-- Bảng do AMHS Component tạo và ghi; ITCU chỉ đọc rồi cập nhật `status`. Cả bốn loại chung một
+-- bảng vì với ITCU chúng cùng một việc: tra điện văn gốc, ghi log, báo Control Position.
+--
+-- Hai khoá đối chiếu về điện văn gốc, dùng cái nào tuỳ tầng sinh ra phản hồi:
+--   * `subjectIPM` — RN/NRN. Người nhận đã mở nội dung ra đọc nên biết IPM-Identifier.
+--   * `subjectMTS` — DR/NDR. MTA không giải mã nội dung nên chỉ biết MTS-Identifier.
+-- Đích của cả hai là `gwin.ipm_id` và `gwin.mts_id`.
+--
+-- LƯU Ý cho người đọc bảng này:
+--   * Tên cột theo camelCase (quy ước của AMHS Component). ITCU đọc bằng native query theo vị
+--     trí cột — dùng JPA entity sẽ bị Spring đổi thành snake_case rồi báo không tìm thấy cột.
+--   * Charset utf8mb3 khác phần còn lại của schema (utf8mb4), nên KHÔNG JOIN trực tiếp với
+--     `gwin`: sẽ nổ "Illegal mix of collations". Đọc ra rồi tra bằng tham số.
+--   * `supplementaryInfomation` mang nghĩa khác nhau tuỳ `ipnType`: suppl-receipt-info với RN,
+--     supplementary-information với NDR.
+DROP TABLE IF EXISTS `cp`;
+CREATE TABLE `cp` (
+  `id`                      int(11)      NOT NULL AUTO_INCREMENT,
+  `priority`                int(11)      DEFAULT NULL,
+  `origin`                  varchar(255) DEFAULT NULL COMMENT 'ipn-originator - bên phát phản hồi',
+  `recipient`               varchar(255) DEFAULT NULL COMMENT 'Bên mà phản hồi này nói tới',
+  `subjectIPM`              varchar(255) DEFAULT NULL COMMENT 'IPM-Id điện văn gốc - khoá của RN/NRN',
+  `messageId`               varchar(255) DEFAULT NULL COMMENT 'Mã của CHÍNH tờ phản hồi',
+  `contentId`               varchar(255) DEFAULT NULL,
+  `sumissionTime`           varchar(255) DEFAULT NULL,
+  `receiptTime`             varchar(255) DEFAULT NULL COMMENT 'receipt-time - chỉ RN',
+  `autoforwardedComment`    varchar(255) DEFAULT NULL COMMENT 'auto-forwarded-comment - chỉ NRN',
+  `discardReason`           int(11)      DEFAULT NULL COMMENT 'discard-reason - chỉ NRN',
+  `nonReceipReason`         int(11)      DEFAULT NULL COMMENT 'non-receipt-reason - chỉ NRN',
+  `ackMode`                 int(11)      DEFAULT NULL COMMENT 'acknowledgment-mode - chỉ RN',
+  `ipnType`                 varchar(255) DEFAULT NULL COMMENT 'RN | NRN | DR | NDR',
+  `status`                  int(11)      DEFAULT NULL COMMENT 'ITCU cập nhật sau khi xử lý',
+  `supplementaryInfomation` varchar(255) DEFAULT NULL COMMENT 'Nghĩa phụ thuộc ipnType',
+  -- Ba cột dưới đây cho nhánh DR/NDR. ITCU tự dò và degrade an toàn nếu chưa có.
+  `reasonCode`              varchar(64)  DEFAULT NULL COMMENT 'non-delivery-reason-code (CTSW114)',
+  `diagnosticCode`          varchar(64)  DEFAULT NULL COMMENT 'non-delivery-diagnostic-code - ĐỂ TRỐNG là hợp lệ',
+  `subjectMTS`              varchar(255) DEFAULT NULL COMMENT 'MTS-Id điện văn gốc - khoá của DR/NDR',
   PRIMARY KEY (`id`),
-  KEY `idx_status` (`status`),
-  KEY `idx_subject_ipm` (`subject_ipm_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================================
--- Bảng `mtcu_report` — DR/NDR nhận từ AMHS (§4.4.1.3, CTSW114)
--- ============================================================
--- amss ghi, ITCU đọc. Ngược chiều với `gwout_report` (ITCU ghi, amss đọc).
-DROP TABLE IF EXISTS `mtcu_report`;
-CREATE TABLE `mtcu_report` (
-  `id`              bigint(20)   NOT NULL AUTO_INCREMENT,
-  `report_type`     varchar(3)   NOT NULL COMMENT 'DR | NDR',
-  `gwin_id`         bigint(20)   DEFAULT NULL,
-  `subject_mts_id`  varchar(255) DEFAULT NULL,
-  `subject_ipm_id`  varchar(255) DEFAULT NULL,
-  `recipient`       varchar(255) DEFAULT NULL,
-  `reason_code`     varchar(64)  DEFAULT NULL,
-  `diagnostic_code` varchar(64)  DEFAULT NULL COMMENT 'Để trống là hợp lệ (CTSW114)',
-  `supplementary_info` varchar(512) DEFAULT NULL,
-  `report_time`     varchar(255) DEFAULT NULL,
-  `received_at`     datetime     DEFAULT NULL,
-  `status`          varchar(16)  DEFAULT 'PENDING',
-  PRIMARY KEY (`id`),
-  KEY `idx_status` (`status`),
-  KEY `idx_subject_mts` (`subject_mts_id`),
-  KEY `idx_gwin_id` (`gwin_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  KEY `idx_cp_status` (`status`),
+  KEY `idx_cp_ipn_type` (`ipnType`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
