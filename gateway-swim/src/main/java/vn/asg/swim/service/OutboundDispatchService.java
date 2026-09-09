@@ -76,7 +76,7 @@ public class OutboundDispatchService {
      * cho cả địa chỉ sai khuôn lẫn địa chỉ không tra được đích publish; {@code actionTaken} phân
      * biệt hai nguyên nhân trong traffic log để Control Position truy được.
      */
-    private void recordRecipientNdr(Gwout gwout, String recipient, String actionTaken) {
+    private void logRecipientUndeliverable(Gwout gwout, String recipient, String actionTaken) {
         final String supplementary = "unable to convert to AMQP due to unrecognized recipient O/R address";
         conversionService.logAmhsToSwimRejected(gwout,
                 actionTaken + ": " + recipient, "unrecognised-OR-name", supplementary);
@@ -683,15 +683,15 @@ public class OutboundDispatchService {
                     gwout.getMsgid(), undeliverable.size(), String.join(",", undeliverable));
             alertService.create(
                     GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                    "gwout#" + gwout.getMsgid() + ": NDR cho recipient ["
+                    "gwout#" + gwout.getMsgid() + ": không chuyển giao được cho recipient ["
                             + String.join(",", undeliverable) + "], bản tin vẫn chuyển tới ["
                             + String.join(",", topicByRecipient.keySet()) + "]",
                     "gwout", gwout.getMsgid());
             for (String recipient : unconvertible) {
-                recordRecipientNdr(gwout, recipient, "ndr_unrecognised_recipient");
+                logRecipientUndeliverable(gwout, recipient, "unrecognised_recipient");
             }
             for (String recipient : unroutable) {
-                recordRecipientNdr(gwout, recipient, "ndr_no_route");
+                logRecipientUndeliverable(gwout, recipient, "no_route");
             }
         }
 
