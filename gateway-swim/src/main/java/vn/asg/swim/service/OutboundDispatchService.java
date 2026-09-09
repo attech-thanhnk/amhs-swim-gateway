@@ -36,16 +36,21 @@ public class OutboundDispatchService {
     private final AuthorizationService authorizationService;
     private final ConfigService configService;
     private final AlertService alertService;
-    private final ReportService reportService;
     private final GwoutDispatchRepository gwoutDispatchRepository;
     private final GwoutRepository gwoutRepository;
 
     /**
-     * Từ chối bản tin cho TOÀN BỘ recipient: cập nhật trạng thái, ghi traffic log, xếp NDR vào
-     * hàng đợi {@code gwout_report} để AMHS Component phát, và báo Control Position.
+     * Từ chối bản tin cho TOÀN BỘ recipient: cập nhật trạng thái, ghi traffic log và báo
+     * Control Position.
      * <p>
-     * Gom chung mọi nhánh từ chối ở mức bản tin để bộ ba phần tử của NDR (reason-code,
-     * diagnostic-code, supplementary-information) luôn được ghi nhất quán ở cả ba nơi.
+     * ITCU KHÔNG sinh AMHS report ở đây. Việc phát DR/NDR ra đường truyền X.400 cho chiều
+     * AMHS → SWIM do AMHS Component đảm nhiệm trọn vẹn - đã xác nhận report về tới giao diện
+     * AMHS. Tiêu chí chấm của Appendix A cho các test case này ("the IUT returns a DR/NDR")
+     * kiểm tra ở giao diện AMHS, và không test case nào trong nhóm đó đặt yêu cầu với
+     * Control Position.
+     * <p>
+     * Bộ ba (reason-code, diagnostic-code, supplementary-information) vẫn được ghi vào
+     * {@code gwout} và traffic log để Control Position tra cứu được bản tin bị từ chối.
      *
      * @param alertMessage nội dung cảnh báo gửi Control Position, null nếu nhánh này không báo
      */
@@ -61,12 +66,11 @@ public class OutboundDispatchService {
         gwout.setRejectionSource("AMHS");
         gwoutRepository.save(gwout);
         conversionService.logAmhsToSwimRejected(gwout, actionTaken, diagnosticCode, supplementaryInfo);
-        // EUR Doc 047 §4.4.8: ITCU quyết định, AMHS Component phát NDR ra X.400
-        reportService.recordNdrForAll(gwout, diagnosticCode, supplementaryInfo);
     }
 
     /**
-     * Ghi NDR cho MỘT recipient không chuyển giao được, bản tin vẫn đi tới các recipient còn lại.
+     * Ghi traffic log cho MỘT recipient không chuyển giao được, bản tin vẫn đi tới các recipient
+     * còn lại.
      * <p>
      * Doc 9880 §4.5.2.4.11 dùng chung non-delivery-diagnostic-code {@code unrecognised-OR-name}
      * cho cả địa chỉ sai khuôn lẫn địa chỉ không tra được đích publish; {@code actionTaken} phân
@@ -76,7 +80,6 @@ public class OutboundDispatchService {
         final String supplementary = "unable to convert to AMQP due to unrecognized recipient O/R address";
         conversionService.logAmhsToSwimRejected(gwout,
                 actionTaken + ": " + recipient, "unrecognised-OR-name", supplementary);
-        reportService.recordNdr(gwout, recipient, "unrecognised-OR-name", supplementary);
     }
 
     /**
@@ -288,23 +291,19 @@ public class OutboundDispatchService {
             conversionService.logAmhsToSwim(gwout, null, "OK", "forwarded_unchanged");
             log.info("gwout#{} forwarded unchanged -> status=OUT_TRANSFORMED", gwout.getMsgid());
 
-            // CTSW003 (§4.4.8): IPM đã dịch thành công và per-recipient-indicators có yêu cầu
-            // report -> phải sinh Delivery Report trả về AMHS. Cờ được
+            // CTSW003: per-recipient-indicators có yêu cầu Delivery Report. Cờ được
             // AmhsToGwoutSyncScheduler tính sẵn từ mtcu_to.reportRequest/mtaReportRequest.
-            // Giống CTSW011, phần phát DR ra đường truyền X.400 do AMHS Component (amss) thực hiện;
-            // ở đây ghi nhận để amss phát và để Control Position tra cứu được.
+            // Việc PHÁT DR ra đường truyền X.400 do AMHS Component đảm nhiệm; ở đây chỉ ghi
+            // traffic log để Control Position tra cứu được.
             if (Boolean.TRUE.equals(gwout.getAmhsDeliveryReport())) {
-                log.info("gwout#{} yêu cầu Delivery Report (CTSW003) - xếp hàng để AMHS Component phát DR",
+                log.info("gwout#{} có yêu cầu Delivery Report (CTSW003) - AMHS Component phát DR",
                         gwout.getMsgid());
-                conversionService.logAmhsToSwim(gwout, null, "OK", "dr_generated");
-                reportService.recordDrForAll(gwout);
+                conversionService.logAmhsToSwim(gwout, null, "OK", "dr_requested");
             }
         } catch (Exception e) {
             log.error("gwout#{} processing failed: {}", gwout.getMsgid(), e.getMessage());
             // Không gán non-delivery-diagnostic-code: lỗi nội bộ của ITCU không tương ứng với
-            // giá trị nào trong bảng liệt kê của Doc 9880 §4.5.2.4.11, và diagnostic-code là
-            // phần tử optional của NDR. Chỉ non-delivery-reason-code "unable-to-transfer" là
-            // bắt buộc, ReportService đã gán sẵn.
+            // giá trị nào trong bảng liệt kê của Doc 9880 §4.5.2.4.11.
             rejectMessage(gwout, "processing-failed", null, null,
                     "processing_failed: " + e.getMessage(),
                     "gwout#" + gwout.getMsgid() + " xử lý thất bại: " + e.getMessage());
@@ -571,18 +570,12 @@ public class OutboundDispatchService {
                     : OutboundStatus.FAILED.getValue());
             gwoutRepository.save(gwout);
 
-            // §4.4.8: hết retry mà vẫn không publish được thì ITCU đã không chuyển giao được cho
-            // recipient đó -> phải trả NDR về người gửi X.400. Trước đây bản tin chỉ chuyển sang
-            // FAILED rồi dừng, nên bên gửi không nhận được gì.
-            // Chỉ những recipient DEAD mới nhận NDR; recipient đã SENT vẫn coi là chuyển giao
-            // thành công (report của X.400 mang per-recipient-fields).
+            // Hết retry mà vẫn không publish được: ghi traffic log cho từng recipient DEAD để
+            // Control Position truy được. Recipient đã SENT vẫn coi là chuyển giao thành công.
+            // Việc trả NDR về người gửi X.400 do AMHS Component đảm nhiệm.
             for (String recipient : deadRecipients) {
                 conversionService.logAmhsToSwimRejected(gwout,
-                        "ndr_undeliverable: " + recipient, null,
-                        "unable to convert to AMQP due to delivery failure to the SWIM component");
-                // Không gán non-delivery-diagnostic-code: lỗi hạ tầng AMQP không tương ứng với
-                // giá trị nào trong Doc 9880 §4.5.2.4.11.
-                reportService.recordNdr(gwout, recipient, null,
+                        "undeliverable: " + recipient, null,
                         "unable to convert to AMQP due to delivery failure to the SWIM component");
             }
         });
@@ -826,9 +819,9 @@ public class OutboundDispatchService {
             return;
         }
 
-        // 5. CTSW012 (§4.4.6.5 + §4.4.6.6): xét TỪNG recipient. Recipient không chuyển đổi được
-        //    sang AF-address nhận NDR "unrecognised-OR-name", recipient hợp lệ nhận DR — kết quả
-        //    là một combined report chứ không phải từ chối cả probe.
+        // 5. CTSW012: xét TỪNG recipient để ghi traffic log riêng cho recipient chuyển đổi được
+        //    và recipient không chuyển đổi được sang AF-address. Combined report (DR cho
+        //    recipient hợp lệ + NDR cho recipient còn lại) do AMHS Component dựng và phát.
         List<String> deliverable = new java.util.ArrayList<>();
         List<String> undeliverable = new java.util.ArrayList<>();
         for (String recipient : recipientArray) {
@@ -840,28 +833,24 @@ public class OutboundDispatchService {
             }
         }
 
-        // Ghi nhận kết quả theo từng recipient. Các dòng gwout_report cùng gwout_id hợp thành
-        // combined report mà AMHS Component sẽ phát: DR cho recipient hợp lệ, NDR cho recipient
-        // không chuyển đổi được sang địa chỉ AF (§4.4.6.5 + §4.4.6.6).
+        // Ghi traffic log theo từng recipient để Control Position tra được kết quả probe.
         for (String recipient : deliverable) {
-            conversionService.logAmhsToSwim(gwout, null, "OK", "dr_generated_probe: " + recipient);
-            reportService.recordDr(gwout, recipient);
+            conversionService.logAmhsToSwim(gwout, null, "OK", "probe_deliverable: " + recipient);
         }
         for (String recipient : undeliverable) {
             conversionService.logAmhsToSwimRejected(gwout,
-                    "ndr_unknown_recipient: " + recipient, "unrecognised-OR-name", null);
-            reportService.recordNdr(gwout, recipient, "unrecognised-OR-name", null);
+                    "probe_unknown_recipient: " + recipient, "unrecognised-OR-name", null);
         }
 
         if (!undeliverable.isEmpty()) {
             log.warn("Probe gwout#{}: {} recipient(s) không chuyển đổi được sang AF-address ({}), "
-                            + "{} recipient(s) nhận DR",
+                            + "{} recipient(s) chuyển đổi được",
                     gwout.getMsgid(), undeliverable.size(), String.join(",", undeliverable), deliverable.size());
             alertService.create(
                     GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
-                    "Probe gwout#" + gwout.getMsgid() + ": NDR cho recipient không xác định ["
+                    "Probe gwout#" + gwout.getMsgid() + ": recipient không xác định ["
                             + String.join(",", undeliverable) + "]"
-                            + (deliverable.isEmpty() ? "" : ", DR cho [" + String.join(",", deliverable) + "]"),
+                            + (deliverable.isEmpty() ? "" : ", hợp lệ [" + String.join(",", deliverable) + "]"),
                     "gwout", gwout.getMsgid());
             gwout.setRejectionReason("unknown-recipient");
             gwout.setRejectionSource("AMHS");
@@ -881,8 +870,9 @@ public class OutboundDispatchService {
     }
 
     /**
-     * Từ chối probe cho toàn bộ recipient: ghi nhận NDR, log traffic và báo Control Position
+     * Từ chối probe cho toàn bộ recipient: log traffic và báo Control Position
      * (§3.1.1.1 - probe không được chuyển sang SWIM nhưng phải được log và báo CP).
+     * Việc phát NDR ra đường truyền X.400 do AMHS Component đảm nhiệm.
      */
     private void rejectProbe(Gwout gwout, String reason, String rejectionCode, String ndrDiagnostic,
             String supplementaryInfo) {
@@ -896,9 +886,8 @@ public class OutboundDispatchService {
         gwout.setRejectionSource("AMHS");
         gwout.setRejectionDiagnostic(ndrDiagnostic);
         gwoutRepository.save(gwout);
-        conversionService.logAmhsToSwimRejected(gwout, "ndr_" + rejectionCode + ": " + reason,
+        conversionService.logAmhsToSwimRejected(gwout, "probe_rejected_" + rejectionCode + ": " + reason,
                 ndrDiagnostic, supplementaryInfo);
-        reportService.recordNdrForAll(gwout, ndrDiagnostic, supplementaryInfo);
     }
 
     /**

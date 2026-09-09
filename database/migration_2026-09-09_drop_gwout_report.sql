@@ -1,0 +1,57 @@
+-- ============================================================
+-- Migration: xoá bảng `gwout_report`
+-- Ngày: 2026-09-09
+-- Phạm vi: chiều AMHS → SWIM, các test case sinh DR/NDR
+-- ============================================================
+--
+-- LÝ DO
+--
+-- `gwout_report` là hàng đợi do ITCU (SWIM Component) tự dựng ngày 2026-08-26, với ý định
+-- AMHS Component đọc rồi phát DR/NDR ra đường truyền X.400. Bảng này KHÔNG có trong tài liệu
+-- thiết kế nào và chưa từng được bàn giao cho bên AMHS Component.
+--
+-- Đã xác nhận: AMHS Component tự sinh và phát DR/NDR cho chiều AMHS → SWIM, report về tới
+-- giao diện AMHS. Nên phần ITCU ghi vào bảng này là thừa.
+--
+-- CĂN CỨ TIÊU CHÍ CHẤM (Appendix A v3.0, EUR Doc 047)
+--
+-- CTSW003: "This test is successful, if the IUT returns a DR for a successfully translated ATS
+--          message (IPM), if a report was requested by the originator or the originating MTA."
+--          "Check the messages received at the AMHS interface..."
+--
+-- Tiêu chí luôn nói "the IUT" - toàn bộ gateway, không phân công cho khối chức năng nào - và
+-- kiểm tra ở GIAO DIỆN AMHS. Report đã về tới đó thì test đạt.
+--
+-- Quét toàn bộ Appendix A: cụm "Control Position" KHÔNG xuất hiện trong CTSW003, 004, 005, 006,
+-- 007, 008, 010, 011, 012, 013, 016, 017, 019. Nên nhóm test case này không đặt yêu cầu nào với
+-- Control Position, và việc ITCU lưu lại quyết định report là không cần thiết.
+-- (Ngoại lệ: CTSW015 có yêu cầu "Check the storage of the RN for appropriate action at the
+--  Control Position" - phần đó được giữ lại bằng gw_alert + message_conversion_log.)
+--
+-- RỦI RO NẾU GIỮ LẠI BẢNG
+--
+-- Tại thời điểm xoá, bảng có 53 dòng status='PENDING', chưa dòng nào được phát (sent_at và
+-- last_error rỗng toàn bộ). Trong đó 41 dòng là NDR SAI: chúng từ chối nhầm điện văn có EIT
+-- hợp lệ, do lỗi nhận dạng khuôn OID đã được sửa ngày 2026-09-08 (commit 612a633).
+-- Nếu sau này có ai nối consumer vào bảng, gateway sẽ phát thêm một bộ report chồng lên bộ
+-- AMHS Component đã phát, và 41 trong số đó báo sai cho người gửi.
+--
+-- DỮ LIỆU BỊ MẤT
+--
+-- Nội dung report vẫn còn ở hai nơi, không mất thông tin để tra cứu:
+--   * `gwout`                  - rejection_reason / rejection_diagnostic / rejection_source
+--   * `message_conversion_log` - mts_id / rejection_diagnostic / supplementary_info / action_taken
+-- Cùng với `gw_alert` để Control Position hiển thị.
+
+-- ------------------------------------------------------------
+-- Sao lưu trước khi xoá, phòng khi cần đối chiếu lại
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `gwout_report_backup_20260909` AS SELECT * FROM `gwout_report`;
+
+-- ------------------------------------------------------------
+-- Xoá bảng
+-- ------------------------------------------------------------
+DROP TABLE IF EXISTS `gwout_report`;
+
+-- Bảng backup có thể xoá sau khi nghiệm thu xong:
+--   DROP TABLE `gwout_report_backup_20260909`;

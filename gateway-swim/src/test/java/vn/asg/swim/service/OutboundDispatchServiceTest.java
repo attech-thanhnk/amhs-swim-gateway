@@ -37,7 +37,6 @@ class OutboundDispatchServiceTest {
     @Mock private AuthorizationService authorizationService;
     @Mock private ConfigService configService;
     @Mock private AlertService alertService;
-    @Mock private ReportService reportService;
     @Mock private GwoutDispatchRepository gwoutDispatchRepository;
     @Mock private GwoutRepository gwoutRepository;
 
@@ -210,7 +209,8 @@ class OutboundDispatchServiceTest {
         assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
         assertEquals("no-routing-rule", gwout.getRejectionReason());
         verify(gwoutDispatchRepository, never()).save(any());
-        verify(reportService).recordNdrForAll(eq(gwout), eq("unrecognised-OR-name"),
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("routing_failed"),
+                eq("unrecognised-OR-name"),
                 eq("unable to convert to AMQP due to unrecognized recipient O/R address"));
     }
 
@@ -251,9 +251,10 @@ class OutboundDispatchServiceTest {
 
         assertNotEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
         verify(gwoutDispatchRepository, times(1)).save(any());
-        verify(reportService).recordNdr(eq(gwout), eq("VVNBZTZX"), eq("unrecognised-OR-name"),
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("VVNBZTZX"),
+                eq("unrecognised-OR-name"),
                 eq("unable to convert to AMQP due to unrecognized recipient O/R address"));
-        verify(reportService, never()).recordNdrForAll(any(), any(), any());
+        assertNull(gwout.getRejectionReason(), "chỉ một recipient bị loại, bản tin không bị từ chối");
     }
 
     // ==================== RETRY LOGIC ====================
@@ -399,7 +400,7 @@ class OutboundDispatchServiceTest {
         // Then: Should mark as OUT_PUBLISHED and log DR cho từng recipient (CTSW012 §4.4.6.6)
         assertEquals(OutboundStatus.PUBLISHED.getValue(), probe.getStatus());
         verify(gwoutRepository).save(probe);
-        verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("OK"), eq("dr_generated_probe: VVHHZTZX"));
+        verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("OK"), eq("probe_deliverable: VVHHZTZX"));
     }
 
     @Test
@@ -423,9 +424,9 @@ class OutboundDispatchServiceTest {
         // Probe vẫn coi là xử lý xong vì có recipient nhận DR
         assertEquals(OutboundStatus.PUBLISHED.getValue(), probe.getStatus());
         assertEquals("unrecognised-OR-name", probe.getRejectionDiagnostic());
-        verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("OK"), eq("dr_generated_probe: VVHHZTZX"));
+        verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("OK"), eq("probe_deliverable: VVHHZTZX"));
         verify(conversionService).logAmhsToSwimRejected(eq(probe),
-                eq("ndr_unknown_recipient: VVZZZTZX"), eq("unrecognised-OR-name"), isNull());
+                eq("probe_unknown_recipient: VVZZZTZX"), eq("unrecognised-OR-name"), isNull());
     }
 
     @Test
@@ -511,7 +512,7 @@ class OutboundDispatchServiceTest {
         assertEquals("invalid-arguments", probe.getRejectionDiagnostic());
         verify(gwoutRepository).save(probe);
         verify(conversionService).logAmhsToSwimRejected(eq(probe),
-                eq("ndr_unknown-originator: Unknown originator: UNKNOWNX"),
+                eq("probe_rejected_unknown-originator: Unknown originator: UNKNOWNX"),
                 eq("invalid-arguments"),
                 eq("unable to convert to AMQP due to unrecognized originator O/R address"));
         // §3.1.1.1: probe bị từ chối phải được báo Control Position
@@ -727,42 +728,45 @@ class OutboundDispatchServiceTest {
         verify(alertService, never()).create(anyString(), anyString(), anyString(), anyString(), anyLong());
     }
 
-    // ==================== CTSW003 / NDR: hàng đợi gwout_report ====================
+    // ==================== CTSW003 / ghi nhận kết quả vào traffic log ====================
 
     @Test
-    void testCTSW003_DeliveryReportRequested_ShouldQueueDr() throws Exception {
+    void testCTSW003_DeliveryReportRequested_ShouldLogDrRequest() throws Exception {
         setupValidScenario();
         gwout.setAmhsDeliveryReport(true);
 
         service.processOutboundMessage(gwout);
 
-        verify(reportService).recordDrForAll(gwout);
+        verify(conversionService).logAmhsToSwim(eq(gwout), isNull(), eq("OK"), eq("dr_requested"));
     }
 
     @Test
-    void testCTSW003_NoReportRequested_ShouldNotQueueDr() throws Exception {
+    void testCTSW003_NoReportRequested_ShouldNotLogDrRequest() throws Exception {
         setupValidScenario();
         gwout.setAmhsDeliveryReport(false);
 
         service.processOutboundMessage(gwout);
 
-        verify(reportService, never()).recordDrForAll(any());
+        verify(conversionService, never()).logAmhsToSwim(any(), any(), anyString(), eq("dr_requested"));
     }
 
     @Test
-    void testRejection_ShouldQueueNdrWithSameTripletAsLog() throws Exception {
-        // Bộ ba phần tử NDR phải nhất quán giữa traffic log và hàng đợi gwout_report
+    void testRejection_ShouldLogDiagnosticTriplet() throws Exception {
+        // Bộ ba phần tử NDR phải được ITCU xác định đúng và ghi vào traffic log để
+        // Control Position tra được; việc phát NDR ra X.400 do AMHS Component đảm nhiệm.
         setupValidScenario();
         gwout.setAmhsTtl(LocalDateTime.now().minusHours(1));
 
         service.processOutboundMessage(gwout);
 
-        verify(reportService).recordNdrForAll(gwout, "maximum-time-expired", null);
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("ttl_expired"),
+                eq("maximum-time-expired"), isNull());
+        assertEquals("maximum-time-expired", gwout.getRejectionDiagnostic());
     }
 
     @Test
-    void testProbeMixedRecipients_ShouldQueueBothDrAndNdr() throws Exception {
-        // CTSW012: combined report - DR cho recipient hợp lệ, NDR cho recipient lạ
+    void testProbeMixedRecipients_ShouldLogBothOutcomes() throws Exception {
+        // CTSW012: ITCU phân loại từng recipient, AMHS Component dựng combined report
         Gwout probe = new Gwout();
         probe.setMsgid(2L);
         probe.setOrigin("VVTSZYYX");
@@ -776,8 +780,10 @@ class OutboundDispatchServiceTest {
 
         service.processOutboundMessage(probe);
 
-        verify(reportService).recordDr(probe, "VVHHZTZX");
-        verify(reportService).recordNdr(probe, "VVZZZTZX", "unrecognised-OR-name", null);
+        verify(conversionService).logAmhsToSwim(eq(probe), isNull(), eq("OK"),
+                eq("probe_deliverable: VVHHZTZX"));
+        verify(conversionService).logAmhsToSwimRejected(eq(probe),
+                eq("probe_unknown_recipient: VVZZZTZX"), eq("unrecognised-OR-name"), isNull());
     }
 
     // ==================== REPERTOIRE (CTSW017 / CTSW019) ====================
@@ -1075,7 +1081,7 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(gwout);
 
         assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
-        verify(conversionService).logAmhsToSwim(eq(gwout), isNull(), eq("OK"), eq("dr_generated"));
+        verify(conversionService).logAmhsToSwim(eq(gwout), isNull(), eq("OK"), eq("dr_requested"));
     }
 
     @Test
@@ -1086,7 +1092,7 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(gwout);
 
         assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
-        verify(conversionService, never()).logAmhsToSwim(any(), any(), any(), eq("dr_generated"));
+        verify(conversionService, never()).logAmhsToSwim(any(), any(), any(), eq("dr_requested"));
     }
 
     @Test
@@ -1099,7 +1105,7 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(gwout);
 
         assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
-        verify(conversionService, never()).logAmhsToSwim(any(), any(), any(), eq("dr_generated"));
+        verify(conversionService, never()).logAmhsToSwim(any(), any(), any(), eq("dr_requested"));
     }
 
     // ==================== MTE CONTENT-TYPE (CTSW008) ====================
@@ -1180,9 +1186,12 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(probe);
 
         assertEquals(OutboundStatus.PUBLISHED.getValue(), probe.getStatus());
-        verify(reportService).recordDr(probe, "VVDNZTZX");
-        verify(reportService).recordDr(probe, "VVCIZTZX");
-        verify(reportService, never()).recordNdr(any(Gwout.class), anyString(), anyString(), any());
+        verify(conversionService).logAmhsToSwim(eq(probe), isNull(), eq("OK"),
+                eq("probe_deliverable: VVDNZTZX"));
+        verify(conversionService).logAmhsToSwim(eq(probe), isNull(), eq("OK"),
+                eq("probe_deliverable: VVCIZTZX"));
+        verify(conversionService, never()).logAmhsToSwimRejected(any(Gwout.class), anyString(),
+                anyString(), any());
     }
 
     @Test
@@ -1203,8 +1212,10 @@ class OutboundDispatchServiceTest {
 
         service.processOutboundMessage(probe);
 
-        verify(reportService).recordDr(probe, "VVDNZTZX");
-        verify(reportService).recordNdr(probe, "VVCIZTZX", "unrecognised-OR-name", null);
+        verify(conversionService).logAmhsToSwim(eq(probe), isNull(), eq("OK"),
+                eq("probe_deliverable: VVDNZTZX"));
+        verify(conversionService).logAmhsToSwimRejected(eq(probe),
+                eq("probe_unknown_recipient: VVCIZTZX"), eq("unrecognised-OR-name"), isNull());
     }
 
     // ==================== NDR CHO RECIPIENT SAI KHUÔN (§4.4.8) ====================
@@ -1218,8 +1229,9 @@ class OutboundDispatchServiceTest {
 
         service.createDispatches(gwout);
 
-        verify(reportService).recordNdr(gwout, "BAD1", "unrecognised-OR-name",
-                "unable to convert to AMQP due to unrecognized recipient O/R address");
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("BAD1"),
+                eq("unrecognised-OR-name"),
+                eq("unable to convert to AMQP due to unrecognized recipient O/R address"));
         // Hai recipient hợp lệ vẫn được tạo dispatch
         verify(gwoutDispatchRepository, times(2)).save(any(GwoutDispatch.class));
         assertNotEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
@@ -1234,8 +1246,9 @@ class OutboundDispatchServiceTest {
 
         assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
         assertEquals("invalid-recipients", gwout.getRejectionReason());
-        verify(reportService).recordNdrForAll(gwout, "unrecognised-OR-name",
-                "unable to convert to AMQP due to unrecognized recipient O/R address");
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("invalid_recipients"),
+                eq("unrecognised-OR-name"),
+                eq("unable to convert to AMQP due to unrecognized recipient O/R address"));
         verify(gwoutDispatchRepository, never()).save(any(GwoutDispatch.class));
     }
 
@@ -1248,7 +1261,8 @@ class OutboundDispatchServiceTest {
 
         assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
         assertEquals("no-recipients", gwout.getRejectionReason());
-        verify(reportService).recordNdrForAll(eq(gwout), eq("unrecognised-OR-name"), isNull());
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout), contains("no_recipients"),
+                eq("unrecognised-OR-name"), isNull());
     }
 
     // ==================== NDR CHO CÁC NHÁNH LỖI CÒN LẠI (§4.4.8) ====================
@@ -1262,8 +1276,9 @@ class OutboundDispatchServiceTest {
 
         assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
         assertEquals("unauthorized-originator", gwout.getRejectionReason());
-        verify(reportService).recordNdrForAll(gwout, "unrecognised-OR-name",
-                "unable to convert to AMQP due to unrecognized originator O/R address");
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout),
+                contains("unauthorized_originator"), eq("unrecognised-OR-name"),
+                eq("unable to convert to AMQP due to unrecognized originator O/R address"));
     }
 
     @Test
@@ -1288,9 +1303,11 @@ class OutboundDispatchServiceTest {
 
         assertEquals(GwoutDispatch.STATUS_DEAD, dispatch.getStatus());
         assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
-        verify(reportService).recordNdr(gwout, "VVHHZTZX", null,
-                "unable to convert to AMQP due to delivery failure to the SWIM component");
-        verify(reportService, never()).recordNdr(any(Gwout.class), eq("VVDNZTZX"), any(), any());
+        verify(conversionService).logAmhsToSwimRejected(eq(gwout),
+                eq("undeliverable: VVHHZTZX"), isNull(),
+                eq("unable to convert to AMQP due to delivery failure to the SWIM component"));
+        verify(conversionService, never()).logAmhsToSwimRejected(any(Gwout.class),
+                contains("VVDNZTZX"), any(), any());
     }
 
     // ==================== THỨ TỰ CHUẨN HOÁ BODY PART TYPE (CTSW007) ====================
@@ -1367,6 +1384,7 @@ class OutboundDispatchServiceTest {
         service.createDispatches(gwout);
 
         verify(gwoutDispatchRepository, times(3)).save(any(GwoutDispatch.class));
-        verify(reportService, never()).recordNdr(any(Gwout.class), anyString(), anyString(), any());
+        verify(conversionService, never()).logAmhsToSwimRejected(any(Gwout.class), anyString(),
+                anyString(), any());
     }
 }

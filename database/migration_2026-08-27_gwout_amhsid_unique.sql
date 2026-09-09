@@ -24,7 +24,9 @@
 -- ------------------------------------------------------------
 -- Bước 1: dọn dữ liệu thử nghiệm
 -- ------------------------------------------------------------
-DELETE FROM `gwout_report` WHERE `mts_id` LIKE 'TEST-CTSW%';
+-- Dòng dưới đã bị vô hiệu: bảng `gwout_report` được xoá ngày 2026-09-09,
+-- xem migration_2026-09-09_drop_gwout_report.sql
+-- DELETE FROM `gwout_report` WHERE `mts_id` LIKE 'TEST-CTSW%';
 DELETE FROM `gwout`        WHERE `amhsid` LIKE 'TEST-CTSW%';
 DELETE FROM `mtcu_to`      WHERE `receiveMessage_id` IN
        (SELECT id FROM (SELECT id FROM `mtcu_tmp` WHERE `messageId` LIKE 'TEST-CTSW%') x);

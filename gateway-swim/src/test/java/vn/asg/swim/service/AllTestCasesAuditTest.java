@@ -47,7 +47,6 @@ public class AllTestCasesAuditTest {
     @Mock private AuthorizationService authorizationService;
     @Mock private ConfigService configService;
     @Mock private AlertService alertService;
-    @Mock private ReportService reportService;
     @Mock private GwoutDispatchRepository gwoutDispatchRepository;
     @Mock private GwoutRepository gwoutRepository;
 

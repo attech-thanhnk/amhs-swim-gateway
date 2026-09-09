@@ -19,11 +19,9 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.GwoutDispatch;
-import vn.asg.swim.entity.GwoutReport;
 import vn.asg.swim.entity.OutboundStatus;
 import vn.asg.swim.entity.Routing;
 import vn.asg.swim.repository.GwoutDispatchRepository;
-import vn.asg.swim.repository.GwoutReportRepository;
 import vn.asg.swim.repository.GwoutRepository;
 import vn.asg.swim.scheduler.AmhsToGwoutSyncScheduler;
 import vn.asg.swim.service.AlertService;
@@ -33,7 +31,6 @@ import vn.asg.swim.service.ConnectionManagerService;
 import vn.asg.swim.service.MessageConversionService;
 import vn.asg.swim.service.MessageValidationService;
 import vn.asg.swim.service.OutboundDispatchService;
-import vn.asg.swim.service.ReportService;
 import vn.asg.swim.service.RoutingService;
 
 import java.util.ArrayList;
@@ -52,8 +49,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -67,7 +68,7 @@ import static org.mockito.Mockito.when;
  *                     →  processDispatch                                 (publish AMQP)
  *                     →  AMQP application properties nhận được ở đầu SWIM
  * </pre>
- * {@link MessageValidationService} và {@link ReportService} dùng bản THẬT (không mock) để các
+ * {@link MessageValidationService} dùng bản THẬT (không mock) để các
  * phép kiểm tra cú pháp, ngưỡng cấu hình và việc sinh DR/NDR được thực thi đúng như production;
  * chỉ broker JMS, kho dữ liệu và các dịch vụ ngoại vi mới bị mock.
  * <p>
@@ -84,7 +85,6 @@ class AmhsToSwimConformanceTest {
     @Mock private Query query;
     @Mock private GwoutRepository gwoutRepository;
     @Mock private GwoutDispatchRepository gwoutDispatchRepository;
-    @Mock private GwoutReportRepository gwoutReportRepository;
     @Mock private ConfigService configService;
     @Mock private RoutingService routingService;
     @Mock private MessageConversionService conversionService;
@@ -94,14 +94,14 @@ class AmhsToSwimConformanceTest {
 
     // ---------- Đối tượng thật ----------
     private MessageValidationService validationService;
-    private ReportService reportService;
     private AmhsToGwoutSyncScheduler syncScheduler;
     private OutboundDispatchService dispatchService;
 
     // ---------- Trạng thái ghi lại trong một lần chạy ----------
     private final List<Gwout> gwouts = new ArrayList<>();
     private final List<GwoutDispatch> dispatches = new ArrayList<>();
-    private final List<GwoutReport> reports = new ArrayList<>();
+    private final List<Rejection> rejections = new ArrayList<>();
+    private final List<String> okActions = new ArrayList<>();
     private final List<Publish> publishes = new ArrayList<>();
     private final List<String> alerts = new ArrayList<>();
 
@@ -114,6 +114,16 @@ class AmhsToSwimConformanceTest {
     private long messageSeq = 0;
     private String currentTopic;
     private byte[] ftbpData;
+
+    /**
+     * Một lần ITCU ghi nhận từ chối vào traffic log.
+     * <p>
+     * ITCU không sinh AMHS report - AMHS Component phát DR/NDR ra X.400. Bộ ba
+     * (diagnostic-code, supplementary-information) mà Appendix A kiểm tra vẫn phải được ITCU
+     * xác định đúng, và traffic log là nơi quan sát được điều đó.
+     */
+    record Rejection(Long gwoutId, String actionTaken, String diagnostic, String supplementary) {
+    }
 
     /** Một lần publish quan sát được ở "AMQP test interface". */
     static class Publish {
@@ -136,10 +146,9 @@ class AmhsToSwimConformanceTest {
     @BeforeEach
     void setUp() throws Exception {
         validationService = new MessageValidationService(configService);
-        reportService = new ReportService(gwoutReportRepository);
         syncScheduler = new AmhsToGwoutSyncScheduler(entityManager, gwoutRepository, alertService);
         dispatchService = new OutboundDispatchService(connectionManager, routingService, conversionService,
-                validationService, authorizationService, configService, alertService, reportService,
+                validationService, authorizationService, configService, alertService,
                 gwoutDispatchRepository, gwoutRepository);
 
         // ----- Cấu hình mặc định -----
@@ -196,17 +205,19 @@ class AmhsToSwimConformanceTest {
             return dispatches.stream().filter(d -> id.equals(d.getGwoutId())).toList();
         });
 
-        when(gwoutReportRepository.save(any(GwoutReport.class))).thenAnswer(inv -> {
-            GwoutReport r = inv.getArgument(0);
-            reports.add(r);
-            return r;
-        });
-        when(gwoutReportRepository.findByGwoutIdAndRecipientAndReportType(anyLong(), anyString(), anyString()))
-                .thenAnswer(inv -> reports.stream()
-                        .filter(r -> inv.getArgument(0).equals(r.getGwoutId())
-                                && inv.getArgument(1).equals(r.getRecipient())
-                                && inv.getArgument(2).equals(r.getReportType()))
-                        .findFirst());
+        // Ghi lại mọi lần ITCU đánh dấu từ chối / chấp nhận vào traffic log. Đây là chỗ quan sát
+        // được diagnostic-code và supplementary-information mà Appendix A kiểm tra.
+        doAnswer(inv -> {
+            Gwout g = inv.getArgument(0);
+            rejections.add(new Rejection(g.getMsgid(), inv.getArgument(1),
+                    inv.getArgument(2), inv.getArgument(3)));
+            return null;
+        }).when(conversionService).logAmhsToSwimRejected(any(Gwout.class), any(), any(), any());
+
+        doAnswer(inv -> {
+            okActions.add(inv.getArgument(3, String.class));
+            return null;
+        }).when(conversionService).logAmhsToSwim(any(Gwout.class), any(), anyString(), anyString());
 
         doAnswer(inv -> {
             alerts.add(inv.getArgument(2, String.class));
@@ -356,39 +367,51 @@ class AmhsToSwimConformanceTest {
                 "bản tin phải được chuyển đổi và publish sang SWIM");
     }
 
+    /**
+     * Bản tin phải bị từ chối, và ITCU phải xác định đúng cặp
+     * (non-delivery-diagnostic-code, supplementary-information) mà Appendix A quy định.
+     * <p>
+     * Việc PHÁT NDR ra đường truyền X.400 do AMHS Component đảm nhiệm nên không kiểm tra ở đây;
+     * cái kiểm tra được là quyết định của ITCU, quan sát qua {@code gwout} và traffic log.
+     */
     private void assertRejected(Gwout g, String diagnostic, String supplementary) {
         assertEquals(OutboundStatus.FAILED.getValue(), g.getStatus(), "bản tin phải bị từ chối");
         assertTrue(publishes.isEmpty(), "bản tin bị từ chối không được publish sang AMQP");
-        List<GwoutReport> ndrs = ndrsFor(g);
-        assertFalse(ndrs.isEmpty(), "phải sinh NDR trả về AMHS");
-        for (GwoutReport ndr : ndrs) {
-            assertEquals(GwoutReport.REASON_UNABLE_TO_TRANSFER, ndr.getReasonCode(),
-                    "non-delivery-reason-code phải là unable-to-transfer");
-            assertEquals(diagnostic, ndr.getDiagnosticCode(), "non-delivery-diagnostic-code");
+        assertEquals(diagnostic, g.getRejectionDiagnostic(), "non-delivery-diagnostic-code");
+        assertEquals("AMHS", g.getRejectionSource(), "nguồn từ chối");
+
+        List<Rejection> rows = rejectionsFor(g);
+        assertFalse(rows.isEmpty(), "phải ghi traffic log để Control Position tra được");
+        for (Rejection r : rows) {
+            assertEquals(diagnostic, r.diagnostic(), "non-delivery-diagnostic-code trong traffic log");
             if (supplementary != null) {
-                assertEquals(supplementary, ndr.getSupplementaryInfo(), "supplementary-information");
+                assertEquals(supplementary, r.supplementary(), "supplementary-information");
             }
         }
     }
 
-    private List<GwoutReport> ndrsFor(Gwout g) {
-        return reports.stream()
-                .filter(r -> g.getMsgid().equals(r.getGwoutId())
-                        && GwoutReport.TYPE_NDR.equals(r.getReportType()))
+    /** Các lần ghi nhận từ chối trong traffic log cho bản tin này. */
+    private List<Rejection> rejectionsFor(Gwout g) {
+        return rejections.stream().filter(r -> g.getMsgid().equals(r.gwoutId())).toList();
+    }
+
+    /** Các lần ghi nhận từ chối kèm tên recipient cụ thể (nhánh per-recipient của probe). */
+    private List<Rejection> rejectionsFor(Gwout g, String actionPrefix) {
+        return rejectionsFor(g).stream()
+                .filter(r -> r.actionTaken() != null && r.actionTaken().startsWith(actionPrefix))
                 .toList();
     }
 
-    private List<GwoutReport> drsFor(Gwout g) {
-        return reports.stream()
-                .filter(r -> g.getMsgid().equals(r.getGwoutId())
-                        && GwoutReport.TYPE_DR.equals(r.getReportType()))
-                .toList();
+    /** Các action "OK" đã ghi vào traffic log, lọc theo tiền tố. */
+    private List<String> okActions(String prefix) {
+        return okActions.stream().filter(s -> s != null && s.startsWith(prefix)).toList();
     }
 
     private void reset() {
         gwouts.clear();
         dispatches.clear();
-        reports.clear();
+        rejections.clear();
+        okActions.clear();
         publishes.clear();
         alerts.clear();
         ftbpData = null;
@@ -604,15 +627,14 @@ class AmhsToSwimConformanceTest {
 
             assertPublished(g);
             boolean expectDr = (Boolean) matrix[i][2];
-            List<GwoutReport> drs = drsFor(g);
-            assertEquals(expectDr, !drs.isEmpty(),
+            assertEquals(expectDr, Boolean.TRUE.equals(g.getAmhsDeliveryReport()),
                     String.format("ATS message %d: originator-report-request=%s, "
                                     + "originating-MTA-report-request=%s → %s",
-                            i + 1, matrix[i][0], matrix[i][1], expectDr ? "DR" : "không report"));
-            if (expectDr) {
-                assertEquals("VVHHZTZX", drs.get(0).getRecipient(), "DR gắn với recipient");
-            }
-            assertTrue(ndrsFor(g).isEmpty(), "bản tin dịch thành công không được sinh NDR");
+                            i + 1, matrix[i][0], matrix[i][1],
+                            expectDr ? "cần DR" : "không report"));
+            assertEquals(expectDr, !okActions("dr_requested").isEmpty(),
+                    "traffic log phải ghi nhận yêu cầu DR đúng theo per-recipient-indicators");
+            assertTrue(rejectionsFor(g).isEmpty(), "bản tin dịch thành công không được từ chối");
         }
     }
 
@@ -658,17 +680,16 @@ class AmhsToSwimConformanceTest {
         g2.setStatus(OutboundStatus.PENDING.getValue());
         g2.setAmhsTtl(java.time.LocalDateTime.now().minusHours(1));
         publishes.clear();
-        reports.clear();
+        rejections.clear();
 
         dispatchService.processOutboundMessage(g2);
 
         assertEquals(OutboundStatus.FAILED.getValue(), g2.getStatus());
         assertEquals("ttl-expired", g2.getRejectionReason());
         assertEquals("maximum-time-expired", g2.getRejectionDiagnostic());
-        List<GwoutReport> ndrs = ndrsFor(g2);
-        assertFalse(ndrs.isEmpty(), "phải sinh NDR");
-        assertEquals(GwoutReport.REASON_UNABLE_TO_TRANSFER, ndrs.get(0).getReasonCode());
-        assertEquals("maximum-time-expired", ndrs.get(0).getDiagnosticCode());
+        List<Rejection> rows = rejectionsFor(g2);
+        assertFalse(rows.isEmpty(), "phải ghi nhận từ chối vào traffic log");
+        assertEquals("maximum-time-expired", rows.get(0).diagnostic());
         assertPublished(g); // bản tin thứ nhất (không TTL) vẫn đi bình thường
     }
 
@@ -683,7 +704,7 @@ class AmhsToSwimConformanceTest {
         dispatchService.processOutboundMessage(g);
 
         assertEquals(OutboundStatus.TRANSFORMED.getValue(), g.getStatus());
-        assertTrue(ndrsFor(g).isEmpty());
+        assertTrue(rejectionsFor(g).isEmpty());
     }
 
     // =====================================================================================
@@ -710,7 +731,7 @@ class AmhsToSwimConformanceTest {
         Gwout g = deliver(base, second);
 
         assertRejected(g, "content-too-long", "unable to convert to AMQP due to the content size");
-        assertEquals(2, ndrsFor(g).size(), "từ chối cho TẤT CẢ recipient của bản tin");
+        assertTrue(g.getAddress().contains("VVCIZTZX"), "từ chối áp cho TẤT CẢ recipient của bản tin");
     }
 
     @Test
@@ -901,7 +922,7 @@ class AmhsToSwimConformanceTest {
 
         assertRejected(g, "too-many-recipients",
                 "unable to convert to AMQP due to number of recipients");
-        assertEquals(513, ndrsFor(g).size(), "NDR cho tất cả recipient");
+        assertEquals(1, rejectionsFor(g).size(), "từ chối ở mức bản tin, áp cho tất cả recipient");
     }
 
     /** Sinh N dòng mtcu_to với địa chỉ AFTN 8 chữ cái khác nhau. */
@@ -952,8 +973,8 @@ class AmhsToSwimConformanceTest {
         dispatchService.processOutboundMessage(g);
 
         assertEquals(OutboundStatus.PUBLISHED.getValue(), g.getStatus());
-        assertEquals(1, drsFor(g).size(), "Probe 1 phải nhận DR");
-        assertTrue(ndrsFor(g).isEmpty());
+        assertEquals(1, okActions("probe_deliverable").size(), "Probe 1: recipient chuyển đổi được");
+        assertTrue(rejectionsFor(g).isEmpty());
     }
 
     @Test
@@ -965,9 +986,9 @@ class AmhsToSwimConformanceTest {
         dispatchService.processOutboundMessage(g);
 
         assertEquals(OutboundStatus.FAILED.getValue(), g.getStatus());
-        List<GwoutReport> ndrs = ndrsFor(g);
-        assertEquals(1, ndrs.size());
-        assertEquals("unrecognised-OR-name", ndrs.get(0).getDiagnosticCode());
+        List<Rejection> rows = rejectionsFor(g, "probe_unknown_recipient");
+        assertEquals(1, rows.size());
+        assertEquals("unrecognised-OR-name", rows.get(0).diagnostic());
     }
 
     @Test
@@ -979,10 +1000,10 @@ class AmhsToSwimConformanceTest {
         dispatchService.processOutboundMessage(g);
 
         assertEquals(OutboundStatus.FAILED.getValue(), g.getStatus());
-        List<GwoutReport> ndrs = ndrsFor(g);
-        assertEquals(1, ndrs.size());
-        assertEquals("content-too-long", ndrs.get(0).getDiagnosticCode());
-        assertEquals("unable to convert to AMQP due to the content size", ndrs.get(0).getSupplementaryInfo());
+        List<Rejection> rows = rejectionsFor(g);
+        assertEquals(1, rows.size());
+        assertEquals("content-too-long", rows.get(0).diagnostic());
+        assertEquals("unable to convert to AMQP due to the content size", rows.get(0).supplementary());
     }
 
     @Test
@@ -1000,8 +1021,8 @@ class AmhsToSwimConformanceTest {
         dispatchService.processOutboundMessage(g);
 
         assertEquals(OutboundStatus.PUBLISHED.getValue(), g.getStatus());
-        assertEquals(512, drsFor(g).size(), "mỗi recipient một dòng DR");
-        assertTrue(ndrsFor(g).isEmpty());
+        assertEquals(512, okActions("probe_deliverable").size(), "mỗi recipient một dòng traffic log");
+        assertTrue(rejectionsFor(g).isEmpty());
     }
 
     @Test
@@ -1019,24 +1040,27 @@ class AmhsToSwimConformanceTest {
         dispatchService.processOutboundMessage(g);
 
         assertEquals(OutboundStatus.FAILED.getValue(), g.getStatus());
-        assertEquals("too-many-recipients", ndrsFor(g).get(0).getDiagnosticCode());
+        assertEquals("too-many-recipients", rejectionsFor(g).get(0).diagnostic());
     }
 
     @Test
-    @DisplayName("CTSW012: Probe 2 recipient, 1 không tra được → combined report (DR + NDR)")
-    void ctsw012_combinedReport() {
+    @DisplayName("CTSW012: Probe 2 recipient, 1 không tra được → ITCU phân loại đúng từng recipient")
+    void ctsw012_perRecipientOutcome() {
         when(configService.getMaxMsgDataSize()).thenReturn(2048);
         Gwout g = probe(1200, "VVNBZTZX", "VVHHZTZX,BADADDR1", 1024);
 
         dispatchService.processOutboundMessage(g);
 
-        List<GwoutReport> drs = drsFor(g);
-        List<GwoutReport> ndrs = ndrsFor(g);
-        assertEquals(1, drs.size(), "recipient hợp lệ nhận DR");
-        assertEquals("VVHHZTZX", drs.get(0).getRecipient());
-        assertEquals(1, ndrs.size(), "recipient không xác định nhận NDR");
-        assertEquals("BADADDR1", ndrs.get(0).getRecipient());
-        assertEquals("unrecognised-OR-name", ndrs.get(0).getDiagnosticCode());
+        // AMHS Component dựng combined report từ hai kết quả này: DR cho recipient chuyển đổi
+        // được, NDR cho recipient không chuyển đổi được.
+        List<String> deliverable = okActions("probe_deliverable");
+        List<Rejection> undeliverable = rejectionsFor(g, "probe_unknown_recipient");
+        assertEquals(1, deliverable.size(), "recipient hợp lệ");
+        assertTrue(deliverable.get(0).endsWith("VVHHZTZX"), deliverable.get(0));
+        assertEquals(1, undeliverable.size(), "recipient không xác định");
+        assertTrue(undeliverable.get(0).actionTaken().endsWith("BADADDR1"),
+                undeliverable.get(0).actionTaken());
+        assertEquals("unrecognised-OR-name", undeliverable.get(0).diagnostic());
     }
 
     @Test
@@ -1049,15 +1073,15 @@ class AmhsToSwimConformanceTest {
         dispatchService.processOutboundMessage(g);
 
         assertEquals(OutboundStatus.FAILED.getValue(), g.getStatus());
-        List<GwoutReport> ndrs = ndrsFor(g);
-        assertEquals(2, ndrs.size(), "NDR cho tất cả recipient");
-        for (GwoutReport ndr : ndrs) {
-            assertEquals(GwoutReport.REASON_UNABLE_TO_TRANSFER, ndr.getReasonCode());
-            assertEquals("invalid-arguments", ndr.getDiagnosticCode());
+        assertEquals("invalid-arguments", g.getRejectionDiagnostic());
+        List<Rejection> rows = rejectionsFor(g);
+        assertFalse(rows.isEmpty(), "phải ghi nhận từ chối");
+        for (Rejection r : rows) {
+            assertEquals("invalid-arguments", r.diagnostic());
             assertEquals("unable to convert to AMQP due to unrecognized originator O/R address",
-                    ndr.getSupplementaryInfo());
+                    r.supplementary());
         }
-        assertTrue(drsFor(g).isEmpty());
+        assertTrue(okActions("probe_deliverable").isEmpty(), "không recipient nào được chấp nhận");
     }
 
     // =====================================================================================
@@ -1107,7 +1131,7 @@ class AmhsToSwimConformanceTest {
     }
 
     @Test
-    @DisplayName("CTSW016: Probe với EIT không hợp lệ → NDR; EIT hợp lệ → DR")
+    @DisplayName("CTSW016: Probe với EIT không hợp lệ → từ chối; EIT hợp lệ → chấp nhận")
     void ctsw016_probeEit() {
         when(configService.getMaxMsgDataSize()).thenReturn(2048);
 
@@ -1115,13 +1139,14 @@ class AmhsToSwimConformanceTest {
         bad.setOriginEit("{id-cs-eit-authority 3}");
         dispatchService.processOutboundMessage(bad);
         assertEquals(OutboundStatus.FAILED.getValue(), bad.getStatus());
-        assertEquals("encoded-information-types-unsupported", ndrsFor(bad).get(0).getDiagnosticCode());
+        assertEquals("encoded-information-types-unsupported", rejectionsFor(bad).get(0).diagnostic());
 
+        reset();
         Gwout ok = probe(1621, "VVNBZTZX", "VVHHZTZX", 1024);
         ok.setOriginEit("{id-cs-eit-authority 1}");
         dispatchService.processOutboundMessage(ok);
         assertEquals(OutboundStatus.PUBLISHED.getValue(), ok.getStatus());
-        assertEquals(1, drsFor(ok).size());
+        assertEquals(1, okActions("probe_deliverable").size());
     }
 
     // =====================================================================================
@@ -1323,7 +1348,7 @@ class AmhsToSwimConformanceTest {
             vn.asg.swim.repository.GwinRepository gwinRepository) {
         return new vn.asg.swim.service.AmhsFeedbackService(
                 mock(vn.asg.swim.repository.AmhsFeedbackRepository.class),
-                gwinRepository, gwoutRepository, reportService, alertService, conversionService);
+                gwinRepository, alertService, conversionService);
     }
 
     private vn.asg.swim.model.AmhsFeedback rn(long id, String subjectIpm) {
@@ -1359,7 +1384,7 @@ class AmhsToSwimConformanceTest {
 
         feedbackService(gwinRepository).processFeedback(rn(1, "IPM-SS-1"));
 
-        assertTrue(reports.isEmpty(), "§4.4.7.2: RN hợp lệ không sinh NDR");
+        assertTrue(rejections.isEmpty(), "§4.4.7.2: RN hợp lệ không bị từ chối");
         assertTrue(alerts.stream().anyMatch(a -> a.contains("§4.4.7.3")),
                 "phải báo Control Position để lưu trữ và xử lý");
     }
@@ -1376,13 +1401,12 @@ class AmhsToSwimConformanceTest {
 
         assertTrue(alerts.stream().anyMatch(a -> a.contains("§4.4.7.2") && a.contains("khác SS")),
                 "§4.4.7.2: phải log lỗi và báo Control Position");
-        assertTrue(reports.isEmpty(),
-                "§4.4.7.2 chỉ yêu cầu log + báo CP, không yêu cầu NDR cho nhánh này");
+        assertTrue(rejections.isEmpty(),
+                "§4.4.7.2 chỉ yêu cầu log + báo CP cho nhánh này");
     }
 
     @Test
-    @DisplayName("CTSW015: RN có điện văn gốc bịa → NDR invalid-arguments + "
-            + "supplementary 'unable to notify RN to SWIM due to misrouted RN'")
+    @DisplayName("CTSW015: RN có điện văn gốc bịa → lưu lại và báo Control Position")
     void ctsw015_misroutedRn() {
         var gwinRepository = mock(vn.asg.swim.repository.GwinRepository.class);
         when(gwinRepository.findByIpmId(anyString())).thenReturn(List.of());
@@ -1390,18 +1414,14 @@ class AmhsToSwimConformanceTest {
 
         feedbackService(gwinRepository).processFeedback(rn(3, "IPM-FICTITIOUS"));
 
-        assertEquals(1, reports.size(), "phải sinh đúng một NDR");
-        GwoutReport ndr = reports.get(0);
-        assertEquals(GwoutReport.TYPE_NDR, ndr.getReportType());
-        assertEquals(GwoutReport.REASON_UNABLE_TO_TRANSFER, ndr.getReasonCode(),
-                "non-delivery-reason-code");
-        assertEquals("invalid-arguments", ndr.getDiagnosticCode(), "non-delivery-diagnostic-code");
-        assertEquals("unable to notify RN to SWIM due to misrouted RN", ndr.getSupplementaryInfo(),
-                "supplementary-information");
-        assertEquals("MTS-IPM-FICTITIOUS", ndr.getMtsId(),
-                "MTS-Identifier của điện văn gốc phải xuống tới amss để dựng NDR");
+        // Appendix A CTSW015: "Check the storage of the RN for appropriate action at the
+        // Control Position". Việc phát NDR ra X.400 do AMHS Component đảm nhiệm.
         assertTrue(alerts.stream().anyMatch(a -> a.contains("§4.4.7.1")),
                 "phải báo Control Position và lưu RN lại để xử lý");
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("IPM-FICTITIOUS")),
+                "cảnh báo phải nêu IPM-Identifier của điện văn gốc để CP truy được");
+        verify(conversionService).logSwimToAmhs(isNull(), eq("VVHHZTZX"), eq("REJECTED"),
+                contains("misrouted_ipn"), eq("misrouted-ipn"), eq("IPM-FICTITIOUS"));
     }
 
     // =====================================================================================

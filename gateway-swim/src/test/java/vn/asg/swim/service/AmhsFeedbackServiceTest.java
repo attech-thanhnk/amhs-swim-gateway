@@ -4,7 +4,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -12,12 +11,10 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.entity.Gwin;
-import vn.asg.swim.entity.Gwout;
 import vn.asg.swim.entity.InboundStatus;
 import vn.asg.swim.model.AmhsFeedback;
 import vn.asg.swim.repository.AmhsFeedbackRepository;
 import vn.asg.swim.repository.GwinRepository;
-import vn.asg.swim.repository.GwoutRepository;
 
 import java.util.List;
 
@@ -37,8 +34,6 @@ class AmhsFeedbackServiceTest {
 
     @Mock private AmhsFeedbackRepository feedbackRepository;
     @Mock private GwinRepository gwinRepository;
-    @Mock private GwoutRepository gwoutRepository;
-    @Mock private ReportService reportService;
     @Mock private AlertService alertService;
     @Mock private MessageConversionService conversionService;
 
@@ -205,7 +200,9 @@ class AmhsFeedbackServiceTest {
 
         verify(alertService).create(anyString(), eq(GwAlert.SEV_INFO), contains("đã được nhận"),
                 eq("cp"), eq(7L));
-        verify(reportService, never()).recordNdr(anyLong(), any(), anyString(), anyString(), anyString());
+        // Nhánh lạc tuyến (CTSW015) mới là nhánh trước đây sinh NDR - nhánh này không đi qua đó.
+        verify(conversionService, never()).logSwimToAmhs(any(), anyString(), anyString(),
+                contains("misrouted_ipn"), anyString(), any());
     }
 
     @Test
@@ -232,7 +229,9 @@ class AmhsFeedbackServiceTest {
 
         verify(alertService).create(anyString(), eq(GwAlert.SEV_WARNING), contains("khác SS"),
                 eq("cp"), eq(7L));
-        verify(reportService, never()).recordNdr(anyLong(), any(), anyString(), anyString(), anyString());
+        // Nhánh lạc tuyến (CTSW015) mới là nhánh trước đây sinh NDR - nhánh này không đi qua đó.
+        verify(conversionService, never()).logSwimToAmhs(any(), anyString(), anyString(),
+                contains("misrouted_ipn"), anyString(), any());
     }
 
     @Test
@@ -253,26 +252,19 @@ class AmhsFeedbackServiceTest {
     // ==================== CTSW015 - RN lạc tuyến ====================
 
     @Test
-    @DisplayName("CTSW015: điện văn gốc hư cấu -> NDR invalid-arguments kèm supplementary")
-    void testCTSW015_MisroutedRnGeneratesNdr() {
+    @DisplayName("CTSW015: điện văn gốc hư cấu -> lưu lại và báo Control Position")
+    void testCTSW015_MisroutedRnReportedToControlPosition() {
         AmhsFeedback rn = feedback(AmhsFeedback.TYPE_RN);
         rn.setSubjectIpm("IPM-KHONG-TON-TAI");
 
         service.processFeedback(rn);
 
-        // gwout_report.gwout_id có khoá ngoại trỏ về gwout(msgid), nên phải ghi THẬT một dòng
-        // gwout rồi mới xếp NDR - dùng đối tượng tạm trong bộ nhớ sẽ vi phạm khoá ngoại và NDR
-        // mất im lặng.
-        ArgumentCaptor<Gwout> captor = ArgumentCaptor.forClass(Gwout.class);
-        verify(gwoutRepository).saveAndFlush(captor.capture());
-        Gwout placeholder = captor.getValue();
-        assertEquals("misrouted-ipn", placeholder.getRejectionReason());
-        assertNull(placeholder.getAmhsid());
-
-        verify(reportService).recordNdr(placeholder.getMsgid(), rn.getSubjectMts(), rn.getOrigin(),
-                "invalid-arguments", "unable to notify RN to SWIM due to misrouted RN");
+        // Appendix A CTSW015: "Check the storage of the RN for appropriate action at the
+        // Control Position". ITCU không sinh NDR - AMHS Component phát report ra X.400.
         verify(alertService).create(anyString(), eq(GwAlert.SEV_WARNING), contains("lạc tuyến"),
                 eq("cp"), eq(7L));
+        verify(conversionService).logSwimToAmhs(isNull(), eq(rn.getOrigin()), eq("REJECTED"),
+                contains("misrouted_ipn"), eq("misrouted-ipn"), eq("IPM-KHONG-TON-TAI"));
     }
 
     @Test

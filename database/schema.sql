@@ -385,29 +385,6 @@ CREATE TABLE `users` (
   UNIQUE KEY `UK_r43af9ap4edm43mmtq01oddj6` (`username`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ============================================================
--- Bảng `gwout_report` - hàng đợi AMHS report (DR/NDR) gửi AMHS Component
--- EUR Doc 047 §4.4.8; xem migration_2026-08-26_gwout_report.sql
--- ============================================================
-DROP TABLE IF EXISTS `gwout_report`;
-CREATE TABLE `gwout_report` (
-  `id`                 bigint(20)   NOT NULL AUTO_INCREMENT,
-  `gwout_id`           bigint(20)   NOT NULL,
-  `mts_id`             varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `report_type`        varchar(3)   COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'DR | NDR',
-  `recipient`          varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `reason_code`        varchar(32)  COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `diagnostic_code`    varchar(64)  COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `supplementary_info` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `status`             varchar(16)  COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
-  `created_at`         datetime(6)  NOT NULL,
-  `sent_at`            datetime(6)  DEFAULT NULL,
-  `last_error`         text         COLLATE utf8mb4_unicode_ci,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_report` (`gwout_id`, `recipient`, `report_type`),
-  KEY `idx_status` (`status`),
-  CONSTRAINT `fk_report_gwout` FOREIGN KEY (`gwout_id`) REFERENCES `gwout` (`msgid`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
 -- Bảng `cp` — phản hồi AMHS bay ngược về (RN / NRN / DR / NDR)
