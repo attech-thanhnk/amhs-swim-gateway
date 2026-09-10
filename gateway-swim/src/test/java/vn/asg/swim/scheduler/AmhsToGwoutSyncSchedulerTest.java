@@ -696,4 +696,38 @@ class AmhsToGwoutSyncSchedulerTest {
         verify(gwoutRepository).saveAndFlush(captor.capture());
         return captor.getValue();
     }
+
+    @Test
+    void testCTSW002_Ohi61CharsOrLonger_ShouldNotBeTruncatedTo60() {
+        String ohi61 = "1234567890".repeat(6) + "X"; // 61 ký tự
+        Object[] row = new Object[20];
+        row[0] = 60004L;
+        row[1] = "METAR VVNB 070430Z 15004KT 9999 FEW020 28/24 Q1010 NOSIG=";
+        row[2] = "070430";
+        row[3] = "FF";
+        row[4] = ohi61;
+        row[5] = "401";
+        row[6] = "IPM-OHI";
+        row[7] = "MSG-OHI";
+        row[8] = "/CN=VVCIYMYX/OU=VVCI/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
+        row[9] = "/CN=VVTSSWIM/OU=VVTS/O=VVTS/PRMD=VIETNAM/ADMD=ICAO/C=XX/";
+        row[14] = 1;
+        row[15] = "ia5-text";
+        row[16] = 1;
+        row[17] = 1;
+        row[18] = 22;
+
+        List<Object[]> mockRows = new ArrayList<>();
+        mockRows.add(row);
+
+        when(entityManager.createNativeQuery(anyString())).thenReturn(query);
+        when(query.getResultList()).thenReturn(mockRows);
+
+        scheduler.syncAmhsToGwout();
+
+        org.mockito.ArgumentCaptor<Gwout> captor = org.mockito.ArgumentCaptor.forClass(Gwout.class);
+        verify(gwoutRepository).saveAndFlush(captor.capture());
+        assertEquals(ohi61, captor.getValue().getOptionalHeading(),
+                "OHI 61 ký tự không được bị cắt về 60 ký tự");
+    }
 }

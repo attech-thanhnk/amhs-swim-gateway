@@ -48,7 +48,7 @@ public class MessageConversionLog {
     @Column(name = "priority", length = 12)
     private String priority;
 
-    @Column(name = "ohi", length = 64)
+    @Column(name = "ohi", length = 255)
     private String ohi;
 
     @Column(name = "origin", length = 128)

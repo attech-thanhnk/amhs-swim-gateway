@@ -41,7 +41,11 @@ public class MessageConversionService {
             logEntry.setIpmId(ipmId);
             logEntry.setAmqpMessageId(amqpMessageId);
             logEntry.setPriority(gwout.getAmhsPriority() != null ? gwout.getAmhsPriority() : "KK");
-            logEntry.setOhi(gwout.getOptionalHeading());
+            if (gwout.getOptionalHeading() != null && gwout.getOptionalHeading().length() > 255) {
+                logEntry.setOhi(gwout.getOptionalHeading().substring(0, 255));
+            } else {
+                logEntry.setOhi(gwout.getOptionalHeading());
+            }
             logEntry.setOrigin(gwout.getOrigin());
             logEntry.setFilingTime(gwout.getFilingTime());
             logEntry.setContent(gwout.getText());

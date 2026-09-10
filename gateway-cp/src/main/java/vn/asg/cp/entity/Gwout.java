@@ -53,8 +53,8 @@ public class Gwout {
     @Column(name = "address", columnDefinition = "MEDIUMTEXT")
     private String address;
 
-    /** Optional heading/Priority prefix */
-    @Column(name = "optional_heading", length = 60)
+    /** Optional heading / originators-reference (Doc 047 §4.4.3.4.6) */
+    @Column(name = "optional_heading", length = 255)
     private String optionalHeading;
 
     @Column(name = "subject", length = 200)

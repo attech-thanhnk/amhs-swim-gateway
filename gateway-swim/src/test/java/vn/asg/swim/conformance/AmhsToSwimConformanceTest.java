@@ -600,6 +600,20 @@ class AmhsToSwimConformanceTest {
         }
     }
 
+    @Test
+    @DisplayName("CTSW002: OHI 61 ký tự và dài hơn được giữ nguyên vẹn sang amhs_ats_ohi (§4.4.3.4.6)")
+    void ctsw002_ohiLongStringNotTruncated() {
+        String longOhi = "1234567890".repeat(6) + "X"; // Đúng 61 ký tự
+        Object[] r = row(205, "FF", "070430", "METAR VVNB=");
+        r[4] = longOhi;
+
+        Gwout g = deliver(r);
+
+        assertPublished(g);
+        assertEquals(longOhi, onlyPublish().prop("amhs_ats_ohi"),
+                "OHI 61 ký tự phải được giữ nguyên vẹn sang amhs_ats_ohi, không bị cắt cụt về 60");
+    }
+
     // =====================================================================================
     // CTSW003 — Generate a DR for a successfully translated IPM
     // =====================================================================================

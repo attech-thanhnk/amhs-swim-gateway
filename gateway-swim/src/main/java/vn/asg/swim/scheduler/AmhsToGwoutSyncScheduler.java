@@ -311,7 +311,12 @@ public class AmhsToGwoutSyncScheduler {
                         atsFilingTime = atsFilingTime.substring(0, 32);
                     }
                     gwout.setFilingTime(atsFilingTime);
-                    if (atsOhi != null && atsOhi.length() > 60) atsOhi = atsOhi.substring(0, 60);
+                    // CTSW002 (§4.4.3.4.6): Giữ nguyên văn OHI / originators-reference sang amhs_ats_ohi,
+                    // không tự ý cắt cụt chuỗi làm mất dữ liệu gốc. Cột gwout.optional_heading đã được
+                    // nới lên varchar(255).
+                    if (atsOhi != null && atsOhi.length() > 255) {
+                        atsOhi = atsOhi.substring(0, 255);
+                    }
                     gwout.setOptionalHeading(atsOhi);
                     if (atsPriority != null && atsPriority.length() > 10) atsPriority = atsPriority.substring(0, 10);
                     gwout.setAmhsPriority(atsPriority);
