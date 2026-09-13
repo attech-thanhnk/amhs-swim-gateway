@@ -415,8 +415,14 @@ public class MessageValidationService {
         String cleanType = bodyPartType.trim().toLowerCase();
         if (cleanType.equals("ia5-text") ||
                 cleanType.equals("ia5-text-body-part") ||
+                cleanType.equals("401") ||
+                cleanType.equals("general-text") ||
                 cleanType.equals("general-text-body-part") ||
-                cleanType.equals("file-transfer-body-part")) {
+                cleanType.equals("402") ||
+                cleanType.equals("407") ||
+                cleanType.equals("file-transfer") ||
+                cleanType.equals("file-transfer-body-part") ||
+                cleanType.equals("403")) {
             return ValidationResult.success();
         }
         return ValidationResult.failure("Unsupported Encoded Information Type (EIT) / Body Part Type: " + bodyPartType);

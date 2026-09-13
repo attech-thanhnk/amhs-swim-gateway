@@ -327,7 +327,7 @@ public class AmhsToGwoutSyncScheduler {
                         if ("401".equals(bodyPartType) || "ia5-text".equalsIgnoreCase(bodyPartType) || "ia5-text-body-part".equalsIgnoreCase(bodyPartType)) {
                             standardBodyPartType = "ia5-text-body-part";
                             bodyType = "text";
-                        } else if ("402".equals(bodyPartType) || "general-text".equalsIgnoreCase(bodyPartType) || "general-text-body-part".equalsIgnoreCase(bodyPartType)) {
+                        } else if ("402".equals(bodyPartType) || "407".equals(bodyPartType) || "general-text".equalsIgnoreCase(bodyPartType) || "general-text-body-part".equalsIgnoreCase(bodyPartType)) {
                             standardBodyPartType = "general-text-body-part";
                             bodyType = "text";
                         } else if ("403".equals(bodyPartType) || "file-transfer".equalsIgnoreCase(bodyPartType) || "file-transfer-body-part".equalsIgnoreCase(bodyPartType)) {

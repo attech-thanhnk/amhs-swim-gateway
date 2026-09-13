@@ -187,7 +187,7 @@ public class OutboundDispatchService {
             String rawType = gwout.getBodyPartType().trim();
             if ("401".equals(rawType)) {
                 gwout.setBodyPartType("ia5-text-body-part");
-            } else if ("402".equals(rawType)) {
+            } else if ("402".equals(rawType) || "407".equals(rawType)) {
                 gwout.setBodyPartType("general-text-body-part");
             } else if ("403".equals(rawType)) {
                 gwout.setBodyPartType("file-transfer-body-part");
