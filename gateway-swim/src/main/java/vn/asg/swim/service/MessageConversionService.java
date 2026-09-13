@@ -108,14 +108,29 @@ public class MessageConversionService {
         try {
             MessageConversionLog logEntry = new MessageConversionLog();
             logEntry.setDate(LocalDate.now().format(DATE_FMT));
-            logEntry.setType("SWIM");
-            logEntry.setCategory("IN");
+            boolean isFeedback = actionTaken != null && (actionTaken.startsWith("ipn_") || actionTaken.startsWith("misrouted_ipn") || actionTaken.startsWith("dr_") || actionTaken.startsWith("ndr_"));
+            if (isFeedback) {
+                boolean isIpn = actionTaken.startsWith("ipn_") || actionTaken.startsWith("misrouted_ipn");
+                logEntry.setType(isIpn ? "IPN" : "REP");
+                logEntry.setCategory("CP");
+                // Phản hồi AMHS gửi về Control Position: hiển thị loại nghiệp vụ IPN / CP thay vì REJECT
+                if ("REJECTED".equalsIgnoreCase(status) && isIpn) {
+                    logEntry.setStatus("IPN");
+                } else if ("REJECTED".equalsIgnoreCase(status)) {
+                    logEntry.setStatus("CP");
+                } else {
+                    logEntry.setStatus(status != null && status.length() > 8 ? status.substring(0, 8) : status);
+                }
+            } else {
+                logEntry.setType("SWIM");
+                logEntry.setCategory("IN");
+                logEntry.setStatus(status != null && status.length() > 8 ? status.substring(0, 8) : status);
+            }
             logEntry.setAmqpMessageId(amqpMessageId);
             logEntry.setIpmId(ipmId);
             logEntry.setOrigin(originator);
             logEntry.setContent(content);
             logEntry.setConvertedTime(LocalDateTime.now());
-            logEntry.setStatus(status != null && status.length() > 8 ? status.substring(0, 8) : status);
 
             if (actionTaken != null && actionTaken.length() > 255) {
                 logEntry.setActionTaken(actionTaken.substring(0, 255));
@@ -124,7 +139,7 @@ public class MessageConversionService {
             }
 
             if (rejectionReason != null) {
-                logEntry.setRejectionSource("SWIM");
+                logEntry.setRejectionSource(isFeedback ? "AMHS" : "SWIM");
                 logEntry.setRejectionReason(rejectionReason.length() > 64 ? rejectionReason.substring(0, 64) : rejectionReason);
                 logEntry.setRejectionDiagnostic(actionTaken != null ? actionTaken : rejectionReason);
                 logEntry.setRemark(actionTaken != null ? actionTaken : rejectionReason);

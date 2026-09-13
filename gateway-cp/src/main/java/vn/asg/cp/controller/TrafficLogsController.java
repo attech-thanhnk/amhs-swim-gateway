@@ -55,6 +55,8 @@ public class TrafficLogsController {
                 spec = spec.and((r, q, cb) -> cb.and(
                         cb.equal(r.get("type"), "SWIM"),
                         cb.equal(r.get("category"), "IN")));
+            } else if ("AMHS_TO_CP".equals(direction) || "CP".equals(direction)) {
+                spec = spec.and((r, q, cb) -> cb.equal(r.get("category"), "CP"));
             }
         }
         if (!"ALL".equals(status)) {
