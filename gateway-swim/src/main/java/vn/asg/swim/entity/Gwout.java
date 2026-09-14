@@ -23,7 +23,7 @@ public class Gwout {
     @Column(name = "amhsid", length = 200)
     private String amhsid;
 
-    /** X.400 IPM-Identifier — EUR Doc 047 §4.3.1.2(b), riêng biệt với MTS-Identifier (amhsid) */
+    /** X.400 IPM-Identifier */
     @Column(name = "ipm_id", length = 200)
     private String ipmId;
 
@@ -40,12 +40,7 @@ public class Gwout {
     private LocalDateTime time;
 
     /**
-     * AMHS Filing Time, đúng khuôn phải là date-time group 6 chữ số (DDhhmm).
-     * <p>
-     * Cột rộng 32 chứ không phải 6 để giá trị SAI KHUÔN cũng lưu được nguyên vẹn: CTSW004 yêu cầu
-     * từ chối ATS-message-filing-time sai định dạng, mà nếu cắt về 6 ký tự ngay lúc đồng bộ thì
-     * một giá trị hỏng như "0704301234" biến thành "070430" hợp lệ và bước kiểm tra
-     * {@code validateAtsMessageHeader} không còn gì để bắt.
+     * AMHS Filing Time (DDhhmm).
      */
     @Column(name = "filing_time", length = 32)
     private String filingTime;
@@ -62,16 +57,13 @@ public class Gwout {
     @Column(name = "origin", length = 200)
     private String origin;
 
-    /** AMHS Recipients list (space-separated) */
     /**
      * Danh sách địa chỉ AFTN người nhận, phân cách dấu phẩy.
-     * EUR Doc 047 §3.3.2.4 / CTSW010: phải chứa được tới "Maximum message number of recipients"
-     * (512 recipient x 9 ký tự ~ 4.6KB) nên dùng MEDIUMTEXT, không phải varchar(1000).
      */
     @Column(name = "address", columnDefinition = "MEDIUMTEXT")
     private String address;
 
-    /** X.400 Optional Heading Information (OHI) / originators-reference (Doc 047 §4.4.3.4.6) */
+    /** X.400 Optional Heading Information (OHI) / originators-reference */
     @Column(name = "optional_heading", length = 255)
     private String optionalHeading;
 
@@ -89,12 +81,7 @@ public class Gwout {
     private String amhsRegisteredId;
 
     /**
-     * Phần tử user-visible-string của FTBP (EUR Doc 047 Table 2 / §4.4.3.4.11, mã T1).
-     * Ánh xạ sang AMQP application property {@code amhs_user_visible_string} khi có mặt.
-     * <p>
-     * §4.4.4.6: khi registered-identifier khác OID mặc định thì giá trị này bắt buộc phải
-     * có kèm; thiếu thì bản tin vẫn được chuyển nhưng phải báo Control Position.
-     * Nguồn dữ liệu do AMHS Component cung cấp.
+     * Phần tử user-visible-string của FTBP.
      */
     @Column(name = "amhs_user_visible_string", length = 512)
     private String amhsUserVisibleString;
@@ -116,46 +103,30 @@ public class Gwout {
 
     /**
      * Current encoded-information-types của IPM gốc (mtcu_tmp.originEncodeInformationType).
-     * EUR Doc 047 §4.4.2.1: chỉ chấp nhận các loại được liệt kê, ngoài ra phải sinh NDR
-     * với diagnostic "encoded-information-types-unsupported".
      */
     @Column(name = "origin_eit", length = 255)
     private String originEit;
 
     /**
      * Content-type abstract-value lấy từ Message Transfer Envelope (mtcu_tmp.contentType).
-     * EUR Doc 047 §4.4.1.1: chỉ chấp nhận interpersonal-messaging-1988(22); các giá trị
-     * khác (ví dụ 2, 35, 0) phải sinh NDR "content-type-not-supported".
      */
     @Column(name = "x400_content_type")
     private Integer x400ContentType;
 
     /**
      * Số body part của IPM gốc (mtcu_tmp.numberOfAttachment).
-     * EUR Doc 047 §4.4.2.2/§4.4.2.4: 1 -> xử lý bình thường; 2 -> chỉ hợp lệ khi là
-     * cặp text + file-transfer-body-part; &gt;2 -> từ chối.
      */
     @Column(name = "number_of_attachment")
     private Integer numberOfAttachment;
 
     /**
-     * Precedence cao nhất trong các recipient "responsible" của Extended IPM
-     * (mtcu_to.precedence). NULL với Basic IPM hoặc khi AMHS Component chưa cung cấp.
-     * <p>
-     * EUR Doc 047 §4.4.3.4.3 / Table 5 và Appendix A CTSW001: với Extended IPM,
-     * {@code amhs_ats_pri} và AMQP priority được suy từ precedence cao nhất chứ không phải từ
-     * ATS-message-priority. CTSW020: giá trị 107 phải được báo Control Position.
+     * Precedence cao nhất trong các recipient "responsible" của Extended IPM.
      */
     @Column(name = "precedence")
     private Integer precedence;
 
     /**
-     * Tham số content-length của Probe (chỉ áp dụng cho X.400 probe, NULL với IPM thường).
-     * EUR Doc 047 §4.4.6.2 / CTSW011: probe khai báo content-length vượt "Maximum message data
-     * size" phải bị từ chối bằng NDR "content-too-long" trước khi chuyển đổi sang AMQP.
-     * <p>
-     * Giá trị do AMHS Component (amss) điền khi chuyển probe sang ITCU; NULL nghĩa là không có
-     * dữ liệu và bước kiểm tra được bỏ qua (cùng quy ước với {@link #x400ContentType}).
+     * Tham số content-length của Probe.
      */
     @Column(name = "content_length")
     private Integer contentLength;
@@ -163,26 +134,26 @@ public class Gwout {
     @Column(name = "body_part_type", length = 50)
     private String bodyPartType;
 
-    /** Repertoire của body part — EUR Doc 047 §4.4.3.4.9: ITA2 / ISO-646 / ISO-8859-1 / ISO-REG-n */
+    /** Repertoire của body part: ITA2 / ISO-646 / ISO-8859-1 / ISO-REG-n */
     @Column(name = "body_part_charset", length = 20)
     private String bodyPartCharset;
 
-    /** FTBP incomplete-pathname — EUR Doc 047 §4.4.3.4.2 Table 4 (amhs_ftbp_file_name) */
+    /** FTBP file name */
     @Column(name = "ftbp_file_name", length = 255)
     private String ftbpFileName;
 
-    /** FTBP actual-values (bytes) — EUR Doc 047 §4.4.3.4.2 Table 4 (amhs_ftbp_object_size) */
+    /** FTBP object size (bytes) */
     @Column(name = "ftbp_object_size", length = 20)
     private String ftbpObjectSize;
 
-    /** FTBP date-and-time-of-last-modification — EUR Doc 047 §4.4.3.4.2 Table 4 (amhs_ftbp_last_mod) */
+    /** FTBP date-and-time-of-last-modification */
     @Column(name = "ftbp_last_mod", length = 20)
     private String ftbpLastMod;
 
     @Column(name = "rejection_reason", length = 64)
     private String rejectionReason;
 
-    /** NDR diagnostic-code — EUR Doc 047 §4.3.1.2(d)/§4.4.8, mirrors message_conversion_log.diagnostic_code */
+    /** NDR diagnostic-code */
     @Column(name = "rejection_diagnostic", length = 64)
     private String rejectionDiagnostic;
 

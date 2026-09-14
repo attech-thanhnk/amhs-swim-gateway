@@ -24,8 +24,7 @@ public interface GwinRepository extends JpaRepository<Gwin, Long> {
     List<Gwin> findByIpmId(String ipmId);
 
     /**
-     * Tra theo MTS-Identifier do MTA cấp lúc submit. Là khoá chính của CTSW114 vì report
-     * tham chiếu bản tin gốc qua MTS-Identifier chứ không qua IPM-Identifier.
+     * Tra theo MTS-Identifier do MTA cấp lúc submit.
      */
     List<Gwin> findByMtsId(String mtsId);
 }

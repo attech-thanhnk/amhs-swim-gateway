@@ -80,16 +80,16 @@ class OutboundDispatchServiceTest {
         when(configService.getInt("RETRY_DELAY_2ND_SECONDS")).thenReturn(120);
         when(configService.getInt("RETRY_DELAY_3RD_SECONDS")).thenReturn(300);
         when(configService.getGatewayId()).thenReturn("ASG-GW-01");
-        // §4.4.2.1: EIT hợp lệ theo mặc định; test nào cần kiểm EIT thì stub lại riêng
+        // EIT hợp lệ theo mặc định
         when(validationService.validateEncodedInformationTypes(any()))
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
-        // §4.4.2.5 (CTSW004): ATS-message-header hợp lệ theo mặc định
+        // ATS-message-header hợp lệ theo mặc định
         when(validationService.validateAtsMessageHeader(any(), any()))
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
-        // §4.4.2.3 (CTSW017/CTSW019): repertoire hợp lệ theo mặc định
+        // repertoire hợp lệ theo mặc định
         when(validationService.validateRepertoire(any(), any()))
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
-        // §4.4.2.3 (CTSW016): body part type hợp lệ theo mặc định; test nào cần thì stub lại riêng
+        // body part type hợp lệ theo mặc định
         when(validationService.validateBodyPartType(anyString()))
                 .thenReturn(new MessageValidationService.ValidationResult(true, List.of()));
     }
@@ -161,7 +161,7 @@ class OutboundDispatchServiceTest {
         // When
         service.processOutboundMessage(gwout);
 
-        // Then (CTSW005): TTL hết hạn -> reject để sinh NDR, không publish
+        // TTL hết hạn -> reject để sinh NDR, không publish
         assertEquals(OutboundStatus.FAILED.getValue(), gwout.getStatus());
         assertEquals("ttl-expired", gwout.getRejectionReason());
         verify(gwoutRepository, atLeastOnce()).save(gwout);
@@ -181,7 +181,7 @@ class OutboundDispatchServiceTest {
         verify(connectionManager).createSession();
     }
 
-    // ==================== CONTENT FORWARDED UNCHANGED (ICAO Doc 047) ====================
+    // ==================== CONTENT FORWARDED UNCHANGED ====================
 
     @Test
     void testForwardsOriginalBody_ShouldTransformSuccessfully() throws Exception {
@@ -200,8 +200,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testNoRuleForRecipient_ShouldRejectAndQueueNdr() {
-        // §4.4.8: recipient đúng khuôn AFTN nhưng không rule OUT nào khai báo địa chỉ đó, tức
-        // không có đích publish. Bản tin phải bị từ chối kèm NDR chứ không im lặng biến mất.
+        // Recipient đúng khuôn AFTN nhưng không có routing rule phù hợp
         when(routingService.findTopicForRecipient(anyString())).thenReturn(Optional.empty());
 
         service.createDispatches(gwout);
@@ -216,8 +215,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testPerRecipientTopic_ShouldCreateDispatchWithItsOwnTopic() {
-        // CTSW009: đích được tra theo ĐỊA CHỈ từng recipient, nên hai recipient cấu hình khác
-        // đích sẽ sinh hai dispatch mang hai topic khác nhau.
+        // Đích được tra theo địa chỉ từng recipient
         gwout.setAddress("VVHHZTZX,VVNBZTZX");
         Routing hcm = new Routing();
         hcm.setRecipients("VVHHZTZX");
@@ -241,8 +239,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testPartiallyRoutableRecipients_ShouldNdrOnlyTheUnroutableOne() {
-        // §4.4.6.5/§4.4.6.6: report của X.400 mang per-recipient-fields nên recipient không tra
-        // được đích chỉ nhận NDR riêng, bản tin vẫn chuyển tới recipient còn lại.
+        // Recipient không tra được đích chỉ nhận NDR riêng, bản tin vẫn chuyển tới recipient hợp lệ
         gwout.setAddress("VVHHZTZX,VVNBZTZX");
         when(routingService.findTopicForRecipient("VVHHZTZX")).thenReturn(Optional.of(routing));
         when(routingService.findTopicForRecipient("VVNBZTZX")).thenReturn(Optional.empty());
@@ -360,12 +357,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testAmqpHeaderPriority_ShouldComeFromSwimPriority() throws Exception {
-        // CTSW001: "Verify the priority, both in the AMQP Application properties (amhs_ats_pri)
-        // and AMQP Header (priority) according to tables 3 and 5".
-        //
-        // Dac ta JMS: gia tri JMSPriority gan len doi tuong Message bi BO QUA khi gui;
-        // send(Message) dung priority cua producer (mac dinh 4). Vi vay priority BAT BUOC phai
-        // di qua tham so cua send(), neu khong moi ban tin ra broker deu mang priority 4.
+        // Gửi priority qua send() và amhs_ats_pri property
         setupValidScenario();
         gwout.setAmhsPriority("KK");
         gwout.setSwimPriority(2);
@@ -397,7 +389,7 @@ class OutboundDispatchServiceTest {
         // When
         service.processOutboundMessage(probe);
 
-        // Then: Should mark as OUT_PUBLISHED and log DR cho từng recipient (CTSW012 §4.4.6.6)
+        // Then: Should mark as OUT_PUBLISHED and log DR cho từng recipient
         assertEquals(OutboundStatus.PUBLISHED.getValue(), probe.getStatus());
         verify(gwoutRepository).save(probe);
         verify(conversionService).logAmhsToSwim(eq(probe), any(), eq("OK"), eq("probe_deliverable: VVHHZTZX"));
@@ -405,8 +397,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testProbeConveyance_MixedRecipients_ShouldGenerateCombinedReport() {
-        // CTSW012: probe tới 2 recipient, chỉ 1 chuyển đổi được sang AF-address.
-        // Kỳ vọng: NDR "unrecognised-OR-name" cho recipient lạ, DR cho recipient hợp lệ.
+        // Probe tới 2 recipient, chỉ 1 chuyển đổi được sang AF-address
         Gwout probe = new Gwout();
         probe.setMsgid(2L);
         probe.setOrigin("VVTSZYYX");
@@ -431,7 +422,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testProbeConveyance_ContentLengthExceedsMax_ShouldGenerateNDR() {
-        // CTSW011 Probe 3 (§4.4.6.2): content-length vượt "Maximum message data size"
+        // content-length vượt max message data size
         Gwout probe = new Gwout();
         probe.setMsgid(2L);
         probe.setOrigin("VVTSZYYX");
@@ -452,7 +443,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testProbeConveyance_TooManyRecipients_ShouldGenerateNDR() {
-        // CTSW011 Probe 5 (§4.4.6.3): số recipient vượt "Maximum message number of recipients"
+        // Số recipient vượt max message number of recipients
         Gwout probe = new Gwout();
         probe.setMsgid(2L);
         probe.setOrigin("VVTSZYYX");
@@ -472,7 +463,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testProbeConveyance_UnsupportedEit_ShouldGenerateNDR() {
-        // CTSW016 (§4.4.6.1): EIT của probe cũng phải được kiểm tra
+        // Kiểm tra EIT của probe
         Gwout probe = new Gwout();
         probe.setMsgid(2L);
         probe.setOrigin("VVTSZYYX");
@@ -505,8 +496,7 @@ class OutboundDispatchServiceTest {
         // When
         service.processOutboundMessage(probe);
 
-        // Then (CTSW013 §4.4.6.4): OUT_FAILED kèm diagnostic "invalid-arguments" và
-        // supplementary-information theo Appendix A
+        // OUT_FAILED kèm diagnostic "invalid-arguments"
         assertEquals(OutboundStatus.FAILED.getValue(), probe.getStatus());
         assertEquals("unknown-originator", probe.getRejectionReason());
         assertEquals("invalid-arguments", probe.getRejectionDiagnostic());
@@ -515,7 +505,7 @@ class OutboundDispatchServiceTest {
                 eq("probe_rejected_unknown-originator: Unknown originator: UNKNOWNX"),
                 eq("invalid-arguments"),
                 eq("unable to convert to AMQP due to unrecognized originator O/R address"));
-        // §3.1.1.1: probe bị từ chối phải được báo Control Position
+        // Báo Control Position khi probe bị từ chối
         verify(alertService).create(anyString(), anyString(), anyString(), eq("gwout"), eq(2L));
     }
 
@@ -532,9 +522,7 @@ class OutboundDispatchServiceTest {
         when(validationService.validateAftnAddress("UNKNOWN", "Recipient")).thenReturn(
             new MessageValidationService.ValidationResult(true, List.of())
         );
-        // "UNKNOWN" chỉ có 7 ký tự -> không phải địa chỉ AFTN hợp lệ nên không chuyển đổi
-        // được sang AF-address (§4.4.6.5), không cần tới whitelist.
-
+        // "UNKNOWN" không phải địa chỉ AFTN 8 ký tự hợp lệ
         // When
         service.processOutboundMessage(probe);
 
@@ -604,12 +592,11 @@ class OutboundDispatchServiceTest {
         verify(gwoutRepository, atLeastOnce()).save(gwout);
     }
 
-    // ==================== ATS-MESSAGE-HEADER (CTSW004) ====================
+    // ==================== ATS-MESSAGE-HEADER ====================
 
     @Test
     void testAtsHeaderSyntaxError_ShouldRejectWithContentSyntaxError() throws Exception {
-        // CTSW004: ATS-message-header sai cú pháp -> không chuyển sang AMQP, sinh NDR
-        // content-syntax-error kèm supplementary-information theo đúng câu chữ của Appendix A.
+        // ATS-message-header sai cú pháp -> sinh NDR content-syntax-error
         setupValidScenario();
         gwout.setAmhsPriority("XX");
         when(validationService.validateAtsMessageHeader(any(), any()))
@@ -628,11 +615,11 @@ class OutboundDispatchServiceTest {
                 contains("ATS-message-header syntax error"), eq("gwout"), eq(1L));
     }
 
-    // ==================== NDR SUPPLEMENTARY-INFORMATION (CTSW006 / CTSW010) ====================
+    // ==================== NDR SUPPLEMENTARY-INFORMATION ====================
 
     @Test
     void testSizeLimitRejection_ShouldCarryContentSizeSupplementaryInfo() {
-        // CTSW006: NDR phải mang "unable to convert to AMQP due to the content size"
+        // NDR mang thông tin content size
         when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
                 .thenReturn(new MessageValidationService.ValidationResult(false,
                         List.of("Message size 200 bytes exceeds maximum 100 bytes (content-too-long)")));
@@ -646,7 +633,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testRecipientsLimitRejection_ShouldCarryRecipientsSupplementaryInfo() {
-        // CTSW010: NDR phải mang "unable to convert to AMQP due to number of recipients"
+        // NDR mang thông tin number of recipients
         when(validationService.validateAmhsToSwim(anyString(), anyString(), any()))
                 .thenReturn(new MessageValidationService.ValidationResult(false,
                         List.of("Recipients count 513 exceeds maximum 512 (too-many-recipients)")));
@@ -660,8 +647,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testTtlExpired_ShouldNotCarrySupplementaryInfo() throws Exception {
-        // CTSW005 chỉ yêu cầu reason-code + diagnostic-code; trước đây code nhét
-        // "unable-to-transfer" (một reason-code) vào ô supplementary-information.
+        // TTL hết hạn sinh NDR maximum-time-expired
         setupValidScenario();
         gwout.setAmhsTtl(LocalDateTime.now().minusHours(1));
 
@@ -670,16 +656,16 @@ class OutboundDispatchServiceTest {
         assertEquals("maximum-time-expired", gwout.getRejectionDiagnostic());
         verify(conversionService).logAmhsToSwimRejected(eq(gwout), eq("ttl_expired"),
                 eq("maximum-time-expired"), isNull());
-        // §3.1.1.1: tình huống ngoài luồng phải được báo Control Position
+        // Báo Control Position
         verify(alertService).create(eq(GwAlert.TYPE_VALIDATION_ERROR), eq(GwAlert.SEV_WARNING),
                 contains("latest-delivery-time exceeded"), eq("gwout"), eq(1L));
     }
 
-    // ==================== CTSW020: báo Control Position ====================
+    // ==================== Báo Control Position ====================
 
     @Test
     void testCTSW020_Precedence107_ShouldNotifyControlPosition() throws Exception {
-        // CTSW020 điện văn 1: Extended IPM, precedence cao nhất 107 -> báo CP, vẫn chuyển tiếp
+        // Precedence cao nhất 107 -> báo Control Position, vẫn chuyển tiếp
         setupValidScenario();
         gwout.setPrecedence(107);
         gwout.setAmhsPriority("SS");
@@ -693,7 +679,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testCTSW020_Precedence14_ShouldNotNotifyControlPosition() throws Exception {
-        // CTSW020 điện văn 4: precedence 14 -> KHÔNG báo CP
+        // Precedence 14 -> không báo Control Position
         setupValidScenario();
         gwout.setPrecedence(14);
         gwout.setAmhsPriority("KK");
@@ -706,7 +692,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testCTSW020_BasicIpmWithSsPriority_ShouldNotifyControlPosition() throws Exception {
-        // CTSW020 điện văn 2: Basic IPM, ATS-message-priority SS -> báo CP
+        // ATS-message-priority SS -> báo Control Position
         setupValidScenario();
         gwout.setPrecedence(null);
         gwout.setAmhsPriority("SS");
@@ -719,7 +705,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testCTSW020_BasicIpmWithDdPriority_ShouldNotNotify() throws Exception {
-        // CTSW020 điện văn 5: priority DD -> KHÔNG báo CP
+        // Priority DD -> không báo Control Position
         setupValidScenario();
         gwout.setAmhsPriority("DD");
 
@@ -728,7 +714,7 @@ class OutboundDispatchServiceTest {
         verify(alertService, never()).create(anyString(), anyString(), anyString(), anyString(), anyLong());
     }
 
-    // ==================== CTSW003 / ghi nhận kết quả vào traffic log ====================
+    // ==================== Ghi nhận kết quả vào traffic log ====================
 
     @Test
     void testCTSW003_DeliveryReportRequested_ShouldLogDrRequest() throws Exception {
@@ -766,7 +752,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testProbeMixedRecipients_ShouldLogBothOutcomes() throws Exception {
-        // CTSW012: ITCU phân loại từng recipient, AMHS Component dựng combined report
+        // Phân loại từng recipient và ghi nhận kết quả
         Gwout probe = new Gwout();
         probe.setMsgid(2L);
         probe.setOrigin("VVTSZYYX");
@@ -786,11 +772,11 @@ class OutboundDispatchServiceTest {
                 eq("probe_unknown_recipient: VVZZZTZX"), eq("unrecognised-OR-name"), isNull());
     }
 
-    // ==================== REPERTOIRE (CTSW017 / CTSW019) ====================
+    // ==================== REPERTOIRE ====================
 
     @Test
     void testRepertoireIta2_ShouldRejectWithUnsupportedBodyPartType() throws Exception {
-        // CTSW017 điện văn 3: ia5-text-body-part với repertoire ita2 -> NDR content-syntax-error
+        // Repertoire ITA2 không hỗ trợ -> NDR content-syntax-error
         setupValidScenario();
         gwout.setBodyPartType("ia5-text-body-part");
         gwout.setBodyPartCharset("ITA2");
@@ -810,7 +796,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testRepertoireNonIso646_RejectedByPolicy_ShouldCarryEitSupplementary() throws Exception {
-        // CTSW019: chính sách nội bộ từ chối repertoire khác ISO 646
+        // Repertoire ngoài ISO 646 bị từ chối
         setupValidScenario();
         gwout.setBodyPartType("general-text-body-part");
         gwout.setBodyPartCharset("ISO-REG-144");
@@ -828,11 +814,11 @@ class OutboundDispatchServiceTest {
                 eq("unable to convert to AMQP due to unsupported encoded-information-types"));
     }
 
-    // ==================== AMQP APPLICATION PROPERTIES (CTSW001) ====================
+    // ==================== AMQP APPLICATION PROPERTIES ====================
 
     @Test
     void testPublish_ShouldSetAmhsSubjectProperty() throws Exception {
-        // CTSW001 (§4.4.3.4.8): amhs_subject phải mang phần tử subject của IPM heading
+        // amhs_subject mang phần tử subject của IPM heading
         setupValidScenario();
         gwout.setSubject("SIGMET VVTS");
 
@@ -855,7 +841,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testPublish_UserVisibleString_ShouldBeSetWhenPresent() throws Exception {
-        // Table 2 / §4.4.3.4.11: amhs_user_visible_string là T1 - gán khi phần tử có mặt
+        // amhs_user_visible_string được gán khi có mặt
         setupValidScenario();
         gwout.setBodyType("ftbp");
         gwout.setBodyPartType("file-transfer-body-part");
@@ -871,8 +857,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testPublish_NonDefaultRegisteredIdWithoutUserVisibleString_ShouldAlertControlPosition() throws Exception {
-        // §4.4.4.6: registered-identifier khác OID mặc định thì user-visible-string bắt buộc.
-        // Thiếu -> vẫn gửi bản tin nhưng phải báo Control Position.
+        // registered-identifier khác OID mặc định thì user-visible-string bắt buộc, thiếu thì cảnh báo
         setupValidScenario();
         gwout.setBodyType("ftbp");
         gwout.setBodyPartType("file-transfer-body-part");
@@ -907,10 +892,7 @@ class OutboundDispatchServiceTest {
     }
 
     @Test
-    void testPublish_UnknownRepertoire_ShouldNotSetContentEncoding() throws Exception {
-        // Table 6: amhs_content_encoding chỉ nhận IA5 / ISO-646 / ISO-8859-1.
-        // Repertoire ISO-REG-n qua được chính sách CTSW019 thì vẫn gửi bản tin nhưng
-        // không gán property với giá trị ngoài Table 6.
+        // Repertoire ngoài danh sách chuẩn không gán amhs_content_encoding
         setupValidScenario();
         gwout.setBodyPartType("general-text-body-part");
         gwout.setBodyPartCharset("ISO-REG-144");
@@ -933,12 +915,11 @@ class OutboundDispatchServiceTest {
         verify(mockTextMessage).setStringProperty("amhs_content_encoding", "ISO-8859-1");
     }
 
-    // ==================== KÍCH THƯỚC PAYLOAD FTBP (CTSW006) ====================
+    // ==================== KÍCH THƯỚC PAYLOAD FTBP ====================
 
     @Test
     void testFtbpPayloadSize_ShouldBeMeasuredAfterBase64Decode() throws Exception {
-        // CTSW006 (c): với FTBP, gwout.text là base64 nên phải giải mã trước khi đo,
-        // nếu không bản tin sát ngưỡng sẽ bị từ chối nhầm.
+        // Với FTBP, gwout.text là base64 nên giải mã trước khi đo kích thước
         setupValidScenario();
         byte[] raw = new byte[300];
         gwout.setBodyType("ftbp");
@@ -961,11 +942,11 @@ class OutboundDispatchServiceTest {
         verify(validationService).validateAmhsToSwim(anyString(), anyString(), eq(10));
     }
 
-    // ==================== BODY PART COUNT (CTSW007) ====================
+    // ==================== BODY PART COUNT ====================
 
     @Test
     void testBodyPartCount_TwoTextBodyParts_ShouldReject() throws Exception {
-        // CTSW007 - điện văn 3: hai body part ia5-text (không có FTBP) -> NDR
+        // Hai body part text (không có FTBP) -> NDR
         setupValidScenario();
         gwout.setNumberOfAttachment(2);
         gwout.setBodyPartType("ia5-text-body-part");
@@ -981,7 +962,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testBodyPartCount_ThreeBodyParts_ShouldReject() throws Exception {
-        // CTSW007 - điện văn 4: ba body part -> NDR "multiple body parts"
+        // Ba body part -> NDR multiple body parts
         setupValidScenario();
         gwout.setNumberOfAttachment(3);
         gwout.setBodyPartType("file-transfer-body-part");
@@ -996,7 +977,7 @@ class OutboundDispatchServiceTest {
 
     @Test
     void testBodyPartCount_TextPlusFtbp_ShouldBeAccepted() throws Exception {
-        // CTSW007 - điện văn 1&2: cặp text + file-transfer-body-part là tổ hợp hợp lệ
+        // Cặp text + file-transfer-body-part là tổ hợp hợp lệ
         setupValidScenario();
         gwout.setNumberOfAttachment(2);
         gwout.setBodyPartType("file-transfer-body-part");
@@ -1018,12 +999,11 @@ class OutboundDispatchServiceTest {
         assertEquals(OutboundStatus.TRANSFORMED.getValue(), gwout.getStatus());
     }
 
-    // ==================== SS -> CONTROL POSITION (CTSW020) ====================
+    // ==================== SS -> CONTROL POSITION ====================
 
     @Test
     void testPrioritySS_ShouldAlertControlPositionButStillForward() throws Exception {
-        // CTSW020 (§4.4.4.4): bản tin SS phải được báo lên Control Position NHƯNG
-        // vẫn tiếp tục chuyển sang SWIM.
+        // Bản tin SS được báo lên Control Position và tiếp tục chuyển tiếp
         setupValidScenario();
         gwout.setAmhsPriority("SS");
 
@@ -1071,7 +1051,7 @@ class OutboundDispatchServiceTest {
         when(session.createTextMessage(anyString())).thenReturn(mockTextMessage);
     }
 
-    // ==================== DELIVERY REPORT (CTSW003) ====================
+    // ==================== DELIVERY REPORT ====================
 
     @Test
     void testCTSW003_DeliveryReportRequested_ShouldRecordDr() throws Exception {
@@ -1108,7 +1088,7 @@ class OutboundDispatchServiceTest {
         verify(conversionService, never()).logAmhsToSwim(any(), any(), any(), eq("dr_requested"));
     }
 
-    // ==================== MTE CONTENT-TYPE (CTSW008) ====================
+    // ==================== MTE CONTENT-TYPE ====================
 
     @Test
     void testCTSW008_Ipm1988_ShouldBeAccepted() throws Exception {
@@ -1163,14 +1143,11 @@ class OutboundDispatchServiceTest {
                 contains("unsupported_content_type"), eq("content-type-not-supported"), isNull());
     }
 
-    // ==================== PROBE: TIÊU CHÍ TRA ĐỊA CHỈ AF (CTSW011/CTSW012) ====================
+    // ==================== PROBE: TIÊU CHÍ TRA ĐỊA CHỈ AF ====================
 
     @Test
     void testProbe_RecipientNotInWhitelist_ShouldStillGetDr() {
-        // §4.4.6.5 xét khả năng chuyển O/R address -> AF-address, xác định được từ chính khuôn
-        // địa chỉ. Trước đây hàm isRecipientKnown hỏi "có trong whitelist / rule IN không", nên
-        // với cấu hình thật (whitelist rỗng, rule IN chỉ có 2 địa chỉ) MỌI recipient khác đều bị
-        // NDR và CTSW011/CTSW012 không thể pass.
+        // Xác định khả năng chuyển đổi O/R address -> AF-address từ định dạng địa chỉ
         Gwout probe = new Gwout();
         probe.setMsgid(2L);
         probe.setOrigin("VVTSZYYX");
@@ -1218,7 +1195,7 @@ class OutboundDispatchServiceTest {
                 eq("probe_unknown_recipient: VVCIZTZX"), eq("unrecognised-OR-name"), isNull());
     }
 
-    // ==================== NDR CHO RECIPIENT SAI KHUÔN (§4.4.8) ====================
+    // ==================== NDR CHO RECIPIENT SAI KHUÔN ====================
 
     @Test
     void testCreateDispatches_InvalidRecipient_ShouldNdrItButStillDeliverToOthers() throws Exception {
@@ -1265,7 +1242,7 @@ class OutboundDispatchServiceTest {
                 eq("unrecognised-OR-name"), isNull());
     }
 
-    // ==================== NDR CHO CÁC NHÁNH LỖI CÒN LẠI (§4.4.8) ====================
+    // ==================== NDR CHO CÁC NHÁNH LỖI CÒN LẠI ====================
 
     @Test
     void testUnauthorizedOriginator_ShouldQueueNdr() throws Exception {
@@ -1310,7 +1287,7 @@ class OutboundDispatchServiceTest {
                 contains("VVDNZTZX"), any(), any());
     }
 
-    // ==================== THỨ TỰ CHUẨN HOÁ BODY PART TYPE (CTSW007) ====================
+    // ==================== THỨ TỰ CHUẨN HOÁ BODY PART TYPE ====================
 
     @Test
     void testBodyPartCount_RawCode403PlusText_ShouldBeAccepted() throws Exception {
@@ -1340,21 +1317,19 @@ class OutboundDispatchServiceTest {
         service.processOutboundMessage(gwout);
         service.processDispatch(dispatch);
 
-        // §4.4.3.4.7 originator, §4.4.3.4.4 recipients, §4.4.3.4.1 IPM-Identifier
+        // Originator, recipients, IPM-Identifier, priority, filing-time, OHI
         verify(mockTextMessage).setStringProperty("amhs_originator", "VVTSZYYX");
         verify(mockTextMessage).setStringProperty("amhs_recipients", "VVHHZTZX");
         verify(mockTextMessage).setStringProperty("amhs_ipm_id", "IPM-2026-0001");
-        // §4.4.3.4.3 priority, §4.4.3.4.5 filing-time (CTSW001), §4.4.3.4.6 OHI (CTSW002)
         verify(mockTextMessage).setStringProperty("amhs_ats_pri", "FF");
         verify(mockTextMessage).setStringProperty("amhs_ats_ft", "121200");
         verify(mockTextMessage).setStringProperty("amhs_ats_ohi", "OHI-123");
-        // §4.4.3.4.10
         verify(mockTextMessage).setStringProperty("amhs_message_signed", "unsigned");
     }
 
     @Test
     void testPublish_MultipleRecipients_ShouldJoinIntoOneAmhsRecipients() throws Exception {
-        // §4.4.3.4.4: 1 IPM AMHS chỉ sinh 1 message AMQP, amhs_recipients liệt kê đủ recipient
+        // amhs_recipients liệt kê đủ danh sách recipient
         setupValidScenario();
         GwoutDispatch second = new GwoutDispatch();
         second.setId(101L);
@@ -1370,14 +1345,11 @@ class OutboundDispatchServiceTest {
         verify(mockProducer, times(1)).send(any(), anyInt(), anyInt(), anyLong());
     }
 
-    // ==================== CTSW009: LOẠI RECIPIENT ====================
+    // ==================== LOẠI RECIPIENT ====================
 
     @Test
     void testCTSW009_CopyAndBlindCopyRecipients_ShouldBeTreatedAsPrimary() throws Exception {
-        // §4.4.3.4.4: "The use of CC recipients and BCC recipients should be avoided. If these
-        // elements are present in an AMHS IPM, they shall be handled as primary recipients."
-        // ITCU không phân biệt loại recipient: mọi địa chỉ trong gwout.address đều vào
-        // amhs_recipients và đều được tạo dispatch như nhau.
+        // CC và BCC recipients được xử lý như primary recipients
         setupValidScenario();
         gwout.setAddress("VVHHZTZX,VVDNZTZX,VVCIZTZX"); // primary, copy, blind-copy
 

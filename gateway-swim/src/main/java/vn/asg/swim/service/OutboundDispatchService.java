@@ -26,7 +26,7 @@ import java.util.List;
 @Slf4j
 public class OutboundDispatchService {
 
-    /** Abstract-value X.400 của content-type duy nhất được chấp nhận (EUR Doc 047 §4.4.1.1). */
+    /** Abstract-value X.400 của content-type duy nhất được chấp nhận. */
     private static final int IPM_1988_CONTENT_TYPE = 22;
 
     private final ConnectionManagerService connectionManager;
@@ -40,17 +40,7 @@ public class OutboundDispatchService {
     private final GwoutRepository gwoutRepository;
 
     /**
-     * Từ chối bản tin cho TOÀN BỘ recipient: cập nhật trạng thái, ghi traffic log và báo
-     * Control Position.
-     * <p>
-     * ITCU KHÔNG sinh AMHS report ở đây. Việc phát DR/NDR ra đường truyền X.400 cho chiều
-     * AMHS → SWIM do AMHS Component đảm nhiệm trọn vẹn - đã xác nhận report về tới giao diện
-     * AMHS. Tiêu chí chấm của Appendix A cho các test case này ("the IUT returns a DR/NDR")
-     * kiểm tra ở giao diện AMHS, và không test case nào trong nhóm đó đặt yêu cầu với
-     * Control Position.
-     * <p>
-     * Bộ ba (reason-code, diagnostic-code, supplementary-information) vẫn được ghi vào
-     * {@code gwout} và traffic log để Control Position tra cứu được bản tin bị từ chối.
+     * Từ chối bản tin cho toàn bộ recipient: cập nhật trạng thái, ghi traffic log và cảnh báo.
      *
      * @param alertMessage nội dung cảnh báo gửi Control Position, null nếu nhánh này không báo
      */
@@ -69,12 +59,7 @@ public class OutboundDispatchService {
     }
 
     /**
-     * Ghi traffic log cho MỘT recipient không chuyển giao được, bản tin vẫn đi tới các recipient
-     * còn lại.
-     * <p>
-     * Doc 9880 §4.5.2.4.11 dùng chung non-delivery-diagnostic-code {@code unrecognised-OR-name}
-     * cho cả địa chỉ sai khuôn lẫn địa chỉ không tra được đích publish; {@code actionTaken} phân
-     * biệt hai nguyên nhân trong traffic log để Control Position truy được.
+     * Ghi traffic log cho recipient không chuyển giao được.
      */
     private void logRecipientUndeliverable(Gwout gwout, String recipient, String actionTaken) {
         final String supplementary = "unable to convert to AMQP due to unrecognized recipient O/R address";
@@ -83,9 +68,7 @@ public class OutboundDispatchService {
     }
 
     /**
-     * Thực hiện kiểm tra, phân tích bản tin AMHS và chuyển tiếp nguyên văn sang SWIM.
-     * Trạng thái sau khi hoàn tất sẽ được đặt thành TRANSFORMED (2) hoặc FAILED
-     * (5).
+     * Kiểm tra bản tin AMHS và chuyển tiếp sang SWIM.
      */
     @Transactional
     public void processOutboundMessage(Gwout gwout) {
@@ -101,7 +84,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        // CTSW011 - CTSW013: Phát hiện bản tin Probe từ AMHS
+        // Phát hiện bản tin Probe từ AMHS
         boolean isProbe = "probe".equalsIgnoreCase(gwout.getBodyType()) || "PROBE".equalsIgnoreCase(gwout.getText());
         if (isProbe) {
             log.info("Processing AMHS Probe for gwout#{}", gwout.getMsgid());
@@ -109,24 +92,18 @@ public class OutboundDispatchService {
             return;
         }
 
-        // CTSW008 (§4.4.1.1): content-type của Message Transfer Envelope phải là
-        // interpersonal-messaging-1988(22). Mọi giá trị khác - kể cả
-        // interpersonal-messaging-1984(2), edi-messaging(35), unidentified(0) - phải bị từ chối.
-        // NULL = bản tin cũ không có dữ liệu content-type -> bỏ qua bước kiểm tra.
+        // Kiểm tra X.400 content-type (IPM 1988)
         Integer x400ContentType = gwout.getX400ContentType();
         if (x400ContentType != null && x400ContentType != IPM_1988_CONTENT_TYPE) {
             log.warn("gwout#{} rejected: content-type {} khác interpersonal-messaging-1988(22)",
                     gwout.getMsgid(), x400ContentType);
-            // CTSW008 chỉ yêu cầu non-delivery-reason-code + non-delivery-diagnostic-code.
             rejectMessage(gwout, "unsupported-content-type", "content-type-not-supported", null,
                     "unsupported_content_type: " + x400ContentType,
                     "gwout#" + gwout.getMsgid() + " rejected: unsupported content-type " + x400ContentType);
             return;
         }
 
-        // CTSW006 (§4.4.2.6): so sánh với "Maximum message data size" phải dùng kích thước THẬT
-        // của payload. Với file-transfer-body-part, gwout.text chứa dữ liệu đã base64-encode nên
-        // dài hơn dữ liệu gốc khoảng 33% - phải giải mã trước khi đo.
+        // Kiểm tra kích thước payload
         MessageValidationService.ValidationResult dirResult = validationService.validateAmhsToSwim(gwout.getText(),
                 gwout.getAddress(), payloadByteSize(gwout));
         if (!dirResult.isValid()) {
@@ -139,8 +116,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        // CTSW004 (§4.4.2.5): ATS-message-header phải có priority và filing-time hợp lệ,
-        // nếu sai cú pháp thì từ chối và sinh NDR content-syntax-error.
+        // Kiểm tra ATS-message-header
         MessageValidationService.ValidationResult headerResult =
                 validationService.validateAtsMessageHeader(gwout.getAmhsPriority(), gwout.getFilingTime());
         if (!headerResult.isValid()) {
@@ -156,9 +132,6 @@ public class OutboundDispatchService {
 
         if (!authorizationService.isAmhsUserAuthorized(gwout.getOrigin())) {
             log.warn("gwout#{} REJECTED: AMHS originator '{}' not authorized", gwout.getMsgid(), gwout.getOrigin());
-            // §4.4.8: ITCU không chuyển giao được thì người gửi X.400 phải nhận NDR. Trước đây
-            // nhánh này chỉ đặt status=FAILED nên bản tin biến mất khỏi cả hai phía mà bên gửi
-            // không nhận được gì.
             rejectMessage(gwout, "unauthorized-originator", "unrecognised-OR-name",
                     "unable to convert to AMQP due to unrecognized originator O/R address",
                     "unauthorized_originator: " + gwout.getOrigin(),
@@ -167,7 +140,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        // CTSW016 (§4.4.2.1): kiểm current encoded-information-types TRƯỚC các bước sau.
+        // Kiểm tra encoded-information-types
         MessageValidationService.ValidationResult eitTypeResult =
                 validationService.validateEncodedInformationTypes(gwout.getOriginEit());
         if (!eitTypeResult.isValid()) {
@@ -178,11 +151,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        // Chuẩn hoá mã số thô của bodyPartType TRƯỚC mọi bước so sánh bên dưới.
-        // AmhsToGwoutSyncScheduler đã chuẩn hoá cho bản tin đi qua đường đồng bộ mtcu_tmp, nhưng
-        // gwout còn có nguồn khác (amss ghi thẳng vào bảng cho Probe - xem gwout.body_type/
-        // content_length). Nếu để nguyên mã "403", phép so sánh với "file-transfer-body-part" ở
-        // bước đếm body part sẽ không khớp và cặp text+FTBP hợp lệ của CTSW007 bị từ chối nhầm.
+        // Chuẩn hoá bodyPartType
         if (gwout.getBodyPartType() != null) {
             String rawType = gwout.getBodyPartType().trim();
             if ("401".equals(rawType)) {
@@ -194,20 +163,13 @@ public class OutboundDispatchService {
             }
         }
 
-        // CTSW007 (§4.4.2.2 / §4.4.2.4): kiểm tra số lượng body part của IPM gốc.
-        //   1 body part  -> xử lý bình thường
-        //   2 body part  -> chỉ hợp lệ khi là cặp text + file-transfer-body-part (§4.4.2.4a)
-        //   > 2body part -> từ chối (§4.4.2.2c)
+        // Kiểm tra số lượng body part
         Integer bodyPartCount = gwout.getNumberOfAttachment();
         if (bodyPartCount != null && bodyPartCount > 1) {
             String supplementary = null;
             if (bodyPartCount > 2) {
                 supplementary = "unable to convert to AMQP due to multiple body parts";
             } else if (!"file-transfer-body-part".equals(gwout.getBodyPartType())) {
-                // Đúng 2 body part nhưng không có FTBP -> không phải cặp text+FTBP hợp lệ.
-                // Appendix A/CTSW007 (bản tin thứ 3) quy định chuỗi supplementary-information
-                // là "unsupported body part type"; §4.4.2.4 của EUR Doc 047 dùng chữ
-                // "unsupported combination of body part types". Theo tài liệu kiểm thử.
                 supplementary = "unable to convert to AMQP due to unsupported body part type";
             }
             if (supplementary != null) {
@@ -220,7 +182,7 @@ public class OutboundDispatchService {
             }
         }
 
-        // CTSW016: Kiểm thử EIT/Body Part Type của bản tin đi (giá trị đã được chuẩn hoá ở trên)
+        // Kiểm tra body part type
         if (gwout.getBodyPartType() != null) {
             MessageValidationService.ValidationResult eitResult = validationService.validateBodyPartType(gwout.getBodyPartType());
             if (!eitResult.isValid()) {
@@ -233,9 +195,7 @@ public class OutboundDispatchService {
             }
         }
 
-        // CTSW017 (§4.4.2.3): ia5-text-body-part có repertoire ita2 không nằm trong Table 6 -> từ chối.
-        // CTSW019 (§4.4.2.3): general-text-body-part có repertoire khác ISO 646 -> theo chính sách
-        // nội bộ của AMHS Management Domain (cấu hình ALLOW_NON_ISO646_REPERTOIRE).
+        // Kiểm tra repertoire
         MessageValidationService.ValidationResult repertoireResult =
                 validationService.validateRepertoire(gwout.getBodyPartType(), gwout.getBodyPartCharset());
         if (!repertoireResult.isValid()) {
@@ -249,39 +209,32 @@ public class OutboundDispatchService {
             return;
         }
 
-        // CTSW005: Generate NDR if current time exceeds latest delivery time (amhsTtl)
+        // Kiểm tra TTL
         if (gwout.getAmhsTtl() != null && gwout.getAmhsTtl().isBefore(LocalDateTime.now())) {
             log.warn("gwout#{} TTL expired (latest-delivery-time exceeded)", gwout.getMsgid());
-            // CTSW005 chỉ yêu cầu non-delivery-reason-code + non-delivery-diagnostic-code,
-            // không yêu cầu supplementary-information.
             rejectMessage(gwout, "ttl-expired", "maximum-time-expired", null, "ttl_expired",
                     "gwout#" + gwout.getMsgid() + " rejected: latest-delivery-time exceeded ("
                             + gwout.getAmhsTtl() + ")");
             return;
         }
 
-        // CTSW020 (§4.4.4.4): phải log và báo Control Position khi recipient có responsibility
-        // "responsible" VÀ một trong hai điều kiện sau, NHƯNG bản tin vẫn được chuyển sang SWIM:
-        //   - Extended IPM: precedence cao nhất của recipient-extensions bằng 107, hoặc
-        //   - Basic IPM: priority-indicator bằng "SS".
-        // gwout.address đã được AmhsToGwoutSyncScheduler lọc chỉ còn recipient "responsible"
-        // khi AMHS Component cung cấp cột mtcu_to.responsibility (§4.4.3.4.4).
+        // Cảnh báo Control Position nếu bản tin có độ ưu tiên cao nhất (SS / precedence 107)
         Integer precedence = gwout.getPrecedence();
         boolean ssByPrecedence = precedence != null && precedence == AmqpProperties.PRECEDENCE_SS;
         boolean ssByPriority = precedence == null && "SS".equalsIgnoreCase(gwout.getAmhsPriority());
         if (ssByPrecedence || ssByPriority) {
             String basis = ssByPrecedence ? "precedence 107" : "ATS-message-priority SS";
-            log.warn("gwout#{}: bản tin ưu tiên cao nhất ({}) - báo Control Position (§4.4.4.4)",
+            log.warn("gwout#{}: bản tin ưu tiên cao nhất ({}) - báo Control Position",
                     gwout.getMsgid(), basis);
             alertService.create(
                     GwAlert.TYPE_VALIDATION_ERROR, GwAlert.SEV_WARNING,
                     "gwout#" + gwout.getMsgid() + ": bản tin AMHS ưu tiên cao nhất (" + basis
                             + ") gửi tới " + gwout.getAddress()
-                            + " - cần Control Position xử lý (§4.4.4.4)",
+                            + " - cần Control Position xử lý",
                     "gwout", gwout.getMsgid());
         }
 
-        // Giữ nguyên nội dung bản tin gốc, không convert theo chiều nào (theo ICAO Doc 047)
+        // Chuyển tiếp bản tin
         try {
             gwout.setStatus(OutboundStatus.TRANSFORMED.getValue());
             if (gwout.getAmhsPriority() != null) {
@@ -291,19 +244,14 @@ public class OutboundDispatchService {
             conversionService.logAmhsToSwim(gwout, null, "OK", "forwarded_unchanged");
             log.info("gwout#{} forwarded unchanged -> status=OUT_TRANSFORMED", gwout.getMsgid());
 
-            // CTSW003: per-recipient-indicators có yêu cầu Delivery Report. Cờ được
-            // AmhsToGwoutSyncScheduler tính sẵn từ mtcu_to.reportRequest/mtaReportRequest.
-            // Việc PHÁT DR ra đường truyền X.400 do AMHS Component đảm nhiệm; ở đây chỉ ghi
-            // traffic log để Control Position tra cứu được.
+            // Ghi log nếu có yêu cầu Delivery Report
             if (Boolean.TRUE.equals(gwout.getAmhsDeliveryReport())) {
-                log.info("gwout#{} có yêu cầu Delivery Report (CTSW003) - AMHS Component phát DR",
+                log.info("gwout#{} có yêu cầu Delivery Report - AMHS Component phát DR",
                         gwout.getMsgid());
                 conversionService.logAmhsToSwim(gwout, null, "OK", "dr_requested");
             }
         } catch (Exception e) {
             log.error("gwout#{} processing failed: {}", gwout.getMsgid(), e.getMessage());
-            // Không gán non-delivery-diagnostic-code: lỗi nội bộ của ITCU không tương ứng với
-            // giá trị nào trong bảng liệt kê của Doc 9880 §4.5.2.4.11.
             rejectMessage(gwout, "processing-failed", null, null,
                     "processing_failed: " + e.getMessage(),
                     "gwout#" + gwout.getMsgid() + " xử lý thất bại: " + e.getMessage());
@@ -311,8 +259,7 @@ public class OutboundDispatchService {
     }
 
     /**
-     * Xử lý bản ghi phân phối tin đi từ hàng đợi (chỉ thực hiện publish dữ liệu đã
-     * chuyển tiếp).
+     * Xử lý bản ghi phân phối tin đi từ hàng đợi.
      */
     @Transactional
     public void processDispatch(GwoutDispatch dispatch) {
@@ -323,7 +270,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        // Đọc nội dung bản tin gốc (không convert theo chiều nào, theo ICAO Doc 047)
+        // Đọc nội dung bản tin gốc
         String payloadContent = gwout.getText();
         if (payloadContent == null || payloadContent.isBlank()) {
             handleFailure(dispatch, GwoutDispatch.STEP_PUBLISH,
@@ -337,9 +284,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        // EUR Doc 047 §4.4.3.4.4: 1 IPM AMHS chỉ sinh ra 1 message AMQP duy nhất.
-        // Gộp mọi dispatch cùng gwout + cùng topic còn sẵn sàng xử lý vào 1 lần publish,
-        // amhs_recipients chứa danh sách đầy đủ (phân cách dấu phẩy) thay vì gửi trùng N lần.
+        // Gộp các dispatch cùng topic để publish một lần
         LocalDateTime now = LocalDateTime.now();
         List<GwoutDispatch> group = gwoutDispatchRepository.findByGwoutId(gwout.getMsgid()).stream()
                 .filter(d -> dispatch.getTopic().equals(d.getTopic()))
@@ -351,7 +296,7 @@ public class OutboundDispatchService {
         boolean stillEligible = group.stream()
                 .anyMatch(d -> java.util.Objects.equals(d.getId(), dispatch.getId()));
         if (!stillEligible) {
-            return; // Đã được publish gộp bởi 1 dispatch anh em khác trong cùng batch
+            return;
         }
 
         String combinedRecipients = group.stream()
@@ -392,7 +337,6 @@ public class OutboundDispatchService {
 
     /**
      * Gửi bản tin lên AMQP broker và giải phóng tài nguyên khi hoàn tất.
-     * Trả về AMQP message-id do broker/SWIM component sinh ra (§4.4.3.3.1).
      */
     private String publish(Gwout gwout, String topic, String recipient,
             String body, String contentType) throws JMSException {
@@ -417,7 +361,6 @@ public class OutboundDispatchService {
                 message = session.createTextMessage(body);
             }
 
-            // EUR Doc 047 v3.0 §4.4.3.3.3: content-type chỉ được text/plain;charset="utf-8" hoặc application/octet-stream
             String ct = contentType != null ? contentType
                     : ("ftbp".equalsIgnoreCase(gwout.getBodyType()) ? "application/octet-stream" : "text/plain; charset=\"utf-8\"");
             message.setStringProperty("JMS_AMQP_CONTENT_TYPE", ct);
@@ -428,7 +371,6 @@ public class OutboundDispatchService {
             if (recipient != null) {
                 message.setStringProperty("amhs_recipients", recipient);
             }
-            // EUR Doc 047 §4.4.3.4.1: amhs_ipm_id chứa IPM-Identifier, không phải MTS-Identifier (amhsid)
             if (gwout.getIpmId() != null) {
                 message.setStringProperty("amhs_ipm_id", gwout.getIpmId());
             }
@@ -441,18 +383,13 @@ public class OutboundDispatchService {
             if (gwout.getOptionalHeading() != null) {
                 message.setStringProperty("amhs_ats_ohi", gwout.getOptionalHeading());
             }
-            // EUR Doc 047 §4.4.3.4.8: amhs_subject mang phần tử subject của IPM heading (CTSW001)
             if (gwout.getSubject() != null && !gwout.getSubject().isBlank()) {
                 message.setStringProperty("amhs_subject", gwout.getSubject());
             }
-            // EUR Doc 047 Table 7 §4.4.3.4.9: dùng body part type đã chuẩn hóa (có thể là
-            // general-text-body-part), không tự ý suy giảm về ia5-text-body-part từ bodyType thô
             String bodyPartType = gwout.getBodyPartType() != null ? gwout.getBodyPartType()
                     : ("ftbp".equalsIgnoreCase(gwout.getBodyType()) ? "file-transfer-body-part" : "ia5-text-body-part");
             message.setStringProperty("amhs_bodypart_type", bodyPartType);
             if ("file-transfer-body-part".equals(bodyPartType)) {
-                // EUR Doc 047 §4.4.3.4.2 Table 4: các property FTBP là T1 (conditionally translated) —
-                // chỉ gán khi biết dữ liệu thật (từ Gwout.ftbp*, nếu nguồn AMHS đã cung cấp), không bịa giá trị
                 if (gwout.getFtbpFileName() != null) {
                     message.setStringProperty("amhs_ftbp_file_name", gwout.getFtbpFileName());
                 }
@@ -462,18 +399,12 @@ public class OutboundDispatchService {
                 if (gwout.getFtbpLastMod() != null) {
                     message.setStringProperty("amhs_ftbp_last_mod", gwout.getFtbpLastMod());
                 }
-                // Table 2 §4.4.3.4.10: amhs_registered_identifier là T1 - ánh xạ từ phần tử
-                // registered-identifier khi có, vắng mặt thì không gán property.
                 if (gwout.getAmhsRegisteredId() != null) {
                     message.setStringProperty("amhs_registered_identifier", gwout.getAmhsRegisteredId());
                 }
-                // Table 2 §4.4.3.4.11: amhs_user_visible_string là T1 - ánh xạ từ phần tử
-                // user-visible-string khi có.
                 if (gwout.getAmhsUserVisibleString() != null) {
                     message.setStringProperty("amhs_user_visible_string", gwout.getAmhsUserVisibleString());
                 }
-                // §4.4.4.6: registered-identifier khác OID mặc định thì user-visible-string bắt buộc
-                // phải có kèm. Thiếu thì vẫn gửi bản tin đi nhưng phải báo Control Position.
                 if (gwout.getAmhsRegisteredId() != null
                         && !AmqpProperties.isDefaultRegisteredIdentifier(gwout.getAmhsRegisteredId())
                         && gwout.getAmhsUserVisibleString() == null) {
@@ -483,8 +414,7 @@ public class OutboundDispatchService {
                             GwAlert.TYPE_VALIDATION_ERROR,
                             GwAlert.SEV_WARNING,
                             "gwout#" + gwout.getMsgid() + ": amhs_registered_identifier '"
-                                    + gwout.getAmhsRegisteredId() + "' khác OID mặc định nhưng thiếu "
-                                    + "amhs_user_visible_string (§4.4.4.6)",
+                                    + gwout.getAmhsRegisteredId() + "' khác OID mặc định nhưng thiếu amhs_user_visible_string",
                             "gwout", gwout.getMsgid());
                 }
             } else if ("ia5-text".equals(bodyPartType) || "ia5-text-body-part".equals(bodyPartType)) {
@@ -570,9 +500,7 @@ public class OutboundDispatchService {
                     : OutboundStatus.FAILED.getValue());
             gwoutRepository.save(gwout);
 
-            // Hết retry mà vẫn không publish được: ghi traffic log cho từng recipient DEAD để
-            // Control Position truy được. Recipient đã SENT vẫn coi là chuyển giao thành công.
-            // Việc trả NDR về người gửi X.400 do AMHS Component đảm nhiệm.
+            // Ghi log lỗi cho các recipient không gửi được
             for (String recipient : deadRecipients) {
                 conversionService.logAmhsToSwimRejected(gwout,
                         "undeliverable: " + recipient, null,
@@ -615,10 +543,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        // Tách recipient hợp lệ khỏi recipient không chuyển đổi được sang địa chỉ AF.
-        // §4.4.8: recipient bị loại phải nhận NDR riêng chứ không được bỏ im lặng — cùng cơ chế
-        // per-recipient mà nhánh probe đã áp dụng cho CTSW012. Trước đây chỗ này chỉ log.warn
-        // nên bản tin vẫn đi nhưng thiếu người nhận và không để lại dấu vết nào.
+        // Tách recipient hợp lệ khỏi recipient không hợp lệ
         List<String> recipients = new java.util.ArrayList<>();
         List<String> unconvertible = new java.util.ArrayList<>();
         for (String raw : address.split("[,\\s]+")) {
@@ -644,11 +569,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        // Tra đích publish theo ĐỊA CHỈ của từng recipient. EUR Doc 047 Appendix A §2.2 xác định
-        // các AMQP consumer là "configuration parameters which are jointly set up", còn CTSW009
-        // kiểm tra việc phân phối dựa trên địa chỉ recipient - không dựa trên nội dung bản tin.
-        // Mỗi recipient có thể ra một topic khác nhau; processDispatch() gom lại theo
-        // (gwout, topic) nên một IPM vẫn chỉ sinh một message AMQP cho mỗi topic (§4.4.3.4.4).
+        // Tra topic publish theo từng địa chỉ recipient
         java.util.LinkedHashMap<String, String> topicByRecipient = new java.util.LinkedHashMap<>();
         List<String> unroutable = new java.util.ArrayList<>();
         for (String recipient : recipients) {
@@ -672,10 +593,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        // NDR cho từng recipient không chuyển giao được - địa chỉ sai khuôn AFTN, hoặc đúng khuôn
-        // nhưng không có rule định tuyến nào khai báo. Bản tin vẫn đi tới các recipient còn lại
-        // (§4.4.6.5/§4.4.6.6 - report của X.400 mang per-recipient-fields nên DR và NDR cùng tồn
-        // tại trong một report).
+        // Ghi log cho từng recipient không chuyển giao được
         List<String> undeliverable = new java.util.ArrayList<>(unconvertible);
         undeliverable.addAll(unroutable);
         if (!undeliverable.isEmpty()) {
@@ -709,17 +627,6 @@ public class OutboundDispatchService {
                 topicByRecipient.size(), new java.util.LinkedHashSet<>(topicByRecipient.values()));
     }
 
-    /**
-     * Kích thước thật của payload tính bằng byte, dùng cho phép so sánh với "Maximum message
-     * data size" (EUR Doc 047 §4.4.2.6 / CTSW006).
-     * <p>
-     * Với file-transfer-body-part, nội dung nhị phân được lưu base64 trong {@code gwout.text}
-     * (xem {@link #publish}); đo trực tiếp trên chuỗi sẽ phồng khoảng 33% và có thể từ chối nhầm
-     * bản tin nằm sát ngưỡng. Trả về null khi không có payload để validator tự xử lý.
-     */
-    /**
-     * EUR Doc 047 Table 6 / §4.4.3.4.9: các giá trị hợp lệ của amhs_content_encoding.
-     */
     private boolean isTable6ContentEncoding(String charset) {
         return "IA5".equals(charset) || "ISO-646".equals(charset) || "ISO-8859-1".equals(charset);
     }
@@ -733,7 +640,6 @@ public class OutboundDispatchService {
             try {
                 return java.util.Base64.getDecoder().decode(body).length;
             } catch (IllegalArgumentException e) {
-                // Không phải base64 hợp lệ -> nội dung đã là dữ liệu thô, đo trực tiếp
                 log.debug("gwout#{} body_type=ftbp nhưng text không phải base64, đo kích thước trực tiếp",
                         gwout.getMsgid());
             }
@@ -742,8 +648,7 @@ public class OutboundDispatchService {
     }
 
     /**
-     * Suy ra non-delivery-diagnostic-code theo ma trận EUR Doc 047 §4.4.2.6/§4.4.2.7
-     * từ thông báo lỗi của MessageValidationService (đã gắn sẵn mã chẩn đoán trong ngoặc).
+     * Suy ra non-delivery-diagnostic-code từ thông báo lỗi.
      */
     private String ndrDiagnosticFor(String errorMessage) {
         if (errorMessage == null) return null;
@@ -753,9 +658,7 @@ public class OutboundDispatchService {
     }
 
     /**
-     * Suy ra supplementary-information của NDR theo Appendix A:
-     * CTSW006 (vượt "Maximum message data size") và CTSW010 (vượt "Maximum message
-     * number of recipients") đều bắt buộc NDR mang đúng chuỗi mô tả tương ứng.
+     * Suy ra supplementary-information của NDR.
      */
     private String ndrSupplementaryFor(String errorMessage) {
         if (errorMessage == null) return null;
@@ -765,11 +668,10 @@ public class OutboundDispatchService {
     }
 
     /**
-     * CTSW011 - CTSW013: Xử lý bản tin Probe nhận từ AMHS.
+     * Xử lý bản tin Probe nhận từ AMHS.
      */
     private void processAmhsProbe(Gwout gwout) {
-        // 1. CTSW013 (§4.4.6.4): originator không chuyển đổi được sang AF-address -> từ chối
-        //    probe cho TOÀN BỘ recipient.
+        // 1. Kiểm tra originator
         String originator = gwout.getOrigin();
         if (!authorizationService.isAmhsUserAuthorized(originator)) {
             rejectProbe(gwout, "Unknown originator: " + originator, "unknown-originator",
@@ -785,7 +687,7 @@ public class OutboundDispatchService {
         }
         String[] recipientArray = recipients.trim().split("[,\\s]+");
 
-        // 2. CTSW016 (§4.4.6.1): current encoded-information-types của probe cũng phải hợp lệ.
+        // 2. Kiểm tra EIT của probe
         MessageValidationService.ValidationResult eitResult =
                 validationService.validateEncodedInformationTypes(gwout.getOriginEit());
         if (!eitResult.isValid()) {
@@ -794,8 +696,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        // 3. CTSW011 Probe 3 (§4.4.6.2): content-length khai báo trong probe vượt
-        //    "Maximum message data size" -> NDR content-too-long.
+        // 3. Kiểm tra kích thước payload probe
         Integer contentLength = gwout.getContentLength();
         if (contentLength != null) {
             int maxSize = configService.getMaxMsgDataSize();
@@ -808,7 +709,7 @@ public class OutboundDispatchService {
             }
         }
 
-        // 4. CTSW011 Probe 4/5 (§4.4.6.3): số recipient vượt "Maximum message number of recipients".
+        // 4. Kiểm tra số lượng recipient
         int maxRecipients = configService.getMaxMsgRecipients();
         if (maxRecipients > 0 && recipientArray.length > maxRecipients) {
             rejectProbe(gwout,
@@ -819,9 +720,7 @@ public class OutboundDispatchService {
             return;
         }
 
-        // 5. CTSW012: xét TỪNG recipient để ghi traffic log riêng cho recipient chuyển đổi được
-        //    và recipient không chuyển đổi được sang AF-address. Combined report (DR cho
-        //    recipient hợp lệ + NDR cho recipient còn lại) do AMHS Component dựng và phát.
+        // 5. Kiểm tra tính hợp lệ của từng recipient
         List<String> deliverable = new java.util.ArrayList<>();
         List<String> undeliverable = new java.util.ArrayList<>();
         for (String recipient : recipientArray) {
@@ -833,7 +732,7 @@ public class OutboundDispatchService {
             }
         }
 
-        // Ghi traffic log theo từng recipient để Control Position tra được kết quả probe.
+        // Ghi traffic log theo từng recipient
         for (String recipient : deliverable) {
             conversionService.logAmhsToSwim(gwout, null, "OK", "probe_deliverable: " + recipient);
         }
@@ -857,8 +756,6 @@ public class OutboundDispatchService {
             gwout.setRejectionDiagnostic("unrecognised-OR-name");
         }
 
-        // Probe được coi là xử lý xong khi có ít nhất một recipient nhận DR; nếu mọi recipient
-        // đều bị từ chối thì probe thất bại hoàn toàn.
         gwout.setStatus(deliverable.isEmpty()
                 ? OutboundStatus.FAILED.getValue()
                 : OutboundStatus.PUBLISHED.getValue());
@@ -870,9 +767,7 @@ public class OutboundDispatchService {
     }
 
     /**
-     * Từ chối probe cho toàn bộ recipient: log traffic và báo Control Position
-     * (§3.1.1.1 - probe không được chuyển sang SWIM nhưng phải được log và báo CP).
-     * Việc phát NDR ra đường truyền X.400 do AMHS Component đảm nhiệm.
+     * Từ chối probe cho toàn bộ recipient: log traffic và báo Control Position.
      */
     private void rejectProbe(Gwout gwout, String reason, String rejectionCode, String ndrDiagnostic,
             String supplementaryInfo) {
@@ -891,17 +786,7 @@ public class OutboundDispatchService {
     }
 
     /**
-     * CTSW012 (§4.4.6.5): recipient của probe có chuyển đổi được sang địa chỉ AF hay không.
-     * <p>
-     * Phép chuyển O/R address → AF-address là xác định được từ chính khuôn địa chỉ, nên tiêu chí
-     * đúng là khuôn AFTN 8 chữ cái. Trước đây hàm này hỏi "recipient có nằm trong whitelist hoặc
-     * trong cột {@code recipients} của rule IN không" — sai bản chất, vì rule IN mô tả việc gateway
-     * có route SWIM cho địa chỉ đó, không liên quan tới khả năng chuyển đổi địa chỉ. Với cấu hình
-     * thật (whitelist rỗng, rule IN chỉ có hai địa chỉ), mọi recipient khác đều bị NDR
-     * "unrecognised-OR-name" và CTSW011/CTSW012 không thể pass.
-     * <p>
-     * {@code AUTHORIZED_AMHS_ADDRESSES} được giữ làm whitelist SIẾT tuỳ chọn: khi có khai báo thì
-     * chỉ địa chỉ trong danh sách mới được chấp nhận; khi rỗng thì chỉ xét khuôn.
+     * Kiểm tra recipient của probe có hợp lệ hay không.
      */
     private boolean isRecipientKnown(String recipient) {
         if (!MessageValidationService.isValidAftnAddress(recipient)) {
@@ -912,7 +797,6 @@ public class OutboundDispatchService {
         try {
             whitelist = configService.get("AUTHORIZED_AMHS_ADDRESSES");
         } catch (Exception e) {
-            // Cấu hình chưa khai báo -> không siết
             return true;
         }
         if (whitelist == null || whitelist.isBlank()) {

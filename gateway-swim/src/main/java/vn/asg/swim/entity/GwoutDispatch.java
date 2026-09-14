@@ -39,7 +39,7 @@ public class GwoutDispatch {
     @Column(name = "gwout_id", nullable = false)
     private Long gwoutId;
 
-    /** Địa chỉ người nhận AMHS. Ví dụ: VVHHZTZX */
+    /** Địa chỉ người nhận AMHS */
     @Column(name = "recipient", length = 100, nullable = false)
     private String recipient;
 
@@ -61,7 +61,6 @@ public class GwoutDispatch {
 
     /**
      * Thời gian dự kiến thử lại tiếp theo.
-     * Tính toán theo exponential backoff (ví dụ: +30s, +120s, +300s).
      */
     @Column(name = "next_retry_at")
     private LocalDateTime nextRetryAt;

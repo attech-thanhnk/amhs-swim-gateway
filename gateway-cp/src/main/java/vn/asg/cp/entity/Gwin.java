@@ -84,15 +84,15 @@ public class Gwin {
     @Column(name = "addressing_source", length = 200)
     private String addressingSource;
 
-    /** Mức dịch vụ ATSMHS đã phân giải (BASIC / EXTENDED) - EUR Doc 047 §3.3.3, CTSW103. */
+    /** Mức dịch vụ ATSMHS đã phân giải (BASIC / EXTENDED) */
     @Column(name = "atsmhs_service_level", length = 20)
     private String atsmhsServiceLevel;
 
-    /** Lý do bị từ chối theo ICAO Doc 047 (validation-failed, atsmhs-validation-failed, unauthorized...). */
+    /** Lý do bị từ chối (validation-failed, atsmhs-validation-failed, unauthorized...). */
     @Column(name = "rejection_reason", length = 64)
     private String rejectionReason;
 
-    /** Chẩn đoán chi tiết lỗi từ chối theo ICAO Doc 047 (Invalid priority: 10, Missing messageId...). */
+    /** Chẩn đoán chi tiết lỗi từ chối (Invalid priority: 10, Missing messageId...). */
     @Column(name = "rejection_diagnostic", length = 500)
     private String rejectionDiagnostic;
 

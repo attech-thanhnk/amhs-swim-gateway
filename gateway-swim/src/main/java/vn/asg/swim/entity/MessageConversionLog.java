@@ -38,7 +38,7 @@ public class MessageConversionLog {
     @Column(name = "ipm_id", length = 256)
     private String ipmId;
 
-    /** EUR Doc 047 §4.4.3.4e - MTS Identifier (G-13) */
+    /** MTS Identifier */
     @Column(name = "mts_id", length = 256)
     private String mtsId;
 

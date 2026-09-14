@@ -10,14 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Tuân thủ EUR Doc 047: Dịch vụ Kiểm thử tính Hợp lệ của Bản tin (Message Validation Service)
- *
- * Thực hiện kiểm thử tính hợp lệ của các bản tin AMQP theo các yêu cầu của tài liệu EUR Doc 047:
- * - C-02, C-03: Kiểm tra chiều chuyển đổi định dạng (Conversion direction)
- * - C-05, S-08: Kiểm tra giới hạn kích thước bản tin (Message size)
- * - C-07, S-09: Kiểm tra số lượng người nhận (Recipients count)
- * - S-06, S-07: Kiểm tra các trường bắt buộc (Mandatory fields)
- * - S-11, S-15: Kiểm tra định dạng địa chỉ AFTN (AFTN address format)
+ * Dịch vụ kiểm thử tính hợp lệ của bản tin (Message Validation Service).
  */
 @Service
 @RequiredArgsConstructor
@@ -26,13 +19,13 @@ public class MessageValidationService {
 
     private final ConfigService configService;
 
-    /** Các giá trị ATS-message-priority hợp lệ theo EUR Doc 047 Table 9. */
+    /** Các giá trị ATS-message-priority hợp lệ. */
     private static final List<String> ATS_PRIORITIES = List.of("SS", "DD", "FF", "GG", "KK");
 
-    /** Repertoire ita2(2) của X.400 - không có trong Table 6 nên không chuyển đổi được (CTSW017). */
+    /** Repertoire ITA2 của X.400. */
     public static final String REPERTOIRE_ITA2 = "ITA2";
 
-    /** Repertoire Basic ISO 646, luôn được chấp nhận cho general-text-body-part (CTSW018). */
+    /** Repertoire Basic ISO 646. */
     public static final String REPERTOIRE_ISO646 = "ISO-646";
 
     /**
@@ -75,31 +68,22 @@ public class MessageValidationService {
     }
 
     /**
-     * EUR Doc 047 §4.5.1 - Kiểm thử bản tin chiều SWIM → AMHS
-     *
-     * Thực hiện kiểm tra:
-     * - C-02: Chiều chuyển đổi định dạng có cho phép SWIM → AMHS
-     * - S-06: Sự hiện diện của các trường bắt buộc (Mandatory fields)
-     * - S-08: Kích thước bản tin trong giới hạn cho phép
-     * - S-09: Số lượng người nhận trong giới hạn cho phép
+     * Kiểm thử bản tin chiều SWIM → AMHS.
      */
     public ValidationResult validateSwimToAmhs(String messageId, Message msg, String payload, int payloadByteSize) {
         List<String> errors = new ArrayList<>();
 
-        // C-02: Kiểm tra chiều chuyển đổi định dạng
         String direction = configService.getConversionDir();
         if ("AMHS_TO_SWIM".equals(direction)) {
             errors.add("Conversion direction is AMHS_TO_SWIM - SWIM→AMHS messages not allowed");
             return ValidationResult.failure(errors);
         }
 
-        // S-06: Kiểm thử các trường AMQP bắt buộc
         try {
             if (messageId == null || messageId.isBlank()) {
                 errors.add("Mandatory field 'message-id' (JMSMessageID) is missing");
             }
 
-            // Priority và Timestamp: chỉ đưa ra cảnh báo thay vì từ chối bản tin nhằm tương thích với các công cụ kiểm thử không hoàn toàn tuân thủ
             try {
                 msg.getJMSPriority();
             } catch (Exception e) {
@@ -111,12 +95,10 @@ public class MessageValidationService {
                 log.warn("Message {}: Mandatory field 'creation-time' (JMSTimestamp) is missing", messageId);
             }
 
-            // Bắt buộc: trường data hoặc amqp-value (payload)
             if (payload == null || payload.isBlank()) {
                 errors.add("Mandatory field 'data/amqp-value' (message body) is missing");
             }
 
-            // CTSW116: Validate FTBP properties if body part is file-transfer-body-part
             String bodyPartType = msg.getStringProperty("amhs_bodypart_type");
             if ("file-transfer-body-part".equalsIgnoreCase(bodyPartType)) {
                 String ftbpFileName = msg.getStringProperty("amhs_ftbp_file_name");
@@ -129,9 +111,6 @@ public class MessageValidationService {
             errors.add("Failed to read AMQP message properties: " + e.getMessage());
         }
 
-        // S-08: Kiểm tra kích thước bản tin (EUR Doc 047 §4.5.1.7, §3.3.1.4: 0 hoặc không cấu hình = không giới hạn).
-        // Dùng payloadByteSize (kích thước payload AMQP gốc) thay vì đo độ dài chuỗi payload, vì với
-        // nội dung binary, payload là chuỗi đã base64-encode (dài hơn ~33% so với dữ liệu gốc).
         int maxSize = configService.getMaxMsgDataSize();
         if (maxSize > 0 && payloadByteSize > maxSize) {
             errors.add(String.format("Message size %d bytes exceeds maximum %d bytes", payloadByteSize, maxSize));
@@ -145,30 +124,17 @@ public class MessageValidationService {
     }
 
     /**
-     * EUR Doc 047 §4.4.1 - Kiểm thử bản tin chiều AMHS → SWIM.
-     *
-     * Thực hiện kiểm tra:
-     * - C-03: Chiều chuyển đổi định dạng có cho phép AMHS → SWIM
-     * - C-05: Kích thước bản tin trong giới hạn cho phép
-     * - C-07: Số lượng người nhận trong giới hạn cho phép
-     *
-     * @param payloadByteSize kích thước THẬT của payload tính bằng byte, hoặc null để tự đo trên
-     *                        chuỗi {@code payload}. Với file-transfer-body-part, nội dung nhị phân
-     *                        được lưu dưới dạng base64 trong {@code gwout.text} nên độ dài chuỗi
-     *                        lớn hơn dữ liệu gốc khoảng 33%; caller phải truyền kích thước sau khi
-     *                        giải mã để CTSW006 so sánh đúng với "Maximum message data size".
+     * Kiểm thử bản tin chiều AMHS → SWIM.
      */
     public ValidationResult validateAmhsToSwim(String payload, String recipients, Integer payloadByteSize) {
         List<String> errors = new ArrayList<>();
 
-        // C-03: Kiểm tra chiều chuyển đổi định dạng
         String direction = configService.getConversionDir();
         if ("SWIM_TO_AMHS".equals(direction)) {
             errors.add("Conversion direction is SWIM_TO_AMHS - AMHS→SWIM messages not allowed");
             return ValidationResult.failure(errors);
         }
 
-        // C-05: Kiểm tra kích thước bản tin (EUR Doc 047 §3.3.1.4: 0 hoặc không cấu hình = không giới hạn)
         if (payload != null) {
             int maxSize = configService.getMaxMsgDataSize();
             int actualSize = payloadByteSize != null ? payloadByteSize
@@ -179,7 +145,6 @@ public class MessageValidationService {
             }
         }
 
-        // C-07: Kiểm tra số lượng người nhận (EUR Doc 047 §3.3.2.4: 0 hoặc không cấu hình = không giới hạn)
         if (recipients != null && !recipients.isBlank()) {
             String[] recipientArray = recipients.trim().split("[,\\s]+");
             int maxRecipients = configService.getMaxMsgRecipients();
@@ -197,15 +162,7 @@ public class MessageValidationService {
     }
 
     /**
-     * EUR Doc 047 §4.4.2.5 - Kiểm thử cú pháp ATS-message-header của IPM đến (CTSW004).
-     *
-     * Appendix A/CTSW004 liệt kê 5 trường hợp phải sinh NDR:
-     * ATS-message-priority rỗng / sai giá trị, ATS-message-filing-time rỗng / sai định dạng,
-     * và ATS-message-header rỗng hoàn toàn (không có IHE) - trường hợp cuối tương đương
-     * cả hai trường trên cùng rỗng.
-     *
-     * Giá trị hợp lệ: priority thuộc {SS, DD, FF, GG, KK} (Table 9), filing-time là
-     * date-time group 6 chữ số DDhhmm (cùng quy ước với §4.5.2.10a chiều SWIM→AMHS).
+     * Kiểm thử cú pháp ATS-message-header của IPM đến.
      */
     public ValidationResult validateAtsMessageHeader(String atsPriority, String atsFilingTime) {
         List<String> errors = new ArrayList<>();
@@ -231,18 +188,12 @@ public class MessageValidationService {
 
     public static final String AFTN_ADDRESS_PATTERN = "[A-Z]{8}";
 
-    /**
-     * Kiểm tra nhanh khuôn địa chỉ AFTN, dùng cho các nhánh chỉ cần true/false.
-     * Cùng một tiêu chí với {@link #validateAftnAddress(String, String)}.
-     */
     public static boolean isValidAftnAddress(String aftn) {
         return aftn != null && aftn.trim().matches(AFTN_ADDRESS_PATTERN);
     }
 
     /**
-     * EUR Doc 047 §4.5.2.4 - Kiểm thử định dạng địa chỉ AFTN
-     *
-     * S-11, S-15: Địa chỉ AFTN phải có đúng 8 chữ cái viết hoa
+     * Kiểm thử định dạng địa chỉ AFTN (phải có đúng 8 chữ cái viết hoa).
      */
     public ValidationResult validateAftnAddress(String aftn, String fieldName) {
         if (aftn == null || aftn.isBlank()) {
@@ -251,13 +202,11 @@ public class MessageValidationService {
 
         String trimmed = aftn.trim();
 
-        // Phải có đúng 8 ký tự
         if (trimmed.length() != 8) {
             return ValidationResult.failure(String.format("%s '%s' must be exactly 8 characters (actual: %d)",
                     fieldName, trimmed, trimmed.length()));
         }
 
-        // Phải là chữ cái viết hoa
         if (!trimmed.matches(AFTN_ADDRESS_PATTERN)) {
             return ValidationResult.failure(String.format("%s '%s' must contain only uppercase letters",
                     fieldName, trimmed));
@@ -267,20 +216,10 @@ public class MessageValidationService {
     }
 
     /**
-     * S-06, CTSW016: Kiểm thử định dạng EIT/Body Part Type
-     */
-    /**
-     * EUR Doc 047 §4.4.2.1 - Kiểm tra current encoded-information-types (EIT) của IPM.
-     * <p>
-     * Chấp nhận khi giá trị là "unspecified"/"unknown", hoặc CHỈ gồm các loại được liệt kê ở
-     * §4.4.2.1a: ia5-text (basic hoặc externally-defined {id-eit-ia5-text}),
-     * {id-cs-eit-authority 1/2/6/100} và {id-eit-file-transfer 0}. Giá trị nhiều thành phần
-     * được phân tách bởi dấu phẩy/khoảng trắng; chỉ cần MỘT thành phần không hợp lệ là từ chối
-     * (§4.4.2.1b -> NDR diagnostic "encoded-information-types-unsupported").
+     * Kiểm tra loại thông tin mã hoá (current encoded-information-types) của IPM.
      */
     public ValidationResult validateEncodedInformationTypes(String eit) {
         if (eit == null || eit.isBlank()) {
-            // Không có thông tin EIT -> coi như "unspecified", được phép (§4.4.2.1a)
             return ValidationResult.success();
         }
         for (String value : splitEitValues(eit)) {
@@ -299,27 +238,15 @@ public class MessageValidationService {
     private static final java.util.regex.Pattern EIT_AUTHORITY_PATTERN =
             java.util.regex.Pattern.compile("authority\\D+(\\d+)");
 
-    /** Built-in EIT {@code undefined(0)} - arc {joint-iso-itu-t mhs(6) mts(3) eit(4)}. */
     private static final String EIT_OID_UNDEFINED = "2.6.3.4.0";
-
-    /** Built-in EIT {@code ia5-text(2)}. */
     private static final String EIT_OID_IA5_TEXT = "2.6.3.4.2";
-
-    /** {@code {id-eit-file-transfer 0}} - arc {joint-iso-itu-t mhs(6) ipms(1) eit(12)}. */
     private static final String EIT_OID_FILE_TRANSFER = "2.6.1.12.0";
 
-    /**
-     * Các arc OID mà {@code {id-cs-eit-authority N}} được mã hoá theo, arc cuối cùng chính là N.
-     * <p>
-     * Quan sát trên dữ liệu thật của {@code mtcu_tmp.originEncodeInformationType}: AMHS Component
-     * ghi EIT bằng OID dạng số chứ không phải chuỗi ký hiệu, nên nhánh so khớp theo chữ
-     * "authority" không bao giờ khớp được với bản tin thật.
-     */
+    /** Các tiền tố OID của authority. */
     private static final List<String> EIT_AUTHORITY_OID_PREFIXES = List.of(
-            "1.0.10021.7.1.0.",         // arc ICAO/ATN
-            "2.16.840.1.101.2.1.22.");  // arc còn lại quan sát được trên đường truyền
+            "1.0.10021.7.1.0.",
+            "2.16.840.1.101.2.1.22.");
 
-    /** §4.4.2.1a 3-6: chỉ {@code {id-cs-eit-authority 1/2/6/100}} được phép. */
     private static final java.util.Set<String> ALLOWED_EIT_AUTHORITIES =
             java.util.Set.of("1", "2", "6", "100");
 
@@ -339,26 +266,20 @@ public class MessageValidationService {
     }
 
     private boolean isAllowedEit(String token) {
-        // ----- Dạng ký hiệu -----
-        // "unspecified" / "unknown" (built-in 0)
         if (token.contains("unspecified") || token.contains("unknown")) {
             return true;
         }
-        // ia5-text: basic hoặc externally-defined {id-eit-ia5-text}
         if (token.contains("ia5-text") || token.contains("ia5text")) {
             return true;
         }
-        // {id-eit-file-transfer 0}
         if (token.contains("file-transfer") || token.contains("filetransfer")) {
             return true;
         }
-        // {id-cs-eit-authority N}
         java.util.regex.Matcher matcher = EIT_AUTHORITY_PATTERN.matcher(token);
         if (matcher.find()) {
             return ALLOWED_EIT_AUTHORITIES.contains(matcher.group(1));
         }
 
-        // ----- Dạng OID số (dạng AMHS Component dùng thật) -----
         String oid = token.replaceAll("[{}\\s]", "");
         if (EIT_OID_UNDEFINED.equals(oid) || EIT_OID_IA5_TEXT.equals(oid)
                 || EIT_OID_FILE_TRANSFER.equals(oid)) {
@@ -366,7 +287,6 @@ public class MessageValidationService {
         }
         for (String prefix : EIT_AUTHORITY_OID_PREFIXES) {
             if (oid.startsWith(prefix)) {
-                // Phần đuôi phải đúng là số N, arc thừa (ví dụ "1.5") không khớp tập cho phép
                 return ALLOWED_EIT_AUTHORITIES.contains(oid.substring(prefix.length()));
             }
         }
@@ -374,7 +294,7 @@ public class MessageValidationService {
     }
 
     /**
-     * EUR Doc 047 §4.4.2.3 - Kiểm tra repertoire của body part (CTSW017 và CTSW019).
+     * Kiểm tra repertoire của body part.
      */
     public ValidationResult validateRepertoire(String bodyPartType, String repertoire) {
         if (bodyPartType == null || repertoire == null || repertoire.isBlank()) {

@@ -6,9 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * Bảng gwout — Message nhận từ AMHS Component, chờ SWIM Component publish lên
- * AMQP.
- * Status tổng phản ánh tình trạng của tất cả gwout_dispatch con.
+ * Bảng gwout — Message nhận từ AMHS Component, chờ SWIM Component publish lên AMQP.
  */
 @Entity
 @Table(name = "gwout")
@@ -20,40 +18,30 @@ public class Gwout {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long msgid;
 
-    /** X.400 message-id, unique. Ví dụ: <20240101120000.12345@amhs.vatm.vn> */
     @Column(name = "amhsid", length = 200)
     private String amhsid;
 
-    /** Priority AMHS: 'SS', 'DD', 'FF', 'GG', 'KK' */
     @Column(name = "amhs_priority", length = 10)
     private String amhsPriority;
 
-    /** Thời điểm nhận từ AMHS Component */
     @Column(name = "time")
     private LocalDateTime time;
 
-    /** Filing time AMHS. Ví dụ: 010000 */
     @Column(name = "filing_time", length = 6)
     private String filingTime;
 
-    /** Nội dung plain text */
     @Column(name = "TEXT", columnDefinition = "MEDIUMTEXT")
     private String text;
 
-    /** Loại body: text hoặc ftbp */
     @Column(name = "body_type", length = 10)
     private String bodyType = "text";
 
-    /** Địa chỉ AMHS originator (8 ký tự AFTN). Ví dụ: VVHHZQZX */
     @Column(name = "origin", length = 200)
     private String origin;
 
-    /** Danh sách địa chỉ AMHS recipients, cách nhau dấu cách */
-    /** Danh sách địa chỉ AFTN người nhận — MEDIUMTEXT để chứa tới 512 recipient (CTSW010) */
     @Column(name = "address", columnDefinition = "MEDIUMTEXT")
     private String address;
 
-    /** Optional heading / originators-reference (Doc 047 §4.4.3.4.6) */
     @Column(name = "optional_heading", length = 255)
     private String optionalHeading;
 
@@ -75,15 +63,12 @@ public class Gwout {
     @Column(name = "amqp_message_id", length = 256)
     private String amqpMessageId;
 
-    /** Current encoded-information-types của IPM gốc - EUR Doc 047 §4.4.2.1 (CTSW016). */
     @Column(name = "origin_eit", length = 255)
     private String originEit;
 
-    /** Content-type abstract-value của MTE (X.400) - EUR Doc 047 §4.4.1.1 (CTSW008). */
     @Column(name = "x400_content_type")
     private Integer x400ContentType;
 
-    /** Số body part của IPM gốc - EUR Doc 047 §4.4.2.2/§4.4.2.4 (CTSW007). */
     @Column(name = "number_of_attachment")
     private Integer numberOfAttachment;
 
@@ -111,24 +96,15 @@ public class Gwout {
     @Column(name = "rejection_diagnostic", length = 64)
     private String rejectionDiagnostic;
 
-    /** Nguon phat sinh loi: SWIM / AMHS */
     @Column(name = "rejection_source", length = 20)
     private String rejectionSource;
 
-    /** 0=không yêu cầu delivery report, 1=có */
     @Column(name = "amhs_delivery_report")
     private Boolean amhsDeliveryReport = false;
 
-    /** Content type. Ví dụ: text/plain, application/xml */
     @Column(name = "content_type", length = 128)
     private String contentType;
 
-    /**
-     * Trạng thái tổng. Phản ánh tình trạng của tất cả gwout_dispatch con.
-     * 0=PENDING, 1=TRANSFORMED, 2=PUBLISHED, 3=FAILED, 4=UNROUTED, 5=RESOLVED, 6=CANCELLED
-     */
     @Column(name = "status")
     private Integer status = OutboundStatus.PENDING.getValue();
 }
-
-

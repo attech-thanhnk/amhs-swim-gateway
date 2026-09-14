@@ -81,12 +81,6 @@ public class ConfigService {
 
     /**
      * Địa chỉ AFTN mà gateway dùng để NHẬN bản tin từ AMHS (mặc định "VVTSSWIM").
-     * <p>
-     * EUR Doc 047 §4.4.3.4.4: {@code amhs_recipients} phải là danh sách recipient mà ITCU chịu
-     * trách nhiệm chuyển giao, nên chính địa chỉ gateway phải bị loại khỏi danh sách đó. Trước
-     * đây chiều AMHS → SWIM mượn tạm {@link #KEY_DEFAULT_ORIGINATOR}, nhưng hai khái niệm khác
-     * nhau: đặt originator của chiều SWIM → AMHS sang giá trị khác sẽ làm địa chỉ gateway không
-     * còn bị loại. Tách thành key riêng để hai chiều độc lập nhau.
      */
     public String getGatewayAmhsAddress() {
         try {
@@ -123,10 +117,9 @@ public class ConfigService {
     }
 
     /**
-     * EUR Doc 047 §4.4.2.3 / Appendix A CTSW019: chính sách nội bộ của AMHS Management Domain
-     * đối với general-text-body-part có repertoire khác ISO 646 (ISO 8859-x, Cyrillic, Arabic,
-     * Greek, Hebrew, CJK...). true = vẫn chuyển đổi sang AMQP, false = từ chối và sinh NDR.
-     * Mặc định true (chuyển đổi) khi cấu hình chưa được khai báo.
+     * Chính sách cho phép general-text-body-part có repertoire khác ISO 646.
+     * true = vẫn chuyển đổi sang AMQP, false = từ chối và sinh NDR.
+     * Mặc định true khi cấu hình chưa được khai báo.
      */
     public boolean isNonIso646RepertoireAllowed() {
         try {

@@ -79,8 +79,7 @@ class AMQPSubscriberServiceTest {
         when(amqpMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("text/plain; charset=\"utf-8\"");
         when(amqpMessage.getStringProperty("amhs_subject")).thenReturn("METAR");
         when(amqpMessage.getStringProperty("amhs_gateway_id")).thenReturn(null); // Default: no loopback
-        // §4.5.1.5/§4.5.2.12: amhs_recipients/amhs_originator read directly from AMQP properties
-        // (no routing-rule fallback) — defaulted here so unrelated tests keep the accept path.
+        // amhs_recipients/amhs_originator lấy trực tiếp từ AMQP properties
         when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX VVTSZDYX");
         when(amqpMessage.getStringProperty("amhs_originator")).thenReturn("VVHHZPZX");
 
@@ -241,9 +240,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testMissingMessageId_ShouldReject() throws JMSException {
-        // Given: No message-id. EUR Doc 047 S-06 quy định message-id là bắt buộc, không phụ thuộc
-        // chế độ tuân thủ nào - trước đây có hai test riêng cho "strict"/"non-strict" nhưng cả hai
-        // chạy đúng một nhánh code.
+        // Given: No message-id
         when(amqpMessage.getJMSMessageID()).thenReturn(null);
 
         // When
@@ -318,11 +315,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testAtsmhsBasicMode_SmallPdf_ShouldStillReject() throws JMSException {
-        // CTSW103 bản tin 2 với payload thực tế: PDF NHỎ. Khác với payload toàn byte 0x01 của test
-        // trên, PDF nhỏ (stream chưa nén) hầu hết là ASCII in được nên tỉ lệ ký tự control ~0%,
-        // lọt dưới ngưỡng 5% của isProbablyText và từng bị phân loại nhầm thành text -> binaryPayload
-        // null -> check BASIC bị bỏ qua -> bản tin được accept. Ở đây KHÔNG mock validateContent để
-        // resolver thật quyết định, nhằm kiểm đúng đường suy ra hasBinaryContent.
+        // Kiểm tra trường hợp PDF nhỏ, không dùng text heuristic mà qua resolver
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
         // Code doc che do thang tu gateway_config (khong qua resolver), nen phai stub dung cho nay
         when(configService.get(ConfigService.KEY_ATSMHS_SERVICE_LEVEL)).thenReturn("BASIC");
@@ -385,7 +378,7 @@ class AMQPSubscriberServiceTest {
         // When
         service.handleMessage(amqpMessage, "swim.test.queue");
 
-        // Then: Should use ats_priority (SS -> AMQP priority 6, per EUR Doc 047 v3.0 Table 3/Table 9)
+        // Then: Should use ats_priority (SS -> priority 6)
         verify(gwinRepository).save(argThat(gwin ->
             gwin.getPriority() == 6
         ));
@@ -393,7 +386,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testSubjectMapping_AmhsSubjectPresent_ShouldOverrideSubjectProperty() throws JMSException {
-        // CTSW107 Case 4: cả amhs_subject và subject đều có -> amhs_subject thắng
+        // Cả amhs_subject và subject đều có -> amhs_subject thắng
         when(amqpMessage.getStringProperty("amhs_subject")).thenReturn("subject from application property field");
         when(amqpMessage.getStringProperty("subject")).thenReturn("subject from properties");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
@@ -407,7 +400,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testSubjectMapping_AmhsSubjectBlank_ShouldFallBackToPropertiesSubject() throws JMSException {
-        // CTSW107 Case 1&2: amhs_subject rỗng -> dùng subject (AMQP Properties section)
+        // amhs_subject rỗng -> dùng subject (AMQP Properties section)
         when(amqpMessage.getStringProperty("amhs_subject")).thenReturn("");
         when(amqpMessage.getStringProperty("subject")).thenReturn("SWIM_INTERWORKING");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
@@ -421,7 +414,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testSubjectMapping_StandardAmqpPropertiesSubjectViaJMSType() throws JMSException {
-        // CTSW107: Chuẩn AMQP 1.0 properties.subject được Qpid JMS map sang JMSType header
+        // AMQP 1.0 properties.subject được map sang JMSType header
         when(amqpMessage.getStringProperty("amhs_subject")).thenReturn(null);
         when(amqpMessage.getStringProperty("subject")).thenReturn(null);
         when(amqpMessage.getJMSType()).thenReturn("SWIM_INTERWORKING");
@@ -436,7 +429,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testSubjectMapping_SubjectPropertyBlank_ShouldUseAmhsSubject() throws JMSException {
-        // CTSW107 Case 3: subject (Properties) rỗng, amhs_subject có giá trị -> dùng amhs_subject
+        // subject rỗng, amhs_subject có giá trị -> dùng amhs_subject
         when(amqpMessage.getStringProperty("amhs_subject")).thenReturn("Subject example");
         when(amqpMessage.getStringProperty("subject")).thenReturn("");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
@@ -450,7 +443,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testSubjectMapping_OverLength_ShouldTrimTo128Chars() throws JMSException {
-        // CTSW107 Case 1: subject > 128 ký tự -> cắt còn đúng 128 ký tự đầu
+        // subject > 128 ký tự -> cắt còn đúng 128 ký tự đầu
         String longSubject = "A".repeat(140);
         when(amqpMessage.getStringProperty("amhs_subject")).thenReturn("");
         when(amqpMessage.getStringProperty("subject")).thenReturn(longSubject);
@@ -464,7 +457,7 @@ class AMQPSubscriberServiceTest {
         }));
     }
 
-    // ==================== FTBP BINARY / GZIP (CTSW116) ====================
+    // ==================== FTBP BINARY / GZIP ====================
 
     @Test
     void testBinaryFtbp_NonUtf8SafeBytes_ShouldBeBase64EncodedNotCorrupted() throws JMSException {
@@ -497,9 +490,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testFtbpAttributes_ShouldBeForwardedVerbatim() throws JMSException {
-        // CTSW116: amhs_ftbp_file_name/object_size/last_mod chỉ được forward nguyên văn - việc map
-        // sang incomplete-pathname/actual-values/date-and-time-of-last-modification trong IPM file
-        // transfer parameters (§4.5.2.6-8) là dựng object IPM thô, ngoài phạm vi gateway-swim.
+        // Forward nguyên văn amhs_ftbp_file_name/object_size/last_mod
         jakarta.jms.BytesMessage bytesMessage = mock(jakarta.jms.BytesMessage.class);
         when(bytesMessage.getJMSMessageID()).thenReturn("test-ctsw116-ftbp-attrs");
         when(bytesMessage.getJMSPriority()).thenReturn(4);
@@ -531,8 +522,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testGzipCompressedFtbp_ShouldDecompressAndBase64EncodeNotCorrupted() throws Exception {
-        // CTSW116 Case 2: data nén gzip -> giải nén, rồi base64-encode dữ liệu GỐC (không phải
-        // chuỗi text bị hỏng do decode UTF-8 nhầm sau khi giải nén).
+        // Data nén gzip -> giải nén, rồi base64-encode dữ liệu gốc
         byte[] originalBinary = new byte[]{0x01, 0x02, 0x03, (byte) 0xFF, (byte) 0xFE, 0x10, 0x20, 0x30};
         java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
         try (java.util.zip.GZIPOutputStream gzos = new java.util.zip.GZIPOutputStream(baos)) {
@@ -564,14 +554,11 @@ class AMQPSubscriberServiceTest {
         ));
     }
 
-    // ==================== BODYPART TYPE / CONTENT ENCODING (CTSW115) ====================
+    // ==================== BODYPART TYPE / CONTENT ENCODING ====================
 
     @Test
     void testBodyPartTypeAndEncoding_AllFourValidCombinations_ShouldBeForwardedVerbatim() throws JMSException {
-        // CTSW115: gateway-swim chỉ forward nguyên văn amhs_bodypart_type/amhs_content_encoding/
-        // amqp-value - dựng AMHS Body Part object thật (§4.5.4.7) ngoài phạm vi (xác nhận từ CTSW101).
-        // Dùng chính tả v3.0 "ia5-text-body-part" (gạch ngang) - EUR Doc 047 v3.0 errata sửa lỗi
-        // "ia5_text_body_part" (gạch dưới) của test_case.md cũ.
+        // Forward nguyên văn amhs_bodypart_type và amhs_content_encoding
         record Case(String bodyPartType, String encoding, String value) {}
         List<Case> cases = List.of(
                 new Case("ia5-text", "IA5", "Lorem ipsum"),
@@ -604,13 +591,11 @@ class AMQPSubscriberServiceTest {
         }
     }
 
-    // ==================== NOTIFICATION REQUESTS (CTSW113) ====================
+    // ==================== NOTIFICATION REQUESTS ====================
 
     @Test
     void testNotificationRequests_RnAndNrn_ShouldBeForwarded() throws JMSException {
-        // CTSW113: gateway-swim chỉ forward notification_requests (RN/NRN) vào amqp_properties -
-        // xử lý IPN/RN/NRN ngược từ AMHS (§4.4.7) và gate theo priority=SS lúc dựng IPM (§4.5.3.4)
-        // nằm ngoài phạm vi (không có bảng/kênh cho AMHS-originated control traffic quay lại).
+        // Forward notification_requests (RN/NRN) vào amqp_properties
         when(amqpMessage.getStringProperty("notification_requests")).thenReturn("RN,NRN");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
@@ -638,8 +623,7 @@ class AMQPSubscriberServiceTest {
     @Test
     void testAmhsNotificationRequest_SsPriorityWithoutExplicitValue_ShouldDefaultToRnAndNrn()
             throws JMSException {
-        // CTSW113 gửi bản tin priority "6" (= SS theo Table 9) và đòi notification-requests mang
-        // đồng thời "RN" và "NRN" - SWIM không phải gửi kèm property nào.
+        // Bản tin priority "6" (= SS) tự gán notification-requests mang "RN,NRN" khi SWIM không gửi kèm
         when(amqpMessage.getStringProperty("notification_requests")).thenReturn(null);
         when(amqpMessage.getStringProperty("amhs_ats_pri")).thenReturn("SS");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
@@ -652,8 +636,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testAmhsNotificationRequest_NonSsPriority_ShouldNotBeSet() throws JMSException {
-        // Xin RN cho bản tin khác SS là tự mâu thuẫn: §4.4.7.2 bắt ITCU từ chối đúng những RN có
-        // bản tin chủ đề priority khác SS.
+        // Không gán notification request cho bản tin không phải priority SS
         when(amqpMessage.getStringProperty("notification_requests")).thenReturn(null);
         when(amqpMessage.getStringProperty("amhs_ats_pri")).thenReturn("FF");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
@@ -664,13 +647,12 @@ class AMQPSubscriberServiceTest {
                 !gwin.getAmqpProperties().contains("amhs_notification_request")));
     }
 
-    // ==================== REGISTERED IDENTIFIER (§4.5.2.13/.14) ====================
+    // ==================== REGISTERED IDENTIFIER ====================
 
     @Test
     void testRegisteredIdentifier_NonDefaultOidWithoutUserVisibleString_ShouldReportControlPosition()
             throws JMSException {
-        // §4.5.2.14: registered-identifier khác OID mặc định thì user-visible-string bắt
-        // buộc phải có. Thiếu -> log + báo Control Position, nhưng bản tin VẪN được chuyển tiếp.
+        // registered-identifier khác OID mặc định thì user-visible-string bắt buộc phải có
         when(amqpMessage.getStringProperty("amhs_registered_identifier")).thenReturn("2.16.840.1.113694.2.2.9.9");
         when(amqpMessage.getStringProperty("amhs_user_visible_string")).thenReturn(null);
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
@@ -690,8 +672,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testRegisteredIdentifier_DefaultOid_ShouldNotReportControlPosition() throws JMSException {
-        // §4.5.2.13b: OID mặc định "unknown-attachment" thì không cần
-        // user-visible-string -> không được báo Control Position.
+        // OID mặc định thì không cần user-visible-string
         when(amqpMessage.getStringProperty("amhs_registered_identifier")).thenReturn("2.16.840.1.113694.2.2.1.1");
         when(amqpMessage.getStringProperty("amhs_user_visible_string")).thenReturn(null);
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
@@ -703,7 +684,7 @@ class AMQPSubscriberServiceTest {
                 gwin.getStatus().equals(InboundStatus.PENDING.getValue())));
     }
 
-    // ==================== RECIPIENTS COUNT (CTSW112) ====================
+    // ==================== RECIPIENTS COUNT ====================
 
     private String buildRecipientList(int count) {
         StringBuilder sb = new StringBuilder();
@@ -716,7 +697,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testRecipientsCount_AtConfiguredMax_ShouldAccept() throws JMSException {
-        // CTSW112 Case A: đúng 512 recipient (== max cấu hình) -> accept
+        // Đúng 512 recipient (== max cấu hình) -> accept
         when(configService.getMaxMsgRecipients()).thenReturn(512);
         when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn(buildRecipientList(512));
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
@@ -730,7 +711,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testRecipientsCount_OverConfiguredMax_ShouldRejectMessage() throws JMSException {
-        // CTSW112 Case B: 513 recipient (> max cấu hình 512) -> reject (FAILED) + báo Control Position
+        // 513 recipient (> max cấu hình 512) -> reject (FAILED) và báo Control Position
         when(configService.getMaxMsgRecipients()).thenReturn(512);
         when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn(buildRecipientList(513));
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
@@ -749,11 +730,11 @@ class AMQPSubscriberServiceTest {
         );
     }
 
-    // ==================== CONTENT-TYPE / PAYLOAD (CTSW110) ====================
+    // ==================== CONTENT-TYPE / PAYLOAD ====================
 
     @Test
     void testContentType_TextPlainWithEmptyPayload_ShouldReject() throws JMSException {
-        // CTSW110 Case 1: content-type=text/plain hợp lệ nhưng amqp-value/data đều rỗng -> reject
+        // content-type=text/plain nhưng payload rỗng -> reject
         when(textMessage.getText()).thenReturn(null);
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
         // anyString() không khớp null -> stub lại validateSwimToAmhs cho trường hợp payload null
@@ -769,7 +750,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testContentType_UnsupportedType_ShouldReject() throws JMSException {
-        // CTSW110 Case 5: content-type = application/xml (không hỗ trợ) -> reject
+        // content-type không hỗ trợ -> reject
         when(amqpMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn("application/xml");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
@@ -818,11 +799,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testContentType_TextPlainDeclaredButBytesNotValidUtf8_ShouldReject() throws JMSException {
-        // CTSW110 bản tin 2 (§4.5.1.6.b): content-type=text/plain nhưng nội dung đến qua "data" và
-        // là binary. Qpid AmqpCodec map "Data + content-type text/*" -> TextMessageFacade (KHÔNG
-        // phải BytesMessage), rồi getText() decode bằng charset.newDecoder() với action REPORT nên
-        // bytes không hợp lệ UTF-8 làm getText() ném JMSException. Mô phỏng đúng hành vi đó ở đây -
-        // mock BytesMessage + text/plain là tổ hợp Qpid không bao giờ tạo ra.
+        // content-type=text/plain nhưng nội dung không phải UTF-8 hợp lệ -> reject
         jakarta.jms.TextMessage dataSectionMessage = mock(jakarta.jms.TextMessage.class);
         when(dataSectionMessage.getJMSMessageID()).thenReturn("test-mismatch-invalid-utf8");
         when(dataSectionMessage.getJMSPriority()).thenReturn(4);
@@ -858,12 +835,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testContentType_TextPlainWithLowControlBinary_ShouldReject() throws JMSException {
-        // CTSW110: binary đến qua "data" nhưng ÍT byte điều khiển (0x41 0x42 0xC3 0x28 ... - sai
-        // UTF-8 mà tỉ lệ control = 0%) nên isProbablyText() cho là text. Trước đây strict decode
-        // chỉ chạy khi heuristic đã kết luận là binary, nên loại payload này lọt lưới:
-        // new String(buf, UTF_8) dùng action REPLACE, âm thầm thay byte hỏng bằng U+FFFD rồi bản
-        // tin được accept với nội dung đã hỏng ("AB<?>(CD<?>(E"). Giờ content-type text/* buộc
-        // strict decode trên raw bytes, không cho heuristic quyết định thay.
+        // Payload chứa byte không hợp lệ UTF-8 -> strict decode bắt lỗi
         byte[] lowControlBinary = new byte[]{0x41, 0x42, (byte) 0xC3, 0x28, 0x43, 0x44, (byte) 0xE0, 0x28, 0x45};
 
         jakarta.jms.BytesMessage bytesMessage = mock(jakarta.jms.BytesMessage.class);
@@ -896,9 +868,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testContentType_TextPlainWithAmqpValueOnly_ShouldAccept() throws JMSException {
-        // CTSW110 bản tin 4 (§4.5.1.6.b): content-type=text/plain, amqp-value có, data rỗng ->
-        // PHẢI accept và convert. Qpid map amqp-value(String) -> TextMessage với getText() trả về
-        // chuỗi bình thường. Đây là bản tin duy nhất trong CTSW110 đi đường accept cùng bản tin 3.
+        // content-type=text/plain, payload qua TextMessage -> accept
         when(textMessage.getText()).thenReturn("METAR VVTS 251200Z 09008KT CAVOK 30/24 Q1010 NOSIG=");
         when(amqpMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE"))
                 .thenReturn("text/plain; charset=\"utf-8\"");
@@ -917,7 +887,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testContentType_OctetStreamWithRealBinaryData_ShouldAcceptAsFtbp() throws JMSException {
-        // CTSW110 Case 3: content-type=application/octet-stream, payload thật sự binary (BytesMessage) -> accept
+        // content-type=application/octet-stream, payload binary -> accept dưới dạng ftbp
         jakarta.jms.BytesMessage bytesMessage = mock(jakarta.jms.BytesMessage.class);
         when(bytesMessage.getJMSMessageID()).thenReturn("test-binary-ctsw110");
         when(bytesMessage.getJMSPriority()).thenReturn(4);
@@ -943,12 +913,11 @@ class AMQPSubscriberServiceTest {
         }));
     }
 
-    // ==================== ORIGINATOR (CTSW108/CTSW109) ====================
+    // ==================== ORIGINATOR ====================
 
     @Test
     void testOriginator_InvalidFormat_ShouldFallBackToDefaultAndReportControlPosition() throws JMSException {
-        // CTSW109: amhs_originator không đúng format AFTN 8 ký tự -> dùng default originator,
-        // ghi log VÀ báo cáo Control Position (EUR Doc 047 §4.5.2.12(b))
+        // amhs_originator sai định dạng -> fallback default originator và báo Control Position
         when(amqpMessage.getStringProperty("amhs_originator")).thenReturn("BADORIG");
         when(validationService.validateAftnAddress(eq("BADORIG"), anyString()))
                 .thenReturn(new MessageValidationService.ValidationResult(false, List.of("bad format")));
@@ -969,10 +938,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testOriginator_ValidEightLetterFormat_ShouldBeUsedAsIs() throws JMSException {
-        // CTSW108: amhs_originator đúng format 8 ký tự -> dùng trực tiếp, không fallback.
-        // EUR Doc 047 §4.5.2.12 chỉ đòi hỏi đúng ĐỊNH DẠNG 8 ký tự, không đòi hỏi phải khớp
-        // 1 danh sách "known address" nào — kể cả literal "UNKNOWNX" (8 chữ hợp lệ) cũng phải
-        // được dùng nguyên, không fallback.
+        // amhs_originator đúng định dạng 8 ký tự -> dùng trực tiếp
         when(amqpMessage.getStringProperty("amhs_originator")).thenReturn("UNKNOWNX");
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
@@ -987,7 +953,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testOhiTrimming_Priority4_ThresholdIs53Chars() throws Exception {
-        // CTSW106 - Điện văn 1-3: priority=4 (<6) -> ngưỡng cắt OHI = 53 ký tự
+        // Priority 4 (<6) -> ngưỡng cắt OHI = 53 ký tự
         when(amqpMessage.getJMSPriority()).thenReturn(4);
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
@@ -1012,7 +978,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testOhiTrimming_Priority6_ThresholdIs48Chars() throws Exception {
-        // CTSW106 - Điện văn 4-6: priority=6 (>=6) -> ngưỡng cắt OHI = 48 ký tự
+        // Priority 6 (>=6) -> ngưỡng cắt OHI = 48 ký tự
         when(amqpMessage.getJMSPriority()).thenReturn(6);
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
@@ -1037,7 +1003,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testPriorityMapping_RawAmqpPrioritySweep_ShouldMapPerTable9() throws JMSException {
-        // CTSW104: 10 bản tin, priority AMQP 0..9, không có amhs_ats_pri -> map theo Table 9
+        // Map priority AMQP 0..9 sang ATS priority tương ứng
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
         String[] expectedCodes = {"KK", "KK", "KK", "GG", "FF", "DD", "SS", "SS", "SS", "SS"};
 
@@ -1060,7 +1026,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testPriorityMapping_AmhsAtsPriProperty_AlwaysOverridesRawPriority() throws JMSException {
-        // CTSW104: amhs_ats_pri luôn được ưu tiên hơn priority AMQP thô, bất kể priority thô là gì
+        // amhs_ats_pri luôn được ưu tiên hơn priority AMQP thô
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
         record Case(int rawPriority, String atsCode, int expectedAmqpPriority) {}
@@ -1132,8 +1098,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testCreationTime_Missing_ShouldRejectMessage() throws JMSException {
-        // Given (CTSW102): không có amhs_ats_ft/creation_time/creation-time property
-        // và JMSTimestamp cũng <= 0 -> creation-time coi như thiếu, phải bị từ chối
+        // Thiếu creation time và timestamp <= 0 -> reject
         when(amqpMessage.getJMSTimestamp()).thenReturn(0L);
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
@@ -1155,8 +1120,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testPriority_OutOfRange10_ShouldRejectMessage() throws JMSException {
-        // CTSW102 - "The first AMQP message shall have 10 as priority" -> reject + report to CP.
-        // AMQP priority hợp lệ là 0-9 (§4.5.1.1 / Table 9).
+        // Priority ngoài khoảng 0-9 -> reject và báo Control Position
         when(amqpMessage.getJMSPriority()).thenReturn(10);
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
@@ -1174,8 +1138,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testContentType_Empty_ShouldRejectMessage() throws JMSException {
-        // CTSW102 - "another AMQP message shall have empty content-type element" -> reject.
-        // Khác với CTSW110 (content-type có giá trị nhưng không hỗ trợ): đây là THIẾU hẳn.
+        // Thiếu content-type -> reject
         when(amqpMessage.getStringProperty("JMS_AMQP_CONTENT_TYPE")).thenReturn(null);
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
 
@@ -1193,9 +1156,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testRecipients_AddressLongerThanEightLetters_ShouldNotBeConveyed() throws JMSException {
-        // CTSW102 (bản tin binary thứ 5) - "an address of more than eight letters as
-        // amhs_recipients" -> không được chuyển sang AMHS. Địa chỉ AFTN phải đúng 8 ký tự
-        // (§4.5.2.9), địa chỉ 9 ký tự bị loại; không còn recipient nào hợp lệ -> FAILED (REJECT).
+        // Địa chỉ recipient quá 8 ký tự bị loại, không còn recipient hợp lệ -> reject
         when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZXX");
         when(validationService.validateAftnAddress(eq("VVHHZTZXX"), anyString()))
                 .thenReturn(new MessageValidationService.ValidationResult(false, List.of("must be exactly 8 characters")));
@@ -1227,8 +1188,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testFilingTime_WrongFormatAmhsAtsFt_ShouldFallBackToAmqpCreationTime() throws JMSException {
-        // CTSW105 (§4.5.2.10b): amhs_ats_ft SAI ĐỊNH DẠNG (không phải 6 số DDhhmm, cũng không phải
-        // epoch millis) -> phải dùng creation-time của AMQP, KHÔNG được lấy nguyên chuỗi rác.
+        // amhs_ats_ft sai định dạng -> fallback sang creation-time của AMQP
         when(amqpMessage.getStringProperty("amhs_ats_ft")).thenReturn("ABCDEF");
         when(amqpMessage.getJMSTimestamp()).thenReturn(1787285680974L); // -> 210414
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
@@ -1269,9 +1229,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testAmhsUnaware_OctetStreamContentType_ShouldMapToFtbpBodyType() throws JMSException {
-        // Given: bản tin SWIM "AMHS-unaware" - không có amhs_bodypart_type, chỉ có content-type.
-        // content-type=octet-stream bắt buộc phải đến qua data/BytesMessage (§4.5.1.6.a), không
-        // thể là TextMessage - dùng BytesMessage thật cho hợp lệ.
+        // Không có amhs_bodypart_type, content-type=octet-stream -> map sang ftbp
         jakarta.jms.BytesMessage bytesMessage = mock(jakarta.jms.BytesMessage.class);
         when(bytesMessage.getJMSMessageID()).thenReturn("test-amhs-unaware-octet");
         when(bytesMessage.getJMSPriority()).thenReturn(2);
@@ -1291,7 +1249,7 @@ class AMQPSubscriberServiceTest {
         // When
         service.handleMessage(bytesMessage, "swim.test.queue");
 
-        // Then: EUR Doc 047 §4.5.2.4(b) - suy luận bodyType từ content-type khi thiếu amhs_bodypart_type
+        // Suy luận bodyType từ content-type khi thiếu amhs_bodypart_type
         verify(gwinRepository).save(argThat(gwin -> {
             assertEquals(InboundStatus.PENDING.getValue(), gwin.getStatus());
             assertEquals("ftbp", gwin.getBodyType());
@@ -1301,7 +1259,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testPartiallyInvalidRecipients_ShouldDropInvalidOnesNotRejectWhole() throws JMSException {
-        // Given: amhs_recipients có 1 địa chỉ hợp lệ + 1 địa chỉ sai định dạng (EUR Doc 047 §4.5.2.9)
+        // amhs_recipients có 1 địa chỉ hợp lệ và 1 địa chỉ sai định dạng
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
         when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn("VVHHZTZX,BADADDR");
         when(validationService.validateAftnAddress(eq("VVHHZTZX"), anyString()))
@@ -1345,7 +1303,7 @@ class AMQPSubscriberServiceTest {
 
     @Test
     void testMissingAmhsRecipientsProperty_ShouldRejectMessage() throws JMSException {
-        // CTSW102 (§4.5.1.5): amhs_recipients absent -> REJECT (FAILED) + báo Control Position
+        // Thiếu amhs_recipients -> reject và báo Control Position
         when(gwinRepository.existsByMessageId(anyString())).thenReturn(false);
         when(amqpMessage.getStringProperty("amhs_recipients")).thenReturn(null);
 
@@ -1394,7 +1352,7 @@ class AMQPSubscriberServiceTest {
 
         service.handleMessage(amqpMessage, "ats/fpl/flightplan");
 
-        // Content must pass through unconverted (ICAO Doc 047: keep original content regardless of direction)
+        // Content must pass through unconverted
         verify(gwinRepository).save(argThat(gwin -> gwin.getPayloadContent().equals(jsonFpl)));
     }
 

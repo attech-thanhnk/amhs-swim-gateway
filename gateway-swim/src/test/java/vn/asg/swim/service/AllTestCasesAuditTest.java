@@ -28,13 +28,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Kiểm chứng đầu-cuối một số test case của Appendix A: chạy TRỌN pipeline chiều AMHS → SWIM
- * (transform → tạo dispatch → publish) thay vì từng bước rời rạc như các test khác.
- * <p>
- * Phạm vi hiện tại: CTSW001, CTSW002, CTSW004, CTSW005, CTSW006, CTSW008, CTSW016, CTSW018.
- * Đây KHÔNG phải bản audit đủ CTSW001–CTSW020 — các case còn lại được phủ ở
- * {@code OutboundDispatchServiceTest}, {@code AmhsToGwoutSyncSchedulerTest},
- * {@code AmhsFeedbackServiceTest} và {@code MessageValidationServiceTest}.
+ * Kiểm chứng end-to-end pipeline chiều AMHS -> SWIM (transform -> tạo dispatch -> publish).
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -102,8 +96,6 @@ public class AllTestCasesAuditTest {
 
         ArgumentCaptor<GwoutDispatch> dispatchCaptor = ArgumentCaptor.forClass(GwoutDispatch.class);
         verify(gwoutDispatchRepository, atLeastOnce()).save(dispatchCaptor.capture());
-        // Lấy TOÀN BỘ dispatch đã tạo, không chỉ dòng cuối: chỉ trả về một dòng thì nhánh gộp
-        // nhiều recipient thành một lần publish (§4.4.3.4.4) không bao giờ được đi qua.
         List<GwoutDispatch> dispatches = dispatchCaptor.getAllValues();
         when(gwoutDispatchRepository.findByGwoutId(gwout.getMsgid())).thenReturn(dispatches);
 
@@ -179,7 +171,7 @@ public class AllTestCasesAuditTest {
     @DisplayName("CTSW008: content-type là abstract-value X.400 (gwout.x400_content_type), KHÔNG phải "
             + "chuỗi MIME — gwout.content_type không được dùng để lọc")
     void testCTSW008_MimeContentTypeIsNotAFilter() {
-        // MIME content_type lạ không phải là căn cứ từ chối theo §4.4.1.1
+        // MIME content_type lạ không dùng để từ chối
         Gwout gwout = createGwout("TC-CTSW008", "VVNBZTZX", "VVHHZTZX", "application/unknown-mime-type", "METAR...");
         gwout.setX400ContentType(22); // interpersonal-messaging-1988
 
@@ -192,7 +184,7 @@ public class AllTestCasesAuditTest {
     @DisplayName("CTSW008: content-type khác interpersonal-messaging-1988(22) phải sinh NDR "
             + "content-type-not-supported")
     void testCTSW008_UnsupportedAbstractValueShouldBeRejected() {
-        // Appendix A/CTSW008: điện văn 2 (1984), 3 (edi-messaging 35), 4 (unidentified 0) đều bị từ chối
+        // Content type 2 (1984), 3 (edi-messaging 35), 4 (unidentified 0) đều bị từ chối
         for (int abstractValue : new int[] { 2, 35, 0 }) {
             Gwout gwout = createGwout("TC-CTSW008-" + abstractValue, "VVNBZTZX", "VVHHZTZX",
                     "text/plain", "METAR...");

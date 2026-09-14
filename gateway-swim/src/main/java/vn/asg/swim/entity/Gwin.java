@@ -108,19 +108,18 @@ public class Gwin {
 
     /**
      * Mức dịch vụ ATSMHS đã phân giải cho bản tin này (BASIC / EXTENDED).
-     * EUR Doc 047 §3.3.3 + §4.5.2.10.1/§4.5.3.7-9.
      */
     @Column(name = "atsmhs_service_level", length = 20)
     private String atsmhsServiceLevel;
 
     /**
-     * Lý do bị từ chối theo ICAO Doc 047 (validation-failed, atsmhs-validation-failed, unauthorized...).
+     * Lý do bị từ chối (validation-failed, atsmhs-validation-failed, unauthorized...).
      */
     @Column(name = "rejection_reason", length = 64)
     private String rejectionReason;
 
     /**
-     * Chẩn đoán chi tiết lỗi từ chối theo ICAO Doc 047 (Invalid priority: 10, Missing messageId...).
+     * Chẩn đoán chi tiết lỗi từ chối (Invalid priority: 10, Missing messageId...).
      */
     @Column(name = "rejection_diagnostic", length = 500)
     private String rejectionDiagnostic;

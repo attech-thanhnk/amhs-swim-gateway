@@ -58,23 +58,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Đối chiếu đầu-cuối chiều AMHS → SWIM với EUR Doc 047 Appendix A (CTSW001–CTSW020).
- * <p>
- * Khác với các test đơn vị hiện có, lớp này chạy TRỌN đường đi thật của một bản tin:
- * <pre>
- *   mtcu_tmp/mtcu_to  →  AmhsToGwoutSyncScheduler  →  gwout
- *                     →  OutboundDispatchService.processOutboundMessage  (kiểm tra + transform)
- *                     →  createDispatches                                (định tuyến từng recipient)
- *                     →  processDispatch                                 (publish AMQP)
- *                     →  AMQP application properties nhận được ở đầu SWIM
- * </pre>
- * {@link MessageValidationService} dùng bản THẬT (không mock) để các
- * phép kiểm tra cú pháp, ngưỡng cấu hình và việc sinh DR/NDR được thực thi đúng như production;
- * chỉ broker JMS, kho dữ liệu và các dịch vụ ngoại vi mới bị mock.
- * <p>
- * Mỗi test khẳng định đúng những gì Appendix A yêu cầu quan sát được ở "AMQP test interface"
- * và ở "AMHS interface" (bộ ba phần tử của NDR: non-delivery-reason-code,
- * non-delivery-diagnostic-code, supplementary-information).
+ * Test đối chiếu end-to-end pipeline chiều AMHS → SWIM.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -116,11 +100,7 @@ class AmhsToSwimConformanceTest {
     private byte[] ftbpData;
 
     /**
-     * Một lần ITCU ghi nhận từ chối vào traffic log.
-     * <p>
-     * ITCU không sinh AMHS report - AMHS Component phát DR/NDR ra X.400. Bộ ba
-     * (diagnostic-code, supplementary-information) mà Appendix A kiểm tra vẫn phải được ITCU
-     * xác định đúng, và traffic log là nơi quan sát được điều đó.
+     * Ghi nhận từ chối vào traffic log.
      */
     record Rejection(Long gwoutId, String actionTaken, String diagnostic, String supplementary) {
     }
@@ -154,7 +134,7 @@ class AmhsToSwimConformanceTest {
         // ----- Cấu hình mặc định -----
         when(configService.getConversionDir()).thenReturn("BOTH");
         when(configService.getMaxMsgDataSize()).thenReturn(0);       // 0 = không giới hạn
-        when(configService.getMaxMsgRecipients()).thenReturn(512);   // §3.3.2.4
+        when(configService.getMaxMsgRecipients()).thenReturn(512);
         when(configService.isNonIso646RepertoireAllowed()).thenReturn(false);
         when(configService.getGatewayId()).thenReturn("ASG-GW-01");
         when(configService.get("AUTHORIZED_AMHS_ADDRESSES")).thenReturn("");
@@ -205,8 +185,7 @@ class AmhsToSwimConformanceTest {
             return dispatches.stream().filter(d -> id.equals(d.getGwoutId())).toList();
         });
 
-        // Ghi lại mọi lần ITCU đánh dấu từ chối / chấp nhận vào traffic log. Đây là chỗ quan sát
-        // được diagnostic-code và supplementary-information mà Appendix A kiểm tra.
+        // Ghi lại mọi lần từ chối / chấp nhận vào traffic log.
         doAnswer(inv -> {
             Gwout g = inv.getArgument(0);
             rejections.add(new Rejection(g.getMsgid(), inv.getArgument(1),
@@ -358,7 +337,7 @@ class AmhsToSwimConformanceTest {
 
     private Publish onlyPublish() {
         assertEquals(1, publishes.size(),
-                "§4.4.3.4.4: một IPM chỉ được sinh đúng một bản tin AMQP cho mỗi topic");
+                "Một IPM chỉ được sinh đúng một bản tin AMQP cho mỗi topic");
         return publishes.get(0);
     }
 
@@ -368,11 +347,7 @@ class AmhsToSwimConformanceTest {
     }
 
     /**
-     * Bản tin phải bị từ chối, và ITCU phải xác định đúng cặp
-     * (non-delivery-diagnostic-code, supplementary-information) mà Appendix A quy định.
-     * <p>
-     * Việc PHÁT NDR ra đường truyền X.400 do AMHS Component đảm nhiệm nên không kiểm tra ở đây;
-     * cái kiểm tra được là quyết định của ITCU, quan sát qua {@code gwout} và traffic log.
+     * Kiểm tra bản tin bị từ chối với diagnostic và supplementary information tương ứng.
      */
     private void assertRejected(Gwout g, String diagnostic, String supplementary) {
         assertEquals(OutboundStatus.FAILED.getValue(), g.getStatus(), "bản tin phải bị từ chối");
@@ -418,12 +393,12 @@ class AmhsToSwimConformanceTest {
     }
 
     // =====================================================================================
-    // CTSW001 — Convert an incoming IPM to AMQP format
+    // Chuyển đổi IPM sang AMQP
     // =====================================================================================
 
     @Nested
-    @DisplayName("CTSW001 Convert an incoming IPM to AMQP format")
-    class Ctsw001 {
+    @DisplayName("Chuyển đổi IPM sang AMQP format")
+    class ConvertIpmToAmqp {
 
         @Test
         @DisplayName("Basic IPM: 5 mức ATS-message-priority → amhs_ats_pri + AMQP header priority (Table 3/5)")
@@ -441,34 +416,33 @@ class AmhsToSwimConformanceTest {
 
                 assertPublished(g);
                 Publish p = onlyPublish();
-                assertEquals(pri, p.prop("amhs_ats_pri"), "§4.4.3.4.3 amhs_ats_pri");
+                assertEquals(pri, p.prop("amhs_ats_pri"), "amhs_ats_pri");
                 assertEquals(Integer.parseInt(cases[i][1]), p.priority,
-                        "§4.4.3.2.2 Table 3: AMQP header priority của " + pri);
-                assertEquals(ft, p.prop("amhs_ats_ft"), "§4.4.3.4.5 amhs_ats_ft = filing time");
+                        "AMQP header priority của " + pri);
+                assertEquals(ft, p.prop("amhs_ats_ft"), "amhs_ats_ft = filing time");
                 assertEquals("IPM-" + (100 + i), p.prop("amhs_ipm_id"),
-                        "§4.4.3.4.1 amhs_ipm_id mang IPM-Identifier, không phải MTS-Identifier");
+                        "amhs_ipm_id mang IPM-Identifier, không phải MTS-Identifier");
                 assertEquals(text, p.amqpValue, "amqp-value phải trùng ATS-message-text gốc");
                 assertNull(p.data, "phần tử AMQP 'data' phải rỗng với bản tin text");
-                assertEquals(DeliveryMode.PERSISTENT, p.deliveryMode, "§4.4.3.2.1 durable = true");
-                assertEquals("VVNBZTZX", p.prop("amhs_originator"), "§4.4.3.4.7 amhs_originator");
-                assertEquals("VVHHZTZX", p.prop("amhs_recipients"), "§4.4.3.4.4 amhs_recipients");
+                assertEquals(DeliveryMode.PERSISTENT, p.deliveryMode, "durable = true");
+                assertEquals("VVNBZTZX", p.prop("amhs_originator"), "amhs_originator");
+                assertEquals("VVHHZTZX", p.prop("amhs_recipients"), "amhs_recipients");
                 assertEquals(8, p.prop("amhs_originator").length(), "địa chỉ phải là 8 chữ cái");
             }
         }
 
         @Test
-        @DisplayName("Basic IPM: các application property cố định của §4.4.3.3 / §4.4.3.4.10")
+        @DisplayName("Basic IPM: các application property cố định")
         void fixedApplicationProperties() {
             Gwout g = deliver(row(115, "FF", "070430", "METAR VVNB="));
 
             assertPublished(g);
             Publish p = onlyPublish();
             assertEquals("text/plain; charset=\"utf-8\"", p.prop("JMS_AMQP_CONTENT_TYPE"),
-                    "§4.4.3.3.3: content-type chỉ được text/plain;charset=\"utf-8\" "
-                            + "hoặc application/octet-stream");
-            assertEquals("unsigned", p.prop("amhs_message_signed"), "§4.4.3.4.10 amhs_message_signed");
+                    "content-type chỉ được text/plain;charset=\"utf-8\" hoặc application/octet-stream");
+            assertEquals("unsigned", p.prop("amhs_message_signed"), "amhs_message_signed");
             assertEquals("ASG-GW-01", p.prop("amhs_gateway_id"), "định danh gateway");
-            assertNotNull(g.getAmqpMessageId(), "§4.4.3.3.1: phải lưu lại AMQP message-id");
+            assertNotNull(g.getAmqpMessageId(), "phải lưu lại AMQP message-id");
             assertEquals("ats.met.metar", p.topic, "publish đúng topic của rule định tuyến");
         }
 
@@ -485,11 +459,11 @@ class AmhsToSwimConformanceTest {
 
             assertPublished(g);
             Publish p = onlyPublish();
-            assertEquals("application/octet-stream", p.prop("JMS_AMQP_CONTENT_TYPE"), "§4.4.3.3.3");
+            assertEquals("application/octet-stream", p.prop("JMS_AMQP_CONTENT_TYPE"), "content-type");
             assertEquals("file-transfer-body-part", p.prop("amhs_bodypart_type"), "Table 6");
-            assertEquals("flightplan.pdf", p.prop("amhs_ftbp_file_name"), "§4.4.3.4.2 Table 4");
+            assertEquals("flightplan.pdf", p.prop("amhs_ftbp_file_name"), "amhs_ftbp_file_name");
             assertEquals(String.valueOf(ftbpData.length), p.prop("amhs_ftbp_object_size"),
-                    "§4.4.3.4.2 Table 4 - object-size là kích thước dữ liệu gốc");
+                    "object-size là kích thước dữ liệu gốc");
             assertNull(p.prop("amhs_content_encoding"),
                     "FTBP không có repertoire nên không gán amhs_content_encoding");
         }
@@ -525,9 +499,9 @@ class AmhsToSwimConformanceTest {
                         "Table 5: precedence " + precedences[i] + " ↔ ATS-message-priority");
                 assertEquals(expectedAmqp[i], p.priority,
                         "Table 3: AMQP priority của precedence " + precedences[i]);
-                assertEquals("SUBJECT-" + i, p.prop("amhs_subject"), "§4.4.3.4.8 amhs_subject");
+                assertEquals("SUBJECT-" + i, p.prop("amhs_subject"), "amhs_subject");
                 assertEquals("07043" + i, p.prop("amhs_ats_ft"),
-                        "§4.4.3.4.5 amhs_ats_ft mang authorization-time của Extended IPM");
+                        "amhs_ats_ft mang authorization-time của Extended IPM");
             }
         }
 
@@ -548,16 +522,16 @@ class AmhsToSwimConformanceTest {
                     "amhs_ats_pri lấy từ precedence cao nhất trong các recipient (107)");
             assertEquals(6, p.priority, "AMQP priority tương ứng SS = 6");
             assertEquals("VVHHZTZX,VVCIZTZX", p.prop("amhs_recipients"),
-                    "§4.4.3.4.4: nhiều recipient phân cách bằng dấu phẩy");
+                    "nhiều recipient phân cách bằng dấu phẩy");
         }
     }
 
     // =====================================================================================
-    // CTSW002 — optional-heading-information / originators-reference
+    // optional-heading-information / originators-reference
     // =====================================================================================
 
     @Test
-    @DisplayName("CTSW002: OHI trong ATS-message-header → amhs_ats_ohi (§4.4.3.4.6)")
+    @DisplayName("OHI trong ATS-message-header → amhs_ats_ohi")
     void ctsw002_ohiMappedToApplicationProperty() {
         Object[] r = row(200, "FF", "070430", "METAR VVNB=");
         r[4] = "OHI-FF-TEXT";
@@ -601,7 +575,7 @@ class AmhsToSwimConformanceTest {
     }
 
     @Test
-    @DisplayName("CTSW002: OHI 61 ký tự và dài hơn được giữ nguyên vẹn sang amhs_ats_ohi (§4.4.3.4.6)")
+    @DisplayName("OHI 61 ký tự và dài hơn được giữ nguyên vẹn sang amhs_ats_ohi")
     void ctsw002_ohiLongStringNotTruncated() {
         String longOhi = "1234567890".repeat(6) + "X"; // Đúng 61 ký tự
         Object[] r = row(205, "FF", "070430", "METAR VVNB=");
@@ -804,7 +778,7 @@ class AmhsToSwimConformanceTest {
 
         assertPublished(g);
         assertEquals("file-transfer-body-part", onlyPublish().prop("amhs_bodypart_type"),
-                "§4.4.3.4.9: cặp text + FTBP thì amhs_bodypart_type là file-transfer-body-part");
+                "cặp text + FTBP thì amhs_bodypart_type là file-transfer-body-part");
     }
 
     @Test
@@ -896,7 +870,7 @@ class AmhsToSwimConformanceTest {
         assertPublished(g);
         Publish p = onlyPublish();
         assertEquals("VVHHZTZX,VVCIZTZX,VVDNZTZX,VVPQZTZX", p.prop("amhs_recipients"),
-                "§4.4.3.4.4: CC/BCC xử lý như primary, cùng nằm trong amhs_recipients");
+                "CC/BCC xử lý như primary, cùng nằm trong amhs_recipients");
         assertEquals(4, dispatches.size(), "mỗi recipient một dòng dispatch");
     }
 
@@ -1183,7 +1157,7 @@ class AmhsToSwimConformanceTest {
             assertPublished(g);
             Publish p = onlyPublish();
             assertEquals("ia5-text-body-part", p.prop("amhs_bodypart_type"), "Table 6");
-            assertEquals("IA5", p.prop("amhs_content_encoding"), "§4.4.3.4.9");
+            assertEquals("IA5", p.prop("amhs_content_encoding"), "IA5");
         }
     }
 
@@ -1224,7 +1198,7 @@ class AmhsToSwimConformanceTest {
             assertPublished(g);
             Publish p = onlyPublish();
             assertEquals("general-text-body-part", p.prop("amhs_bodypart_type"), "Table 6");
-            assertEquals("ISO-646", p.prop("amhs_content_encoding"), "§4.4.3.4.9");
+            assertEquals("ISO-646", p.prop("amhs_content_encoding"), "ISO-646");
             assertEquals(texts[i], p.amqpValue, "nội dung phải giữ nguyên");
         }
     }
@@ -1289,7 +1263,7 @@ class AmhsToSwimConformanceTest {
 
         assertPublished(g);
         assertTrue(alerts.stream().anyMatch(a -> a.contains("precedence 107")),
-                "§4.4.4.4: phải báo Control Position");
+                "phải báo Control Position");
         assertEquals("SS", onlyPublish().prop("amhs_ats_pri"));
     }
 
@@ -1304,7 +1278,7 @@ class AmhsToSwimConformanceTest {
 
         assertPublished(g);
         assertTrue(alerts.stream().anyMatch(a -> a.contains("ATS-message-priority SS")),
-                "§4.4.4.4: Basic IPM ưu tiên SS phải báo Control Position");
+                "Basic IPM ưu tiên SS phải báo Control Position");
     }
 
     @Test
@@ -1323,7 +1297,7 @@ class AmhsToSwimConformanceTest {
         assertPublished(g);
         assertTrue(alerts.stream().anyMatch(a -> a.contains("precedence 107")));
         assertEquals("VVHHZTZX", onlyPublish().prop("amhs_recipients"),
-                "§4.4.3.4.4: chỉ recipient 'responsible' nằm trong amhs_recipients");
+                "chỉ recipient 'responsible' nằm trong amhs_recipients");
     }
 
     @Test
@@ -1355,7 +1329,7 @@ class AmhsToSwimConformanceTest {
     }
 
     // =====================================================================================
-    // CTSW014 / CTSW015 — Incoming RN (§4.4.7)
+    // Incoming RN
     // =====================================================================================
 
     private vn.asg.swim.service.AmhsFeedbackService feedbackService(
@@ -1398,8 +1372,8 @@ class AmhsToSwimConformanceTest {
 
         feedbackService(gwinRepository).processFeedback(rn(1, "IPM-SS-1"));
 
-        assertTrue(rejections.isEmpty(), "§4.4.7.2: RN hợp lệ không bị từ chối");
-        assertTrue(alerts.stream().anyMatch(a -> a.contains("§4.4.7.3")),
+        assertTrue(rejections.isEmpty(), "RN hợp lệ không bị từ chối");
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("đã được nhận")),
                 "phải báo Control Position để lưu trữ và xử lý");
     }
 
@@ -1413,10 +1387,10 @@ class AmhsToSwimConformanceTest {
 
         feedbackService(gwinRepository).processFeedback(rn(2, "IPM-FF-1"));
 
-        assertTrue(alerts.stream().anyMatch(a -> a.contains("§4.4.7.2") && a.contains("khác SS")),
-                "§4.4.7.2: phải log lỗi và báo Control Position");
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("khác SS")),
+                "phải log lỗi và báo Control Position");
         assertTrue(rejections.isEmpty(),
-                "§4.4.7.2 chỉ yêu cầu log + báo CP cho nhánh này");
+                "chỉ yêu cầu log + báo Control Position cho nhánh này");
     }
 
     @Test
@@ -1428,9 +1402,8 @@ class AmhsToSwimConformanceTest {
 
         feedbackService(gwinRepository).processFeedback(rn(3, "IPM-FICTITIOUS"));
 
-        // Appendix A CTSW015: "Check the storage of the RN for appropriate action at the
-        // Control Position". Việc phát NDR ra X.400 do AMHS Component đảm nhiệm.
-        assertTrue(alerts.stream().anyMatch(a -> a.contains("§4.4.7.1")),
+        // Kiểm tra lưu lại RN để xử lý
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("lạc tuyến")),
                 "phải báo Control Position và lưu RN lại để xử lý");
         assertTrue(alerts.stream().anyMatch(a -> a.contains("IPM-FICTITIOUS")),
                 "cảnh báo phải nêu IPM-Identifier của điện văn gốc để CP truy được");
@@ -1439,18 +1412,12 @@ class AmhsToSwimConformanceTest {
     }
 
     // =====================================================================================
-    // CTSW016 với ĐỊNH DẠNG EIT THẬT của AMHS Component
-    //
-    // Các test CTSW016 phía trên dùng dạng ký hiệu "{id-cs-eit-authority N}". Dữ liệu thật trong
-    // mtcu_tmp.originEncodeInformationType lại là OID DẠNG SỐ, ngăn cách bằng DẤU CÁCH:
-    //     1.0.10021.7.1.0.N          — {id-cs-eit-authority N} theo arc ICAO/ATN
-    //     2.16.840.1.101.2.1.22.N    — {id-cs-eit-authority N} theo arc còn lại
-    //     2.6.1.12.0                 — {id-eit-file-transfer 0}
+    // Định dạng EIT OID
     // =====================================================================================
 
     @Nested
-    @DisplayName("CTSW016 — EIT ở định dạng OID thật của AMHS Component")
-    class Ctsw016RealOidFormat {
+    @DisplayName("EIT ở định dạng OID")
+    class EitRealOidFormat {
 
         private Gwout withEit(long id, String eit) {
             Object[] r = row(id, "FF", "070430", "METAR VVNB=");
@@ -1459,7 +1426,7 @@ class AmhsToSwimConformanceTest {
         }
 
         @Test
-        @DisplayName("{id-cs-eit-authority 1/2/6/100} dạng OID ICAO/ATN phải được chấp nhận (§4.4.2.1a)")
+        @DisplayName("{id-cs-eit-authority 1/2/6/100} dạng OID ICAO/ATN phải được chấp nhận")
         void icaoAuthorityOidsAccepted() {
             String[] eits = {
                     "1.0.10021.7.1.0.1",                                        // authority 1
@@ -1496,14 +1463,14 @@ class AmhsToSwimConformanceTest {
         }
 
         @Test
-        @DisplayName("{id-eit-file-transfer 0} = OID 2.6.1.12.0 phải được chấp nhận (§4.4.2.1a)")
+        @DisplayName("{id-eit-file-transfer 0} = OID 2.6.1.12.0 phải được chấp nhận")
         void fileTransferOidAccepted() {
             assertPublished(withEit(1680, "2.6.1.12.0"));
         }
 
         @Test
         @DisplayName("Danh sách ngăn cách bằng DẤU CÁCH phải được tách ra từng giá trị: "
-                + "một giá trị sai là từ chối cả bản tin (§4.4.2.1b)")
+                + "một giá trị sai là từ chối cả bản tin")
         void spaceSeparatedListMustBeSplit() {
             // Chuỗi bắt đầu bằng "ia5-text" (hợp lệ) nhưng kèm authority 3 (KHÔNG hợp lệ).
             // Nếu bộ kiểm tra không tách theo dấu cách, cả chuỗi được coi là một token chứa
@@ -1523,15 +1490,11 @@ class AmhsToSwimConformanceTest {
     }
 
     /**
-     * Hồi quy trên TOÀN BỘ giá trị EIT có thật: 20 giá trị phân biệt lấy từ
-     * {@code SELECT DISTINCT originEncodeInformationType FROM mtcu_tmp} ngày 08/09/2026.
-     * <p>
-     * Trước bản sửa, 42/45 bản tin {@code gwout} trạng thái FAILED mang lý do
-     * {@code unsupported-eit} - phần lớn là từ chối oan.
+     * Kiểm tra các giá trị EIT thực tế của hệ thống.
      */
     @Nested
-    @DisplayName("CTSW016 — hồi quy trên dữ liệu EIT thật của hệ thống")
-    class Ctsw016ProductionData {
+    @DisplayName("Hồi quy trên dữ liệu EIT thật của hệ thống")
+    class EitProductionData {
 
         private void accept(String eit) {
             assertTrue(validationService.validateEncodedInformationTypes(eit).isValid(),

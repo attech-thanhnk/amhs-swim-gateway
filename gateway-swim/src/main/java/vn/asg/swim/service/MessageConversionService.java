@@ -14,7 +14,7 @@ import java.time.format.DateTimeFormatter;
 /**
  * Ánh xạ độ ưu tiên, OHI, body part type, filing time và ghi log chuyển tiếp
  * bản tin giữa luồng SWIM và AMHS. Nội dung bản tin (body) được giữ nguyên,
- * không convert định dạng ở cả hai chiều (theo ICAO Doc 047).
+ * không convert định dạng ở cả hai chiều.
  */
 @Service
 @RequiredArgsConstructor
@@ -90,8 +90,7 @@ public class MessageConversionService {
     }
 
     /**
-     * Log bản tin AMHS→SWIM bị từ chối kèm NDR non-delivery-diagnostic-code theo ma trận
-     * EUR Doc 047 §4.4.1-§4.4.2/§4.4.6 (reason-code luôn là "unable-to-transfer").
+     * Log bản tin AMHS→SWIM bị từ chối kèm NDR non-delivery-diagnostic-code.
      */
     public void logAmhsToSwimRejected(Gwout gwout, String actionTaken, String rejectionDiagnostic,
             String supplementaryInfo) {

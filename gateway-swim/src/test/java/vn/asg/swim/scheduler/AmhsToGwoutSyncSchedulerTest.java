@@ -90,7 +90,7 @@ class AmhsToGwoutSyncSchedulerTest {
             assertEquals("070130", gwout.getFilingTime());
             assertEquals("OHI-123", gwout.getOptionalHeading());
             assertEquals("FF", gwout.getAmhsPriority());
-            assertEquals(4, gwout.getSwimPriority()); // FF -> AMQP priority 4 (EUR Doc 047 v3.0 Table 3)
+            assertEquals(4, gwout.getSwimPriority()); // FF -> priority 4
             assertEquals(OutboundStatus.PENDING.getValue(), gwout.getStatus());
             assertEquals("text", gwout.getBodyType());
             return true;
@@ -130,7 +130,7 @@ class AmhsToGwoutSyncSchedulerTest {
         // When
         scheduler.syncAmhsToGwout();
 
-        // Then: chỉ 1 gwout được tạo (gộp theo mtcu_tmp.id), amhs_recipients liệt kê đủ 3 recipient (§4.4.3.4.4)
+        // Then: chỉ 1 gwout được tạo (gộp theo mtcu_tmp.id), amhs_recipients liệt kê đủ 3 recipient
         verify(gwoutRepository, times(1)).saveAndFlush(argThat(gwout -> {
             assertEquals("MSG-126", gwout.getAmhsid());
             assertEquals("VVTSOPTB,VVCIZTZX,VVHHZTZX", gwout.getAddress());
@@ -207,8 +207,7 @@ class AmhsToGwoutSyncSchedulerTest {
             assertEquals("report.pdf", gwout.getFtbpFileName());
             // Kích thước suy từ OCTET_LENGTH(data), không phải cột riêng
             assertEquals("204800", gwout.getFtbpObjectSize());
-            // §4.4.3.4.2: ba thuộc tính FTBP đều optional. Không server nào có nguồn cho
-            // date-and-time-of-last-modification nên property này vắng mặt - hợp lệ.
+            // Ba thuộc tính FTBP đều optional, ftbpLastMod vắng mặt
             assertEquals(null, gwout.getFtbpLastMod());
             return true;
         }));
@@ -216,10 +215,7 @@ class AmhsToGwoutSyncSchedulerTest {
 
     @Test
     void testSyncAmhsToGwout_TextPlusFtbp_ShouldBecomeFileTransferBodyPart() {
-        // §4.4.3.4.9: "Upon reception of a message with two body parts, one file-transfer-body
-        // part and one text body part, the amhs_bodypart_type shall contain the value
-        // file-transfer-body part." CTSW007 điện văn 1-2.
-        // Server 188 báo bodyPartType = 401 (theo phần text) nhưng có data -> phải thành FTBP.
+        // Bản tin gồm 1 text body part và 1 file transfer body part -> gán body part type là file-transfer-body-part
         List<Object[]> mockRows = new ArrayList<>();
         Object[] row = new Object[22];
         row[0] = 59299L;
@@ -357,7 +353,7 @@ class AmhsToGwoutSyncSchedulerTest {
 
     @Test
     void testCTSW003_OriginatorReportRequest_ShouldRequireDr() {
-        // originator-report-request = report(2) là điều kiện độc lập theo Appendix A
+        // originator-report-request = report(2) là điều kiện độc lập
         assertEquals(Boolean.TRUE, syncOneRowWithReportFlags(2, 1).getAmhsDeliveryReport());
     }
 
@@ -367,7 +363,7 @@ class AmhsToGwoutSyncSchedulerTest {
         assertEquals(Boolean.FALSE, syncOneRowWithReportFlags(null, null).getAmhsDeliveryReport());
     }
 
-    /** CTSW008 - content-type của MTE phải được đưa xuống gwout để kiểm §4.4.1.1. */
+    /** Content-type của MTE được đưa xuống gwout để kiểm tra. */
     @Test
     void testCTSW008_ContentTypeIsCarriedIntoGwout() {
         Object[] row = new Object[19];
@@ -444,7 +440,7 @@ class AmhsToGwoutSyncSchedulerTest {
 
     @Test
     void testCTSW001_SubjectShouldBeCopiedFromMtcuTmp() {
-        // CTSW001 (§4.4.3.4.8): subject của IPM heading phải được đồng bộ để publish amhs_subject
+        // Subject của IPM heading được đồng bộ để publish amhs_subject
         assertEquals("SIGMET VVTS", syncOneRow("401", null, "SIGMET VVTS").getSubject());
     }
 
@@ -562,7 +558,7 @@ class AmhsToGwoutSyncSchedulerTest {
 
     @Test
     void testCTSW001_AmhsRecipientsExcludesNotResponsible() {
-        // §4.4.3.4.4: amhs_recipients chỉ gồm recipient có responsibility = responsible
+        // amhs_recipients chỉ gồm recipient có responsibility = responsible
         Gwout gwout = syncWithRecipients(null, new Object[][] {
                 { "VVHHZTZX", 57, true },
                 { "VVNBZTZX", 57, false },

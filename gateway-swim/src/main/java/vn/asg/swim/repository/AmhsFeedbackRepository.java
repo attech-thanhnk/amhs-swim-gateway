@@ -66,8 +66,7 @@ public class AmhsFeedbackRepository {
             return query(lastProcessedId, batchSize, hasNdrColumns());
         } catch (Exception e) {
             if (!tableMissingLogged) {
-                log.warn("Chưa đọc được bảng cp ({}), bỏ qua xử lý phản hồi AMHS. "
-                        + "Bảng này do AMHS Component cung cấp (CTSW014/015/113/114).", e.getMessage());
+                log.warn("Chưa đọc được bảng cp ({}), bỏ qua xử lý phản hồi AMHS.", e.getMessage());
                 tableMissingLogged = true;
             }
             return List.of();
@@ -125,7 +124,7 @@ public class AmhsFeedbackRepository {
         }
         if (!ndrColumnsPresent) {
             log.warn("Bảng cp chưa có đủ 3 cột reasonCode/diagnosticCode/subjectMTS - nhánh RN/NRN "
-                    + "vẫn chạy, riêng NDR (CTSW114) thiếu mã lý do cho tới khi AMHS Component bổ sung.");
+                    + "vẫn chạy, riêng NDR thiếu mã lý do cho tới khi AMHS Component bổ sung.");
         }
         return ndrColumnsPresent;
     }

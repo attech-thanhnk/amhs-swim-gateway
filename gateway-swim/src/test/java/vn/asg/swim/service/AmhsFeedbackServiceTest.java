@@ -24,9 +24,6 @@ import static org.mockito.Mockito.*;
 
 /**
  * Phản hồi AMHS bay ngược về cho điện văn đã gửi ở chiều SWIM → AMHS.
- * <p>
- * Bốn test case của Appendix A trong một luồng: CTSW114 (NDR), CTSW113 (RN/NRN),
- * CTSW014 (RN priority khác SS), CTSW015 (RN lạc tuyến).
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -51,7 +48,6 @@ class AmhsFeedbackServiceTest {
         subject.setMtsId("MTS-500");
         subject.setOrigin("VVTSSWIM");
         subject.setAtsPriority("SS");
-        // amss đặt trạng thái "đã giao" ngay khi bàn giao cho MTA - phản hồi về SAU thời điểm này
         subject.setStatus(10);
 
         when(gwinRepository.findByIpmId(anyString())).thenReturn(List.of());
@@ -67,7 +63,7 @@ class AmhsFeedbackServiceTest {
         if (AmhsFeedback.TYPE_DR.equals(type) || AmhsFeedback.TYPE_NDR.equals(type)) {
             f.setSubjectMts("MTS-500");
             f.setReasonCode("unable-to-transfer");
-            f.setDiagnosticCode(null); // CTSW114: để trống là đúng chuẩn
+            f.setDiagnosticCode(null);
         } else {
             f.setSubjectIpm("260906102127160Z*/CN=VVTSSWIM/");
             f.setReceiptTime("260906102152Z");
@@ -75,10 +71,10 @@ class AmhsFeedbackServiceTest {
         return f;
     }
 
-    // ==================== CTSW114 - NDR ====================
+    // ==================== NDR ====================
 
     @Test
-    @DisplayName("CTSW114: NDR về -> ghi log và báo Control Position")
+    @DisplayName("NDR về -> ghi log và báo Control Position")
     void testCTSW114_NdrLoggedAndReportedToControlPosition() {
         when(gwinRepository.findByMtsId("MTS-500")).thenReturn(List.of(subject));
 
@@ -91,10 +87,8 @@ class AmhsFeedbackServiceTest {
     }
 
     @Test
-    @DisplayName("CTSW114: diagnostic-code ĐỂ TRỐNG là hợp lệ, không được loại bản ghi")
+    @DisplayName("NDR: diagnostic-code để trống vẫn hợp lệ")
     void testCTSW114_EmptyDiagnosticCodeIsValid() {
-        // Appendix A ghi rõ NDR của CTSW114 mang "empty field for the non-delivery-diagnostic-code".
-        // Coi rỗng là dữ liệu hỏng rồi bỏ qua thì test case fail mà không để lại dấu vết.
         when(gwinRepository.findByMtsId("MTS-500")).thenReturn(List.of(subject));
 
         for (String emptyish : new String[] { null, "", "   " }) {
@@ -104,14 +98,13 @@ class AmhsFeedbackServiceTest {
 
             service.processFeedback(f);
 
-            // Thiếu diagnostic thì lùi về reason-code, không đẩy chuỗi rỗng lên giao diện
             verify(alertService).create(anyString(), anyString(), contains("unable-to-transfer"),
                     anyString(), anyLong());
         }
     }
 
     @Test
-    @DisplayName("CTSW114: NDR phải sửa trạng thái điện văn gốc, không để hiển thị 'đã giao xong'")
+    @DisplayName("NDR cập nhật trạng thái điện văn gốc")
     void testCTSW114_SubjectStatusCorrected() {
         when(gwinRepository.findByMtsId("MTS-500")).thenReturn(List.of(subject));
 
@@ -119,14 +112,12 @@ class AmhsFeedbackServiceTest {
 
         assertEquals(InboundStatus.FAILED.getValue(), subject.getStatus());
         assertEquals("non-delivery-report", subject.getRejectionReason());
-        // Setter của rejectionReason tự gán "SWIM" khi source trống, nên thứ tự gán trong service
-        // phải bảo đảm giá trị cuối cùng là AMHS
         assertEquals("AMHS", subject.getRejectionSource());
         verify(gwinRepository).save(subject);
     }
 
     @Test
-    @DisplayName("CTSW114: không tra ra điện văn gốc thì vẫn phải báo Control Position")
+    @DisplayName("NDR không tra ra điện văn gốc vẫn báo Control Position")
     void testCTSW114_OrphanNdrStillReported() {
         service.processFeedback(feedback(AmhsFeedback.TYPE_NDR));
 
@@ -136,7 +127,7 @@ class AmhsFeedbackServiceTest {
     }
 
     @Test
-    @DisplayName("DR là tin tốt: chỉ ghi log, không cảnh báo, không đụng trạng thái")
+    @DisplayName("DR chỉ ghi log, không cảnh báo, không đổi trạng thái")
     void testDrShouldNotMarkMessageFailed() {
         when(gwinRepository.findByMtsId("MTS-500")).thenReturn(List.of(subject));
 
@@ -149,13 +140,11 @@ class AmhsFeedbackServiceTest {
                 contains("dr_received"), isNull(), anyString());
     }
 
-    // ==================== Khoá đối chiếu theo tầng sinh ra phản hồi ====================
+    // ==================== Tra cứu ====================
 
     @Test
     @DisplayName("Report ưu tiên tra MTS-Id, IPN ưu tiên tra IPM-Id")
     void testLookupKeyDependsOnFeedbackType() {
-        // MTA sinh report mà không giải mã nội dung nên chỉ biết MTS-Id;
-        // người nhận sinh IPN sau khi đã mở nội dung nên biết IPM-Id.
         when(gwinRepository.findByMtsId("MTS-500")).thenReturn(List.of(subject));
         when(gwinRepository.findByIpmId("260906102127160Z*/CN=VVTSSWIM/")).thenReturn(List.of(subject));
 
@@ -170,11 +159,8 @@ class AmhsFeedbackServiceTest {
     }
 
     @Test
-    @DisplayName("NDR mang MTS-Id trong cột subjectIPM vẫn phải tra ra điện văn gốc")
+    @DisplayName("NDR mang MTS-Id trong cột subjectIPM vẫn tra ra điện văn gốc")
     void testReportWithMtsIdInIpmColumn() {
-        // Quan sát trên dữ liệu thật 07/09: chừng nào cp.subjectMTS chưa tồn tại thì amss đặt
-        // MTS-Identifier vào chính cột subjectIPM. Nếu chỉ tra ipm_id thì mọi NDR đều bị coi là
-        // lạc tuyến, và Control Position mất hẳn liên kết về điện văn gốc.
         String mtsInIpmColumn = "[/PRMD=VIETNAM/ADMD=ICAO/C=XX/;gateway.attech.481-260907.084905]";
         subject.setMtsId(mtsInIpmColumn);
         when(gwinRepository.findByMtsId(mtsInIpmColumn)).thenReturn(List.of(subject));
@@ -189,10 +175,10 @@ class AmhsFeedbackServiceTest {
                 contains("không giao được"), eq("gwin"), eq(500L));
     }
 
-    // ==================== CTSW113 / CTSW014 - RN, NRN ====================
+    // ==================== RN / NRN ====================
 
     @Test
-    @DisplayName("CTSW113: RN cho điện văn SS -> chấp nhận, báo Control Position")
+    @DisplayName("RN cho điện văn SS -> chấp nhận, báo Control Position")
     void testCTSW113_ValidRnReported() {
         when(gwinRepository.findByIpmId(anyString())).thenReturn(List.of(subject));
 
@@ -200,13 +186,12 @@ class AmhsFeedbackServiceTest {
 
         verify(alertService).create(anyString(), eq(GwAlert.SEV_INFO), contains("đã được nhận"),
                 eq("cp"), eq(7L));
-        // Nhánh lạc tuyến (CTSW015) mới là nhánh trước đây sinh NDR - nhánh này không đi qua đó.
         verify(conversionService, never()).logSwimToAmhs(any(), anyString(), anyString(),
                 contains("misrouted_ipn"), anyString(), any());
     }
 
     @Test
-    @DisplayName("CTSW113: NRN báo điện văn KHÔNG được đọc -> cảnh báo mức cao hơn RN")
+    @DisplayName("NRN báo điện văn không được đọc -> cảnh báo WARNING")
     void testCTSW113_NrnRaisesWarning() {
         when(gwinRepository.findByIpmId(anyString())).thenReturn(List.of(subject));
         AmhsFeedback nrn = feedback(AmhsFeedback.TYPE_NRN);
@@ -214,13 +199,12 @@ class AmhsFeedbackServiceTest {
 
         service.processFeedback(nrn);
 
-        // NRN là tin xấu - để INFO thì operator lướt qua giữa danh sách dài
         verify(alertService).create(anyString(), eq(GwAlert.SEV_WARNING), contains("KHÔNG được đọc"),
                 eq("cp"), eq(7L));
     }
 
     @Test
-    @DisplayName("CTSW014: điện văn gốc priority khác SS -> từ chối, KHÔNG sinh NDR")
+    @DisplayName("Điện văn gốc priority khác SS -> từ chối, không sinh NDR")
     void testCTSW014_NonSsPriorityRejectedWithoutNdr() {
         subject.setAtsPriority("DD");
         when(gwinRepository.findByIpmId(anyString())).thenReturn(List.of(subject));
@@ -229,16 +213,13 @@ class AmhsFeedbackServiceTest {
 
         verify(alertService).create(anyString(), eq(GwAlert.SEV_WARNING), contains("khác SS"),
                 eq("cp"), eq(7L));
-        // Nhánh lạc tuyến (CTSW015) mới là nhánh trước đây sinh NDR - nhánh này không đi qua đó.
         verify(conversionService, never()).logSwimToAmhs(any(), anyString(), anyString(),
                 contains("misrouted_ipn"), anyString(), any());
     }
 
     @Test
-    @DisplayName("gwin cũ chưa có ats_priority: suy lại từ AMQP priority thay vì từ chối oan")
+    @DisplayName("gwin cũ chưa có ats_priority: suy lại từ AMQP priority")
     void testPriorityFallbackForLegacyRows() {
-        // Dòng gwin ghi trước migration 2026-09-06 có ats_priority NULL. Coi NULL là "khác SS"
-        // sẽ từ chối oan một RN hợp lệ - §4.5.2.2 Table 9: AMQP priority >= 6 là SS.
         subject.setAtsPriority(null);
         subject.setPriority((byte) 6);
         when(gwinRepository.findByIpmId(anyString())).thenReturn(List.of(subject));
@@ -249,18 +230,16 @@ class AmhsFeedbackServiceTest {
                 eq("cp"), eq(7L));
     }
 
-    // ==================== CTSW015 - RN lạc tuyến ====================
+    // ==================== RN lạc tuyến ====================
 
     @Test
-    @DisplayName("CTSW015: điện văn gốc hư cấu -> lưu lại và báo Control Position")
+    @DisplayName("RN lạc tuyến -> lưu lại và báo Control Position")
     void testCTSW015_MisroutedRnReportedToControlPosition() {
         AmhsFeedback rn = feedback(AmhsFeedback.TYPE_RN);
         rn.setSubjectIpm("IPM-KHONG-TON-TAI");
 
         service.processFeedback(rn);
 
-        // Appendix A CTSW015: "Check the storage of the RN for appropriate action at the
-        // Control Position". ITCU không sinh NDR - AMHS Component phát report ra X.400.
         verify(alertService).create(anyString(), eq(GwAlert.SEV_WARNING), contains("lạc tuyến"),
                 eq("cp"), eq(7L));
         verify(conversionService).logSwimToAmhs(isNull(), eq(rn.getOrigin()), eq("REJECTED"),
@@ -268,11 +247,8 @@ class AmhsFeedbackServiceTest {
     }
 
     @Test
-    @DisplayName("KHÔNG được ghi đè cp.status - đó là phân loại riêng của AMHS Component")
+    @DisplayName("Không ghi đè cp.status")
     void testMustNotTouchCpStatus() {
-        // Quan sát dữ liệu thật 08/09: status=3 kèm ghi chú "CÓ có điện văn yêu cầu RN với ipmId
-        // này", status=4 kèm "Không có...". Cột này đang hiển thị trên Control Position; ghi đè là
-        // xoá mất. Tiến độ xử lý theo dõi bằng mốc cp.id ở scheduler.
         for (String type : new String[] { AmhsFeedback.TYPE_RN, AmhsFeedback.TYPE_NRN,
                 AmhsFeedback.TYPE_DR, AmhsFeedback.TYPE_NDR }) {
             reset(feedbackRepository);

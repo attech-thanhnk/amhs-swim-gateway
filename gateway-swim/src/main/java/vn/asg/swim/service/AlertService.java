@@ -40,9 +40,6 @@ public class AlertService {
 
     /**
      * Đóng toàn bộ cảnh báo đang mở của một loại khi sự cố đã tự khắc phục.
-     *
-     * Ví dụ: cảnh báo CONNECTION_LOST trước đây chỉ tắt được bằng thao tác tay trên
-     * Control Position, nên màn hình vẫn báo đỏ dù kết nối AMQP đã khôi phục.
      */
     public void resolveOpenAlerts(String alertType, String reason) {
         try {

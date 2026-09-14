@@ -5,15 +5,9 @@ package vn.asg.swim.model;
  * <p>
  * Bốn loại, phân biệt bằng {@code ipnType}:
  * <ul>
- *   <li>{@code RN} / {@code NRN} — thông báo do <b>người nhận</b> tạo ra (§4.4.7, CTSW014/015/113).
- *       Tham chiếu điện văn gốc bằng <b>IPM-Identifier</b>, vì người nhận đã mở nội dung ra đọc.</li>
- *   <li>{@code DR} / {@code NDR} — báo cáo do <b>MTA</b> tạo ra (§4.4.1.3, CTSW114). Tham chiếu
- *       điện văn gốc bằng <b>MTS-Identifier</b>, vì MTA chỉ nhìn phong bì, không giải mã nội dung.</li>
+ *   <li>{@code RN} / {@code NRN} — thông báo do người nhận tạo ra.</li>
+ *   <li>{@code DR} / {@code NDR} — báo cáo do MTA tạo ra.</li>
  * </ul>
- * Đây là POJO chứ không phải {@code @Entity}: bảng {@code cp} do AMHS Component đặt tên cột theo
- * camelCase, mà Spring Boot áp naming strategy chuyển camelCase thành snake_case kể cả khi khai
- * báo {@code @Column} tường minh — lỗi đã gặp ngày 26/08. Nên đọc bằng native query theo vị trí
- * cột, giống cách {@code mtcu_tmp} và {@code mtcu_to} đang được đọc.
  */
 public class AmhsFeedback {
 
@@ -58,26 +52,18 @@ public class AmhsFeedback {
 
     /**
      * non-delivery-diagnostic-code — chỉ NDR.
-     * <p>
-     * <b>Rỗng là hợp lệ.</b> CTSW114 quy định NDR của nó mang "empty field" cho trường này.
      */
     private String diagnosticCode;
 
-    /**
-     * Văn bản bổ sung. <b>Nghĩa phụ thuộc {@code ipnType}:</b> với RN là suppl-receipt-info,
-     * với NDR là supplementary-information. Hai khái niệm khác nhau của X.400 dùng chung một cột.
-     */
+    /** Văn bản bổ sung */
     private String supplementaryInfo;
 
-    /** Trạng thái xử lý do amss đặt và ITCU cập nhật lại */
     private Integer status;
 
-    /** Phản hồi báo KHÔNG thành công — nhánh phải báo Control Position gấp */
     public boolean isFailure() {
         return TYPE_NDR.equalsIgnoreCase(ipnType) || TYPE_NRN.equalsIgnoreCase(ipnType);
     }
 
-    /** Báo cáo tầng vận chuyển (DR/NDR), phân biệt với thông báo tầng người dùng (RN/NRN) */
     public boolean isReport() {
         return TYPE_DR.equalsIgnoreCase(ipnType) || TYPE_NDR.equalsIgnoreCase(ipnType);
     }

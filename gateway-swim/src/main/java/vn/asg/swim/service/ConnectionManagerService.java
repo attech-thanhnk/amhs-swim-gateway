@@ -102,17 +102,13 @@ public class ConnectionManagerService {
             return;
         }
 
-        // Chỉ tiến hành connect khi mất kết nối hoặc chuyển đổi tài khoản active.
-        // Nếu kết nối đang hoat động tốt nhưng DB mang trạng thái CONNECTING -> đồng bộ DB sang CONNECTED thay vì tear-down kết nối.
+        // Kết nối lại khi mất kết nối hoặc đổi tài khoản
         if (!connected.get() || (activeAccountId != null && !activeAccountId.equals(activeAcc.getId()))) {
             log.info("Active AMQP account change or reconnect requested for account '{}' (bindStatus={}). Connecting...",
                     activeAcc.getAccountName(), activeAcc.getBindStatus());
             connect();
         } else if (connected.get() && !BIND_CONNECTED.equals(activeAcc.getBindStatus())) {
-            // Kết nối thực tế đang tốt nhưng cột bind_status trong CSDL nói khác (CONNECTING,
-            // hoặc DISCONNECTED do một tiến trình khác - ví dụ test tích hợp - ghi đè lên).
-            // Control Position chỉ đọc cột này nên phải đồng bộ lại, nếu không CP sẽ báo
-            // "mất kết nối" vĩnh viễn cho tới lần restart kế tiếp.
+            // Đồng bộ lại bind_status nếu CSDL lệch trạng thái thực tế
             log.info("Đồng bộ lại bind_status: CSDL đang là '{}' trong khi kết nối AMQP vẫn hoạt động",
                     activeAcc.getBindStatus());
             updateBindStatus(BIND_CONNECTED);

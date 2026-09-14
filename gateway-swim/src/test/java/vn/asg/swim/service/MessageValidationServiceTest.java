@@ -96,7 +96,6 @@ class MessageValidationServiceTest {
 
     @Test
     void testPayloadSize_MaxSizeZero_ShouldMeanUnlimited() {
-        // EUR Doc 047 §3.3.1.4: 0 hoặc không cấu hình = không giới hạn
         when(configService.getMaxMsgDataSize()).thenReturn(0);
         String payload = "A".repeat(1_000_000);
 
@@ -105,11 +104,8 @@ class MessageValidationServiceTest {
         assertTrue(result.isValid());
     }
 
-    // ==================== AMHS → SWIM: SIZE & RECIPIENTS (CTSW006 / CTSW010) ====================
-
     @Test
     void testAmhsToSwim_SizeOverLimit_ShouldReportContentTooLong() {
-        // CTSW006 (b/c): payload vượt "Maximum message data size" -> content-too-long
         when(configService.getConversionDir()).thenReturn("BOTH");
         when(configService.getMaxMsgDataSize()).thenReturn(100);
         when(configService.getMaxMsgRecipients()).thenReturn(512);
@@ -122,9 +118,6 @@ class MessageValidationServiceTest {
 
     @Test
     void testAmhsToSwim_RecipientsCommaSeparated_ShouldBeCountedIndividually() {
-        // CTSW010 (b): gwout.address được ghi bằng dấu phẩy (AmhsToGwoutSyncScheduler),
-        // nên bộ đếm phải tách theo dấu phẩy - trước đây chỉ tách theo khoảng trắng
-        // nên 513 recipient bị đếm thành 1 và không bao giờ chạm ngưỡng.
         when(configService.getConversionDir()).thenReturn("BOTH");
         when(configService.getMaxMsgDataSize()).thenReturn(0);
         when(configService.getMaxMsgRecipients()).thenReturn(512);
@@ -143,7 +136,6 @@ class MessageValidationServiceTest {
 
     @Test
     void testAmhsToSwim_RecipientsAtConfiguredMax_ShouldPass() {
-        // CTSW010 (a): đúng 512 recipient (== max cấu hình) -> vẫn chuyển đổi bình thường
         when(configService.getConversionDir()).thenReturn("BOTH");
         when(configService.getMaxMsgDataSize()).thenReturn(0);
         when(configService.getMaxMsgRecipients()).thenReturn(512);
@@ -158,8 +150,6 @@ class MessageValidationServiceTest {
         assertTrue(result.isValid());
     }
 
-    // ==================== ATS-MESSAGE-HEADER (CTSW004) ====================
-
     @Test
     void testAtsHeader_ValidPriorityAndFilingTime_ShouldPass() {
         assertTrue(service.validateAtsMessageHeader("FF", "121200").isValid());
@@ -167,7 +157,6 @@ class MessageValidationServiceTest {
 
     @Test
     void testAtsHeader_EmptyPriority_ShouldFail() {
-        // CTSW004 - điện văn 1: ATS-message-priority rỗng
         var result = service.validateAtsMessageHeader("", "121200");
 
         assertFalse(result.isValid());
@@ -176,8 +165,6 @@ class MessageValidationServiceTest {
 
     @Test
     void testAtsHeader_InvalidPriority_ShouldFail() {
-        // CTSW004 - điện văn 2: ATS-message-priority sai giá trị (ngoài SS/DD/FF/GG/KK).
-        // Trước đây AmqpProperties.mapAtsPriorityToAmqp âm thầm map về FF và cho qua.
         var result = service.validateAtsMessageHeader("XX", "121200");
 
         assertFalse(result.isValid());
@@ -186,7 +173,6 @@ class MessageValidationServiceTest {
 
     @Test
     void testAtsHeader_EmptyFilingTime_ShouldFail() {
-        // CTSW004 - điện văn 3: ATS-message-filing-time rỗng
         var result = service.validateAtsMessageHeader("FF", null);
 
         assertFalse(result.isValid());
@@ -195,7 +181,6 @@ class MessageValidationServiceTest {
 
     @Test
     void testAtsHeader_InvalidFilingTime_ShouldFail() {
-        // CTSW004 - điện văn 4: filing-time không phải date-time group 6 số DDhhmm
         var result = service.validateAtsMessageHeader("FF", "12:00");
 
         assertFalse(result.isValid());
@@ -204,7 +189,6 @@ class MessageValidationServiceTest {
 
     @Test
     void testAtsHeader_CompletelyEmptyHeader_ShouldReportBothFields() {
-        // CTSW004 - điện văn 5: ATS-message-header rỗng hoàn toàn, không có IHE
         var result = service.validateAtsMessageHeader(null, null);
 
         assertFalse(result.isValid());
@@ -213,22 +197,17 @@ class MessageValidationServiceTest {
 
     @Test
     void testAtsHeader_LowercasePriority_ShouldBeAccepted() {
-        // Giá trị đúng nhưng viết thường vẫn là priority hợp lệ, không phải lỗi cú pháp
         assertTrue(service.validateAtsMessageHeader("ss", "121200").isValid());
     }
 
-    // ==================== CTSW006: kích thước payload thật ====================
-
     @Test
     void testAmhsToSwim_ExplicitByteSize_ShouldOverrideStringLength() {
-        // CTSW006: payload FTBP lưu base64 trong gwout.text nên dài hơn dữ liệu gốc ~33%.
-        // Chuỗi base64 vượt ngưỡng nhưng dữ liệu sau giải mã thì không -> phải được chấp nhận.
         when(configService.getConversionDir()).thenReturn("BOTH");
         when(configService.getMaxMsgDataSize()).thenReturn(100);
         when(configService.getMaxMsgRecipients()).thenReturn(0);
 
-        String base64Payload = "A".repeat(120); // 120 byte nếu đo trên chuỗi
-        var result = service.validateAmhsToSwim(base64Payload, "VVHHZTZX", 90); // 90 byte thật
+        String base64Payload = "A".repeat(120);
+        var result = service.validateAmhsToSwim(base64Payload, "VVHHZTZX", 90);
 
         assertTrue(result.isValid(), "Kích thước thật 90 < 100 nên không được từ chối");
     }
@@ -257,11 +236,8 @@ class MessageValidationServiceTest {
         assertTrue(result.getErrorMessage().contains("content-too-long"));
     }
 
-    // ==================== CTSW017 / CTSW019: repertoire ====================
-
     @Test
     void testRepertoire_Ia5TextWithIta2_ShouldBeRejected() {
-        // CTSW017 điện văn 3: repertoire ita2(2) không có trong Table 6
         var result = service.validateRepertoire("ia5-text-body-part", "ITA2");
 
         assertFalse(result.isValid());
@@ -270,14 +246,12 @@ class MessageValidationServiceTest {
 
     @Test
     void testRepertoire_Ia5TextDefaultOrIa5_ShouldBeAccepted() {
-        // CTSW017 điện văn 1&2 + Note 2: vắng repertoire thì mặc định là ia5
         assertTrue(service.validateRepertoire("ia5-text-body-part", null).isValid());
         assertTrue(service.validateRepertoire("ia5-text-body-part", "ISO-646").isValid());
     }
 
     @Test
     void testRepertoire_GeneralTextIso646_ShouldAlwaysBeAccepted() {
-        // CTSW018: Basic ISO 646 luôn hợp lệ, không phụ thuộc chính sách nội bộ
         var result = service.validateRepertoire("general-text-body-part", "ISO-646");
 
         assertTrue(result.isValid());
@@ -285,7 +259,6 @@ class MessageValidationServiceTest {
 
     @Test
     void testRepertoire_GeneralTextNonIso646_PolicyAllows_ShouldBeAccepted() {
-        // CTSW019: chính sách nội bộ cho phép chuyển đổi
         when(configService.isNonIso646RepertoireAllowed()).thenReturn(true);
 
         assertTrue(service.validateRepertoire("general-text-body-part", "ISO-8859-1").isValid());
@@ -294,7 +267,6 @@ class MessageValidationServiceTest {
 
     @Test
     void testRepertoire_GeneralTextNonIso646_PolicyRejects_ShouldBeRejected() {
-        // CTSW019: chính sách nội bộ từ chối -> NDR unsupported encoded-information-types
         when(configService.isNonIso646RepertoireAllowed()).thenReturn(false);
 
         var result = service.validateRepertoire("general-text-body-part", "ISO-REG-144");
@@ -305,11 +277,8 @@ class MessageValidationServiceTest {
 
     @Test
     void testRepertoire_FileTransferBodyPart_ShouldBeIgnored() {
-        // FTBP không có tham số repertoire
         assertTrue(service.validateRepertoire("file-transfer-body-part", "ISO-REG-144").isValid());
     }
-
-    // ==================== ĐỊNH NGHĨA ĐỊA CHỈ AFTN ====================
 
     @Test
     void testAftnAddress_EightUppercaseLetters_ShouldPass() {
@@ -319,9 +288,6 @@ class MessageValidationServiceTest {
 
     @Test
     void testAftnAddress_WithDigits_ShouldBeRejected() {
-        // ICAO Annex 10 Vol II: addressee indicator là 8 CHỮ CÁI. Trước đây validateAftnAddress
-        // cho phép cả chữ số trong khi OutboundDispatchService tự viết [A-Z]{8}, nên địa chỉ có
-        // chữ số qua được validator rồi bị bước tạo dispatch loại bỏ âm thầm.
         var result = service.validateAftnAddress("VVTS1234", "Recipient");
 
         assertFalse(result.isValid());
@@ -338,8 +304,6 @@ class MessageValidationServiceTest {
 
     @Test
     void testAtsHeader_FilingTimeLongerThanSixDigits_ShouldFail() {
-        // CTSW004: giá trị phải đi tới được đây nguyên vẹn. Nếu bước đồng bộ cắt về 6 ký tự thì
-        // "0704301234" biến thành "070430" hợp lệ và ca kiểm thử này biến mất.
         var result = service.validateAtsMessageHeader("FF", "0704301234");
 
         assertFalse(result.isValid());

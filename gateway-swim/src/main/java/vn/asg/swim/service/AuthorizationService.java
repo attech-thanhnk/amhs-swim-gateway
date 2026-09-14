@@ -7,16 +7,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * EUR Doc 047 §3.5 - Dịch vụ Xác thực Quyền hạn (Authorization Service)
+ * Dịch vụ Xác thực Quyền hạn (Authorization Service).
  *
  * Kiểm tra quyền hạn (authorization) đối với người dùng AMHS và SWIM.
  *
- * Các chế độ Cấu hình (C-19, C-20):
+ * Các chế độ Cấu hình:
  * - ALL: Chấp nhận tất cả người dùng (không lọc)
  * - BY_LIST: Chỉ chấp nhận người dùng trong whitelist
  * - BY_PRMD: Chỉ chấp nhận người dùng từ PRMD cụ thể (chỉ dành cho AMHS)
- * - BY_ENTERPRISE: Chỉ chấp nhận các doanh nghiệp SWIM cụ thể (chỉ dành cho
- * SWIM)
+ * - BY_ENTERPRISE: Chỉ chấp nhận các doanh nghiệp SWIM cụ thể (chỉ dành cho SWIM)
  */
 @Service
 @RequiredArgsConstructor
@@ -26,7 +25,7 @@ public class AuthorizationService {
     private final ConfigService configService;
 
     /**
-     * EUR Doc 047 §4.4.1 - Kiểm tra quyền hạn người dùng AMHS (C-19)
+     * Kiểm tra quyền hạn người dùng AMHS.
      *
      * @param originator Địa chỉ AFTN hoặc địa chỉ X.400 O/R
      * @return true nếu được phép truy cập
@@ -54,7 +53,7 @@ public class AuthorizationService {
     }
 
     /**
-     * EUR Doc 047 §4.5.1 - Kiểm tra quyền hạn người dùng SWIM (C-20)
+     * Kiểm tra quyền hạn người dùng SWIM.
      *
      * @param amqpMsg Bản tin AMQP (kiểm tra các thuộc tính user-id, enterprise)
      * @return true nếu được phép truy cập
