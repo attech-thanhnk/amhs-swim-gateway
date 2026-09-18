@@ -17,6 +17,10 @@ import jakarta.jms.*;
 import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.repository.AccountRepository;
 
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -88,9 +92,69 @@ public class ConnectionManagerService {
     }
 
     /**
-     * Định kỳ mỗi 5 giây rà soát trạng thái tài khoản trong CSDL để tự động ngắt/kết nối lại khi có sự thay đổi từ UI.
+     * Kiểm tra tính khả dụng của Broker thông qua TCP socket (Active Socket Ping).
      */
-    @Scheduled(fixedDelay = 5000)
+    protected boolean isBrokerReachable(String host, Integer port, int timeoutMs) {
+        if (host == null || host.isBlank() || port == null || port <= 0) {
+            return false;
+        }
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(host, port), timeoutMs);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Đăng ký Qpid JmsConnectionListener qua dynamic proxy để bắt ngay lập tức các sự kiện
+     * ngắt/nối tầng truyền tải (transport interruption) khi đang dùng chế độ failover:(...).
+     */
+    private void registerQpidConnectionListener(Connection conn) {
+        if (conn == null) {
+            return;
+        }
+        try {
+            Class<?> listenerClass = Class.forName("org.apache.qpid.jms.JmsConnectionListener");
+            Object listenerProxy = Proxy.newProxyInstance(
+                    listenerClass.getClassLoader(),
+                    new Class<?>[]{listenerClass},
+                    (proxy, method, args) -> {
+                        String methodName = method.getName();
+                        if ("onConnectionInterrupted".equals(methodName)) {
+                            log.warn("AMQP transport interrupted to broker: {}", (args != null && args.length > 0) ? args[0] : "");
+                            connected.set(false);
+                            updateBindStatus(BIND_DISCONNECTED);
+                            alertService.create(GwAlert.TYPE_CONNECTION_LOST, GwAlert.SEV_CRITICAL,
+                                    "AMQP connection interrupted (Mất kết nối tới Solace Broker)", null, null);
+                        } else if ("onConnectionRestored".equals(methodName)) {
+                            log.info("AMQP transport restored to broker: {}", (args != null && args.length > 0) ? args[0] : "");
+                            connected.set(true);
+                            updateBindStatus(BIND_CONNECTED);
+                            alertService.resolveOpenAlerts(GwAlert.TYPE_CONNECTION_LOST, "AMQP connection restored");
+                        } else if ("onConnectionFailure".equals(methodName)) {
+                            log.error("AMQP connection failure: {}", (args != null && args.length > 0) ? args[0] : "");
+                            connected.set(false);
+                            updateBindStatus(BIND_DISCONNECTED);
+                            alertService.create(GwAlert.TYPE_CONNECTION_LOST, GwAlert.SEV_CRITICAL,
+                                    "AMQP connection failure", null, null);
+                        }
+                        return null;
+                    }
+            );
+            Method addListenerMethod = conn.getClass().getMethod("addConnectionListener", listenerClass);
+            addListenerMethod.invoke(conn, listenerProxy);
+            log.info("Đã đăng ký Qpid JmsConnectionListener bắt sự kiện failover tức thì");
+        } catch (Exception e) {
+            log.debug("Không thể đăng ký Qpid JmsConnectionListener: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Định kỳ mỗi 3 giây rà soát trạng thái tài khoản trong CSDL và kiểm tra thực tế kết nối Broker.
+     * Phát hiện mất kết nối ngay lập tức nếu Broker Solace bị tắt/rớt mạng.
+     */
+    @Scheduled(fixedDelay = 3000)
     public synchronized void monitorConnectionState() {
         var activeAcc = accountRepository.findFirstByProtocolAndStatusIgnoreCase("AMQP", "ACTIVE").orElse(null);
 
@@ -102,16 +166,57 @@ public class ConnectionManagerService {
             return;
         }
 
-        // Kết nối lại khi mất kết nối hoặc đổi tài khoản
+        String targetHost = activeAcc.getHost() != null && !activeAcc.getHost().isBlank() ? activeAcc.getHost() : defaultHost;
+        Integer targetPort = activeAcc.getPort() != null && activeAcc.getPort() > 0 ? activeAcc.getPort() : defaultPort;
+
+        // 1. Kiểm tra tính khả dụng vật lý tới Broker (TCP Socket Ping)
+        boolean reachable = isBrokerReachable(targetHost, targetPort, 1500);
+        if (!reachable) {
+            if (connected.get() || BIND_CONNECTED.equals(bindStatus) || BIND_CONNECTED.equals(activeAcc.getBindStatus())) {
+                log.warn("AMQP Broker {}:{} không thể kết nối (Socket ping failed) -> Báo mất kết nối DISCONNECTED",
+                        targetHost, targetPort);
+                connected.set(false);
+                updateBindStatus(BIND_DISCONNECTED);
+                alertService.create(GwAlert.TYPE_CONNECTION_LOST, GwAlert.SEV_CRITICAL,
+                        String.format("AMQP Broker không thể kết nối tại %s:%d (Mất kết nối tới Solace)", targetHost, targetPort),
+                        null, null);
+            }
+            return;
+        }
+
+        // 2. Nếu Socket tới Broker vẫn thông mạng:
         if (!connected.get() || (activeAccountId != null && !activeAccountId.equals(activeAcc.getId()))) {
             log.info("Active AMQP account change or reconnect requested for account '{}' (bindStatus={}). Connecting...",
                     activeAcc.getAccountName(), activeAcc.getBindStatus());
             connect();
-        } else if (connected.get() && !BIND_CONNECTED.equals(activeAcc.getBindStatus())) {
-            // Đồng bộ lại bind_status nếu CSDL lệch trạng thái thực tế
-            log.info("Đồng bộ lại bind_status: CSDL đang là '{}' trong khi kết nối AMQP vẫn hoạt động",
-                    activeAcc.getBindStatus());
-            updateBindStatus(BIND_CONNECTED);
+        } else {
+            // Kiểm tra tính toàn vẹn của JMS session hiện tại
+            boolean sessionHealthy = false;
+            try {
+                if (this.connection != null) {
+                    Session testSession = this.connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+                    testSession.close();
+                    sessionHealthy = true;
+                }
+            } catch (Exception ex) {
+                log.warn("JMS session check failed trên kết nối AMQP hiện tại: {}", ex.getMessage());
+            }
+
+            if (!sessionHealthy) {
+                log.warn("Kết nối AMQP không còn hiệu lực -> Chuyển sang DISCONNECTED và kết nối lại");
+                connected.set(false);
+                updateBindStatus(BIND_DISCONNECTED);
+                alertService.create(GwAlert.TYPE_CONNECTION_LOST, GwAlert.SEV_CRITICAL,
+                        "AMQP connection session invalid, reconnecting...", null, null);
+                connect();
+            } else if (!BIND_CONNECTED.equals(activeAcc.getBindStatus())) {
+                // Đồng bộ lại bind_status nếu CSDL lệch trạng thái thực tế
+                log.info("Đồng bộ lại bind_status: CSDL đang là '{}' trong khi kết nối AMQP vẫn hoạt động",
+                        activeAcc.getBindStatus());
+                updateBindStatus(BIND_CONNECTED);
+                alertService.resolveOpenAlerts(GwAlert.TYPE_CONNECTION_LOST,
+                        "AMQP connection restored: " + targetHost + ":" + targetPort);
+            }
         }
     }
 
@@ -199,11 +304,11 @@ public class ConnectionManagerService {
             currentPass = decryptIfEncrypted(currentPass);
 
             String scheme = currentTls ? "amqps" : "amqp";
-            // amqp.idleTimeout=120000 (2 phút) giữ kết nối thông suốt khi rảnh;
+            // amqp.idleTimeout=30000 (30 giây) giữ kết nối và phát hiện đứt kết nối sớm;
             // failover:(...)?failover.maxReconnectAttempts=-1 tự động khôi phục kết nối ngầm khi mạng giật lag.
-            String baseAmqpUrl = String.format("%s://%s:%d?amqp.idleTimeout=120000&transport.tcpKeepAlive=true&amqp.saslMechanisms=PLAIN",
+            String baseAmqpUrl = String.format("%s://%s:%d?amqp.idleTimeout=30000&transport.tcpKeepAlive=true&amqp.saslMechanisms=PLAIN",
                     scheme, currentHost, currentPort);
-            String url = String.format("failover:(%s)?failover.maxReconnectAttempts=-1&failover.initialReconnectDelay=2000&failover.reconnectDelay=2000&failover.maxReconnectDelay=10000",
+            String url = String.format("failover:(%s)?failover.maxReconnectAttempts=-1&failover.initialReconnectDelay=1000&failover.reconnectDelay=2000&failover.maxReconnectDelay=5000",
                     baseAmqpUrl);
 
             log.info("Connecting to AMQP broker at {} as '{}'...", url, currentUser);
@@ -229,6 +334,10 @@ public class ConnectionManagerService {
                             "AMQP connection lost: " + ex.getMessage(), null, null);
                     scheduleReconnect();
                 });
+
+                // Đăng ký Qpid JmsConnectionListener để bắt ngay các sự kiện ngắt kết nối trong chế độ failover
+                registerQpidConnectionListener(newConn);
+
                 newConn.start();
 
                 // Đóng kết nối cũ trước khi gán kết nối mới để tránh rò rỉ tài nguyên, hủy ExceptionListener cũ để tránh cascade loop
@@ -349,13 +458,18 @@ public class ConnectionManagerService {
     public void shutdown() {
         try {
             if (connection != null) {
+                try {
+                    connection.setExceptionListener(null);
+                } catch (Exception ignored) {}
                 connection.close();
-                connected.set(false);
-                updateBindStatus(BIND_DISCONNECTED);
-                log.info("AMQP connection closed");
             }
         } catch (Exception e) {
             log.warn("Error closing AMQP connection: {}", e.getMessage());
+        } finally {
+            connection = null;
+            connected.set(false);
+            updateBindStatus(BIND_DISCONNECTED);
+            log.info("AMQP connection shut down, status set to DISCONNECTED");
         }
     }
 }

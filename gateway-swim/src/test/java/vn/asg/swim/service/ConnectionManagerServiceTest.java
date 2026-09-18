@@ -4,17 +4,22 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 import vn.asg.swim.entity.Account;
+import vn.asg.swim.entity.GwAlert;
 import vn.asg.swim.repository.AccountRepository;
 
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -31,6 +36,7 @@ class ConnectionManagerServiceTest {
     @Mock private SystemLogService systemLogService;
     @Mock private org.springframework.context.ApplicationContext applicationContext;
 
+    @Spy
     @InjectMocks
     private ConnectionManagerService service;
 
@@ -53,7 +59,13 @@ class ConnectionManagerServiceTest {
     private void pretendConnected() {
         service.getConnected().set(true);
         ReflectionTestUtils.setField(service, "activeAccountId", 7L);
-        ReflectionTestUtils.setField(service, "connection", mock(jakarta.jms.Connection.class));
+        jakarta.jms.Connection mockConn = mock(jakarta.jms.Connection.class);
+        try {
+            jakarta.jms.Session mockSession = mock(jakarta.jms.Session.class);
+            when(mockConn.createSession(anyBoolean(), anyInt())).thenReturn(mockSession);
+        } catch (Exception ignored) {}
+        ReflectionTestUtils.setField(service, "connection", mockConn);
+        lenient().doReturn(true).when(service).isBrokerReachable(any(), any(), anyInt());
     }
 
     @Test
@@ -114,5 +126,20 @@ class ConnectionManagerServiceTest {
         service.monitorConnectionState();
 
         verify(accountRepository, never()).save(any(Account.class));
+    }
+
+    @Test
+    void testBrokerUnreachable_ShouldSetDisconnectedAndRaiseAlert() {
+        // Khi Broker Solace (192.168.22.163) bị ngắt/rớt socket, hệ thống phải phát hiện ngay
+        // và chuyển sang DISCONNECTED, đồng thời bắn cảnh báo TYPE_CONNECTION_LOST
+        Account acc = activeAccount(ConnectionManagerService.BIND_CONNECTED);
+        pretendConnected();
+        lenient().doReturn(false).when(service).isBrokerReachable(any(), any(), anyInt());
+
+        service.monitorConnectionState();
+
+        assertEquals(ConnectionManagerService.BIND_DISCONNECTED, acc.getBindStatus());
+        assertFalse(service.getConnected().get());
+        verify(alertService).create(eq(GwAlert.TYPE_CONNECTION_LOST), eq(GwAlert.SEV_CRITICAL), any(), any(), any());
     }
 }
