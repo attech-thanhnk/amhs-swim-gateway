@@ -892,6 +892,7 @@ class OutboundDispatchServiceTest {
     }
 
     @Test
+    void testPublish_NonStandardRepertoire_ShouldNotSetContentEncoding() throws Exception {
         // Repertoire ngoài danh sách chuẩn không gán amhs_content_encoding
         setupValidScenario();
         gwout.setBodyPartType("general-text-body-part");
