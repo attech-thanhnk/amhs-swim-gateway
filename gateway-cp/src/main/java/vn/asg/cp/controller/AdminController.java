@@ -4,15 +4,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import vn.asg.cp.dto.ApiResponse;
-import vn.asg.cp.entity.Routing;
 import vn.asg.cp.repository.AccountRepository;
 import vn.asg.cp.repository.MessageConversionLogRepository;
-import vn.asg.cp.repository.RoutingRepository;
+import vn.asg.cp.service.DataRetentionService;
 
 import java.io.File;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -26,37 +24,28 @@ public class AdminController {
 
     private final MessageConversionLogRepository conversionLogRepository;
     private final AccountRepository accountRepository;
-    private final RoutingRepository routingRepository;
+    private final DataRetentionService dataRetentionService;
 
     @DeleteMapping("/data/old")
     public ResponseEntity<ApiResponse<Map<String, Object>>> deleteOldData(@RequestBody(required = false) Map<String, Object> body) {
-        return ResponseEntity.ok(ApiResponse.ok("Periodic background task for log cleanup completed.",
-                Map.of("deletedCount", 0, "message", "Periodic background task for log cleanup completed.")));
+        Map<String, Integer> deleted = dataRetentionService.runCleanup();
+        int total = deleted.values().stream().mapToInt(Integer::intValue).sum();
+        int retentionDays = dataRetentionService.getRetentionDays();
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Data retention cleanup completed.",
+                Map.of(
+                        "deletedCount", total,
+                        "retentionDays", retentionDays,
+                        "details", deleted,
+                        "message", "Deleted " + total + " records older than " + retentionDays + " days"
+                )
+        ));
     }
 
     @PostMapping("/maintenance")
     public ResponseEntity<ApiResponse<Map<String, Object>>> runMaintenance() {
         return ResponseEntity.ok(ApiResponse.ok("Database cleanup (Vacuum) operation completed.",
                 Map.of("result", "success", "message", "Database cleanup (Vacuum) operation completed.")));
-    }
-
-    @PostMapping("/address/convert")
-    public ResponseEntity<ApiResponse<Map<String, String>>> convertAddress(@RequestBody Map<String, String> body) {
-        String address = body.get("address");
-        List<Routing> routings = routingRepository.findAll();
-
-        Optional<Routing> match = routings.stream()
-                .filter(r -> "OUT".equals(r.getDirection()) && address != null && address.equalsIgnoreCase(r.getMessageType()))
-                .findFirst();
-
-        if (match.isPresent()) {
-            return ResponseEntity.ok(ApiResponse.ok(Map.of(
-                    "input", address,
-                    "output", match.get().getSendTopic() != null ? match.get().getSendTopic() : "NO_TOPIC",
-                    "method", "DB_ROUTING_TABLE_LIVE")));
-        }
-        return ResponseEntity.ok(ApiResponse.ok(
-                Map.of("input", address != null ? address : "", "output", "No routing rule found for this message type", "method", "FAILED")));
     }
 
     @PostMapping("/diagnostic")

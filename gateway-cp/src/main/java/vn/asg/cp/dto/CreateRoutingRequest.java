@@ -23,10 +23,6 @@ public class CreateRoutingRequest {
     private String recipients;
 
     // ========== OUTBOUND DIRECTION (AMHS → SWIM) ==========
-    @Schema(description = "Display label only - the engine does not read this column",
-            example = "METAR")
-    private String messageType;
-
     @Schema(description = "AMQP topic to publish (required for OUT direction)",
             example = "ats/met/metar")
     private String sendTopic;

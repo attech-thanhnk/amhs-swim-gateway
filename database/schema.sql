@@ -298,7 +298,6 @@ CREATE TABLE `routing` (
   `direction` varchar(3) COLLATE utf8mb4_unicode_ci NOT NULL,
   `receive_topic` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `recipients` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `message_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `send_topic` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `priority` int(11) DEFAULT '100',
   `active` tinyint(1) DEFAULT '1',

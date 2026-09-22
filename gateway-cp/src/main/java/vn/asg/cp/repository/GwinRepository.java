@@ -4,6 +4,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -57,4 +58,9 @@ public interface GwinRepository extends JpaRepository<Gwin, Long>, JpaSpecificat
         List<Object[]> countByAddressingSourceBetween(
                         @Param("fromTime") LocalDateTime fromTime,
                         @Param("toTime") LocalDateTime toTime);
+
+        /** Xóa các bản tin cũ hơn cutoff (dùng cho data retention). */
+        @Modifying
+        @Query(value = "DELETE FROM gwin WHERE time < :cutoff", nativeQuery = true)
+        int deleteByTimeBefore(@Param("cutoff") LocalDateTime cutoff);
 }

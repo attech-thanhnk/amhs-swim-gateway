@@ -40,11 +40,6 @@ public class Routing {
     private String recipients;
 
     // ========== OUTBOUND DIRECTION (AMHS → SWIM) ==========
-    @Column(name = "message_type", length = 50)
-    @Schema(description = "Display label only - the engine does not read this column",
-            example = "METAR")
-    private String messageType;
-
     @Column(name = "send_topic", length = 100)
     @Schema(description = "AMQP topic to publish (for OUT direction only)",
             example = "ats/met/metar")

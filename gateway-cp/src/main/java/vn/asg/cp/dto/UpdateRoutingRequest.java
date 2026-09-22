@@ -20,10 +20,6 @@ public class UpdateRoutingRequest {
             example = "VVHHZTZX VVTSZDYX")
     private String recipients;
 
-    @Schema(description = "Display label only - the engine does not read this column",
-            example = "METAR")
-    private String messageType;
-
     @Schema(description = "AMQP topic to publish (for OUT direction)",
             example = "ats/met/metar")
     private String sendTopic;
