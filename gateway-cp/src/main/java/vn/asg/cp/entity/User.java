@@ -40,6 +40,12 @@ public class User {
     @Column(name = "is_active")
     private Boolean isActive;
 
+    @Column(name = "failed_attempts")
+    private Integer failedAttempts = 0;
+
+    @Column(name = "locked_until")
+    private LocalDateTime lockedUntil;
+
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
 

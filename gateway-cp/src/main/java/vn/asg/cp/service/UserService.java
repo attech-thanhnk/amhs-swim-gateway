@@ -87,6 +87,8 @@ public class UserService {
     public User activateUser(Long id) {
         User user = userRepository.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
         user.setIsActive(true);
+        user.setLockedUntil(null);
+        user.setFailedAttempts(0);
         return userRepository.save(user);
     }
 

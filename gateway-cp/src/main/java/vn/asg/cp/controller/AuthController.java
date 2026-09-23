@@ -2,6 +2,7 @@ package vn.asg.cp.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
@@ -10,6 +11,7 @@ import vn.asg.cp.entity.User;
 import vn.asg.cp.repository.UserRepository;
 import vn.asg.cp.security.JwtTokenProvider;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Map;
 
@@ -22,6 +24,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Slf4j
 public class AuthController {
+
+    private static final int MAX_FAILED_ATTEMPTS = 5;
+    private static final long LOCK_TIME_MINUTES = 15;
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -42,8 +47,40 @@ public class AuthController {
         String username = body.username;
         String password = body.password;
 
+        if (username == null || username.isBlank() || password == null) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Username and password must not be empty"));
+        }
+
         User user = userRepository.findByUsername(username).orElse(null);
-        if (user != null && passwordEncoder.matches(password, user.getPassword())) {
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Tên đăng nhập hoặc mật khẩu không chính xác"));
+        }
+
+        // Kiểm tra tài khoản có bị vô hiệu hóa không
+        if (Boolean.FALSE.equals(user.getIsActive())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("Tài khoản đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên."));
+        }
+
+        // Kiểm tra tài khoản có đang bị khóa tạm thời do nhập sai quá nhiều lần không
+        if (user.getLockedUntil() != null) {
+            if (user.getLockedUntil().isAfter(LocalDateTime.now())) {
+                long minutesRemaining = Duration.between(LocalDateTime.now(), user.getLockedUntil()).toMinutes() + 1;
+                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                        .body(ApiResponse.error("Tài khoản đang bị tạm khóa do nhập sai mật khẩu quá 5 lần. Vui lòng thử lại sau " 
+                                + minutesRemaining + " phút."));
+            } else {
+                // Hết thời gian khóa, tự động mở khóa
+                user.setLockedUntil(null);
+                user.setFailedAttempts(0);
+            }
+        }
+
+        if (passwordEncoder.matches(password, user.getPassword())) {
+            // Đăng nhập thành công: reset số lần sai và thời gian khóa
+            user.setFailedAttempts(0);
+            user.setLockedUntil(null);
             user.setLastLoginAt(LocalDateTime.now());
             userRepository.save(user);
 
@@ -56,7 +93,26 @@ public class AuthController {
                     "userId", user.getId());
             return ResponseEntity.ok(ApiResponse.ok("Login successful", data));
         } else {
-            return ResponseEntity.status(401).body(ApiResponse.error("Invalid username or password"));
+            // Nhập sai mật khẩu: tăng số lần sai
+            int currentAttempts = (user.getFailedAttempts() != null ? user.getFailedAttempts() : 0) + 1;
+            user.setFailedAttempts(currentAttempts);
+
+            if (currentAttempts >= MAX_FAILED_ATTEMPTS) {
+                user.setLockedUntil(LocalDateTime.now().plusMinutes(LOCK_TIME_MINUTES));
+                userRepository.save(user);
+                log.warn("User '{}' has been temporarily locked for {} minutes due to {} consecutive failed login attempts.", 
+                        username, LOCK_TIME_MINUTES, currentAttempts);
+                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                        .body(ApiResponse.error("Tài khoản đã bị tạm khóa " + LOCK_TIME_MINUTES 
+                                + " phút do nhập sai mật khẩu " + MAX_FAILED_ATTEMPTS + " lần liên tiếp."));
+            } else {
+                userRepository.save(user);
+                int remaining = MAX_FAILED_ATTEMPTS - currentAttempts;
+                log.info("User '{}' failed login attempt {}/{}.", username, currentAttempts, MAX_FAILED_ATTEMPTS);
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error("Mật khẩu không chính xác. Bạn còn " + remaining 
+                                + " lần thử trước khi tài khoản bị khóa tạm thời."));
+            }
         }
     }
 
