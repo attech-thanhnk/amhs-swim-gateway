@@ -46,8 +46,15 @@ public class MessagesController {
             @RequestParam(name = "size", defaultValue = "50") int size) {
 
         Specification<Gwin> spec = Specification.where(null);
-        if (status != null)
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("status"), status));
+        if (status != null) {
+            if (status == 11 || status == 4) {
+                spec = spec.and((r, q, cb) -> r.get("status").in(4, 11));
+            } else if (status == 10 || status == 3) {
+                spec = spec.and((r, q, cb) -> r.get("status").in(3, 10));
+            } else {
+                spec = spec.and((r, q, cb) -> cb.equal(r.get("status"), status));
+            }
+        }
         if (source != null && !source.trim().isEmpty())
             spec = spec.and((r, q, cb) -> cb.equal(r.get("source"), source.trim()));
         if (fromTime != null && !fromTime.trim().isEmpty()) {
@@ -197,8 +204,13 @@ public class MessagesController {
             @RequestParam(name = "size", defaultValue = "50") int size) {
 
         Specification<Gwout> spec = Specification.where(null);
-        if (status != null)
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("status"), status));
+        if (status != null) {
+            if (status == 3 || status == 11) {
+                spec = spec.and((r, q, cb) -> r.get("status").in(3, 11));
+            } else {
+                spec = spec.and((r, q, cb) -> cb.equal(r.get("status"), status));
+            }
+        }
         if (fromTime != null && !fromTime.trim().isEmpty()) {
             LocalDateTime from = parseDateTime(fromTime);
             if (from != null) spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("time"), from));

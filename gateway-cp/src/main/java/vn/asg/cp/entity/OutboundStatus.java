@@ -23,6 +23,7 @@ public enum OutboundStatus {
     }
 
     public static OutboundStatus fromValue(int value) {
+        if (value == 11) return FAILED;
         for (OutboundStatus status : values()) {
             if (status.getValue() == value) {
                 return status;
