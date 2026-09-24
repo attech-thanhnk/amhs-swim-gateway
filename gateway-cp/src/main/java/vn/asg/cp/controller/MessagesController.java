@@ -21,8 +21,10 @@ import vn.asg.cp.repository.GwoutDispatchRepository;
 import vn.asg.cp.repository.GwoutRepository;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import jakarta.persistence.criteria.Predicate;
 
 @RestController
 @RequestMapping("/api/messages")
@@ -66,16 +68,30 @@ public class MessagesController {
             if (to != null) spec = spec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("time"), to));
         }
         if (query != null && !query.trim().isEmpty()) {
-            String kw = "%" + query.trim().toLowerCase() + "%";
-            spec = spec.and((r, q, cb) -> cb.or(
-                    cb.like(cb.lower(r.get("origin")), kw),
-                    cb.like(cb.lower(r.get("address")), kw),
-                    cb.like(cb.lower(r.get("amhsRecipients")), kw),
-                    cb.like(cb.lower(r.get("messageId")), kw),
-                    cb.like(cb.lower(r.get("subject")), kw),
-                    cb.like(cb.lower(r.get("payloadContent")), kw),
-                    cb.like(cb.lower(r.get("amqpProperties")), kw)
-            ));
+            String trimmed = query.trim();
+            String kw = "%" + trimmed.toLowerCase() + "%";
+            List<Predicate> orPredicates = new ArrayList<>();
+
+            // Search by numeric msgid if query is an integer or starts with '#'
+            String numStr = trimmed.startsWith("#") ? trimmed.substring(1).trim() : trimmed;
+            try {
+                Long idVal = Long.parseLong(numStr);
+                orPredicates.add(cb.equal(r.get("msgid"), idVal));
+            } catch (NumberFormatException ignored) {}
+
+            orPredicates.add(cb.like(cb.lower(r.get("origin")), kw));
+            orPredicates.add(cb.like(cb.lower(r.get("address")), kw));
+            orPredicates.add(cb.like(cb.lower(r.get("amhsRecipients")), kw));
+            orPredicates.add(cb.like(cb.lower(r.get("messageId")), kw));
+            orPredicates.add(cb.like(cb.lower(r.get("subject")), kw));
+
+            // Only scan heavy text/payload columns when query has at least 3 chars to avoid DB performance spikes
+            if (trimmed.length() >= 3) {
+                orPredicates.add(cb.like(cb.lower(r.get("payloadContent")), kw));
+                orPredicates.add(cb.like(cb.lower(r.get("amqpProperties")), kw));
+            }
+
+            spec = spec.and((r, q, cb) -> cb.or(orPredicates.toArray(new Predicate[0])));
         }
 
         Page<Gwin> result = gwinRepository.findAll(spec, PageRequest.of(page, size, Sort.by("time").descending()));
@@ -220,17 +236,32 @@ public class MessagesController {
             if (to != null) spec = spec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("time"), to));
         }
         if (query != null && !query.trim().isEmpty()) {
-            String kw = "%" + query.trim().toLowerCase() + "%";
-            spec = spec.and((r, q, cb) -> cb.or(
-                    cb.like(cb.lower(r.get("origin")), kw),
-                    cb.like(cb.lower(r.get("address")), kw),
-                    cb.like(cb.lower(r.get("amhsid")), kw),
-                    cb.like(cb.lower(r.get("ipmId")), kw),
-                    cb.like(cb.lower(r.get("amqpMessageId")), kw),
-                    cb.like(cb.lower(r.get("subject")), kw),
-                    cb.like(cb.lower(r.get("text")), kw),
-                    cb.like(cb.lower(r.get("ftbpFileName")), kw)
-            ));
+            String trimmed = query.trim();
+            String kw = "%" + trimmed.toLowerCase() + "%";
+            List<Predicate> orPredicates = new ArrayList<>();
+
+            // Search by numeric msgid if query is an integer or starts with '#'
+            String numStr = trimmed.startsWith("#") ? trimmed.substring(1).trim() : trimmed;
+            try {
+                Long idVal = Long.parseLong(numStr);
+                orPredicates.add(cb.equal(r.get("msgid"), idVal));
+            } catch (NumberFormatException ignored) {}
+
+            orPredicates.add(cb.like(cb.lower(r.get("origin")), kw));
+            orPredicates.add(cb.like(cb.lower(r.get("address")), kw));
+            orPredicates.add(cb.like(cb.lower(r.get("amhsid")), kw));
+            orPredicates.add(cb.like(cb.lower(r.get("ipmId")), kw));
+            orPredicates.add(cb.like(cb.lower(r.get("amqpMessageId")), kw));
+            orPredicates.add(cb.like(cb.lower(r.get("subject")), kw));
+            orPredicates.add(cb.like(cb.lower(r.get("filingTime")), kw));
+            orPredicates.add(cb.like(cb.lower(r.get("ftbpFileName")), kw));
+
+            // Only scan heavy text/payload columns when query has at least 3 chars to avoid DB performance spikes
+            if (trimmed.length() >= 3) {
+                orPredicates.add(cb.like(cb.lower(r.get("text")), kw));
+            }
+
+            spec = spec.and((r, q, cb) -> cb.or(orPredicates.toArray(new Predicate[0])));
         }
 
         Page<Gwout> result = gwoutRepository.findAll(spec, PageRequest.of(page, size, Sort.by("time").descending()));
