@@ -12,4 +12,8 @@ public interface PerformanceMetricsRepository extends JpaRepository<PerformanceM
     List<PerformanceMetrics> findByTimestampAfterOrderByTimestampAsc(Instant since);
 
     Optional<PerformanceMetrics> findFirstByOrderByTimestampDesc();
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("DELETE FROM PerformanceMetrics pm WHERE pm.timestamp < :cutoff")
+    int deleteByTimestampBefore(@org.springframework.data.repository.query.Param("cutoff") Instant cutoff);
 }

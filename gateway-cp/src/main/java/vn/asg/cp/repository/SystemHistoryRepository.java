@@ -28,4 +28,8 @@ public interface SystemHistoryRepository
     );
 
     List<SystemHistory> findAllByOrderByEventTimeDesc();
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("DELETE FROM SystemHistory sh WHERE sh.eventTime < :cutoff")
+    int deleteByEventTimeBefore(@Param("cutoff") java.time.LocalDateTime cutoff);
 }

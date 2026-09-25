@@ -4,14 +4,20 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import vn.asg.cp.repository.GwAlertRepository;
 import vn.asg.cp.repository.GwinDispatchRepository;
 import vn.asg.cp.repository.GwinRepository;
 import vn.asg.cp.repository.GwoutDispatchRepository;
 import vn.asg.cp.repository.GwoutRepository;
 import vn.asg.cp.repository.MessageConversionLogRepository;
+import vn.asg.cp.repository.PerformanceMetricsRepository;
+import vn.asg.cp.repository.SystemHistoryRepository;
 import vn.asg.cp.repository.SystemLogRepository;
+import vn.asg.cp.repository.UserSystemHistoryRepository;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -32,6 +38,10 @@ public class DataRetentionService {
     private final GwoutRepository gwoutRepository;
     private final MessageConversionLogRepository conversionLogRepository;
     private final SystemLogRepository systemLogRepository;
+    private final PerformanceMetricsRepository performanceMetricsRepository;
+    private final UserSystemHistoryRepository userSystemHistoryRepository;
+    private final SystemHistoryRepository systemHistoryRepository;
+    private final GwAlertRepository gwAlertRepository;
 
     public int getRetentionDays() {
         try {
@@ -47,6 +57,7 @@ public class DataRetentionService {
     public Map<String, Integer> runCleanup() {
         int retentionDays = getRetentionDays();
         LocalDateTime cutoff = LocalDateTime.now().minusDays(retentionDays);
+        Instant instantCutoff = cutoff.atZone(ZoneId.systemDefault()).toInstant();
 
         log.info("[Retention] Starting cleanup - cutoff={} ({}d)", cutoff, retentionDays);
 
@@ -59,6 +70,10 @@ public class DataRetentionService {
             result.put("gwout",                  gwoutRepository.deleteByTimeBefore(cutoff));
             result.put("message_conversion_log", conversionLogRepository.deleteByConvertedTimeBefore(cutoff));
             result.put("system_log",             systemLogRepository.deleteByTimestampBefore(cutoff));
+            result.put("performance_metrics",    performanceMetricsRepository.deleteByTimestampBefore(instantCutoff));
+            result.put("user_system_history",    userSystemHistoryRepository.deleteBySystemHistoryEventTimeBefore(cutoff));
+            result.put("system_history",         systemHistoryRepository.deleteByEventTimeBefore(cutoff));
+            result.put("gw_alert",               gwAlertRepository.deleteByCreatedAtBefore(cutoff));
 
             int total = result.values().stream().mapToInt(Integer::intValue).sum();
             log.info("[Retention] Done - {} rows deleted: {}", total, result);

@@ -39,4 +39,9 @@ public interface UserSystemHistoryRepository extends JpaRepository<UserSystemHis
     @Transactional // Đảm bảo tính đóng gói dữ liệu (Rollback nếu lỗi)
     @Query("UPDATE UserSystemHistory u SET u.isRead = true WHERE u.userId = :userId AND u.isRead = false")
     int markAllAsReadByUserId(@Param("userId") Long userId);
+
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM UserSystemHistory ush WHERE ush.systemHistoryId IN (SELECT sh.id FROM SystemHistory sh WHERE sh.eventTime < :cutoff)")
+    int deleteBySystemHistoryEventTimeBefore(@Param("cutoff") java.time.LocalDateTime cutoff);
 }
