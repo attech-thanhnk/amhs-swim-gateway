@@ -61,7 +61,7 @@ public class UserSystemHistoryController {
             @PathVariable Long historyId) {
 
         userSystemHistoryService.markAsRead(userId, historyId);
-        return ResponseEntity.ok(ApiResponse.ok("Đã đánh dấu là đã đọc", Map.of("message", "Đã đánh dấu là đã đọc", "status", "success")));
+        return ResponseEntity.ok(ApiResponse.ok("Marked as read successfully", Map.of("message", "Marked as read successfully", "status", "success")));
     }
 
     /**
@@ -75,7 +75,7 @@ public class UserSystemHistoryController {
         userSystemHistoryService.markMultipleAsRead(userId, request.getHistoryIds());
 
         Map<String, Object> response = new HashMap<>();
-        response.put("message", "Đã đánh dấu các history là đã đọc");
+        response.put("message", "Marked histories as read successfully");
         response.put("status", "success");
         response.put("markedCount", request.getHistoryIds() != null ? request.getHistoryIds().size() : 0);
 
@@ -88,7 +88,7 @@ public class UserSystemHistoryController {
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "success");
-        response.put("message", "Đã đánh dấu đọc toàn bộ thông báo");
+        response.put("message", "Marked all notifications as read successfully");
         response.put("markedCount", markedCount);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }

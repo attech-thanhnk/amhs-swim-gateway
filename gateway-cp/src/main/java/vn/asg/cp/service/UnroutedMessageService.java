@@ -15,7 +15,12 @@ import vn.asg.cp.entity.InboundStatus;
 import vn.asg.cp.exception.ResourceNotFoundException;
 import vn.asg.cp.repository.GwinRepository;
 
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.jpa.domain.Specification;
+
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -29,26 +34,78 @@ public class UnroutedMessageService {
     private final GwinRepository gwinRepository;
 
     /**
-     * Lấy danh sách bản tin UNROUTED phân trang.
+     * Lấy danh sách bản tin UNROUTED phân trang (backward compatibility).
      */
     public Page<Gwin> getUnroutedMessages(LocalDateTime fromTime, LocalDateTime toTime,
             String source, Pageable pageable) {
-        // Custom query with filtering
-        if (fromTime != null && toTime != null && source != null) {
-            return gwinRepository.findByStatusAndTimeBetweenAndSource(
-                    InboundStatus.UNROUTED.getValue(), fromTime, toTime, source, pageable);
+        return getUnroutedMessages(fromTime, toTime, source, null, null, pageable);
+    }
+
+    /**
+     * Lấy danh sách bản tin UNROUTED phân trang hỗ trợ tìm kiếm theo originator, query keyword, source.
+     */
+    public Page<Gwin> getUnroutedMessages(LocalDateTime fromTime, LocalDateTime toTime,
+            String source, String originator, String query, Pageable pageable) {
+
+        Specification<Gwin> spec = (root, q, cb) -> cb.equal(root.get("status"), InboundStatus.UNROUTED.getValue());
+
+        if (fromTime != null) {
+            spec = spec.and((root, q, cb) -> cb.greaterThanOrEqualTo(root.get("time"), fromTime));
         }
 
-        if (fromTime != null && toTime != null) {
-            return gwinRepository.findByStatusAndTimeBetween(
-                    InboundStatus.UNROUTED.getValue(), fromTime, toTime, pageable);
+        if (toTime != null) {
+            spec = spec.and((root, q, cb) -> cb.lessThanOrEqualTo(root.get("time"), toTime));
         }
 
-        if (source != null) {
-            return gwinRepository.findByStatusAndSource(InboundStatus.UNROUTED.getValue(), source, pageable);
+        if (originator != null && !originator.trim().isEmpty()) {
+            String origKw = "%" + originator.trim().toLowerCase() + "%";
+            spec = spec.and((root, q, cb) -> cb.like(cb.lower(root.get("origin")), origKw));
         }
 
-        return gwinRepository.findByStatus(InboundStatus.UNROUTED.getValue(), pageable);
+        if (query != null && !query.trim().isEmpty()) {
+            String trimmed = query.trim();
+            String kw = "%" + trimmed.toLowerCase() + "%";
+            String numStr = trimmed.startsWith("#") ? trimmed.substring(1).trim() : trimmed;
+            Long idVal = null;
+            try {
+                idVal = Long.parseLong(numStr);
+            } catch (NumberFormatException ignored) {}
+            final Long finalId = idVal;
+
+            spec = spec.and((r, q, cb) -> {
+                List<Predicate> orPredicates = new ArrayList<>();
+                if (finalId != null) {
+                    orPredicates.add(cb.equal(r.get("msgid"), finalId));
+                }
+                orPredicates.add(cb.like(cb.lower(r.get("origin")), kw));
+                orPredicates.add(cb.like(cb.lower(r.get("source")), kw));
+                orPredicates.add(cb.like(cb.lower(r.get("subject")), kw));
+                orPredicates.add(cb.like(cb.lower(r.get("address")), kw));
+                orPredicates.add(cb.like(cb.lower(r.get("messageId")), kw));
+                orPredicates.add(cb.like(cb.lower(r.get("amhsRecipients")), kw));
+                orPredicates.add(cb.like(cb.lower(r.get("rejectionDiagnostic")), kw));
+                orPredicates.add(cb.like(cb.lower(r.get("rejectionReason")), kw));
+                return cb.or(orPredicates.toArray(new Predicate[0]));
+            });
+        }
+
+        // Handle source parameter:
+        // If neither query nor originator is set (e.g. legacy FE sent originator inside source parameter),
+        // match both origin and source flexibly. Otherwise, filter by source topic.
+        if (source != null && !source.trim().isEmpty()) {
+            String srcTrimmed = source.trim();
+            String srcKw = "%" + srcTrimmed.toLowerCase() + "%";
+            if ((query == null || query.trim().isEmpty()) && (originator == null || originator.trim().isEmpty())) {
+                spec = spec.and((r, q, cb) -> cb.or(
+                    cb.like(cb.lower(r.get("origin")), srcKw),
+                    cb.like(cb.lower(r.get("source")), srcKw)
+                ));
+            } else {
+                spec = spec.and((r, q, cb) -> cb.like(cb.lower(r.get("source")), srcKw));
+            }
+        }
+
+        return gwinRepository.findAll(spec, pageable);
     }
 
     /**

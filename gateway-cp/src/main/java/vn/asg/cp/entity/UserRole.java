@@ -2,5 +2,9 @@ package vn.asg.cp.entity;
 
 public enum UserRole {
     admin,
-    viewer
+    operator,
+    viewer,
+    ADMIN,
+    OPERATOR,
+    VIEWER
 }

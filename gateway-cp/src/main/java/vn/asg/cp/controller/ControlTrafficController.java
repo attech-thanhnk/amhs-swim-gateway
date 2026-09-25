@@ -45,10 +45,10 @@ public class ControlTrafficController {
         try {
             return ResponseEntity.ok(ApiResponse.ok(query(type)));
         } catch (Exception e) {
-            log.warn("Chưa đọc được bảng cp: {}", e.getMessage());
+            log.warn("Unable to query AMHS feedback table 'cp': {}", e.getMessage());
             return ResponseEntity.ok(ApiResponse.ok(
-                    "Chưa đọc được bảng cp (" + e.getMessage()
-                            + "). Bảng này do AMHS Component cung cấp.",
+                    "Unable to query AMHS feedback table 'cp' (" + e.getMessage()
+                            + "). This table is provided by AMHS Component.",
                     List.of()));
         }
     }

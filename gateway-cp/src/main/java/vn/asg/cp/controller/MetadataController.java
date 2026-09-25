@@ -19,6 +19,7 @@ public class MetadataController {
     public ResponseEntity<ApiResponse<List<Map<String, String>>>> getRoles() {
         List<Map<String, String>> roles = List.of(
                 Map.of("code", vn.asg.cp.entity.UserRole.admin.name(), "name", "Quản trị viên"),
+                Map.of("code", vn.asg.cp.entity.UserRole.operator.name(), "name", "Nhân viên vận hành"),
                 Map.of("code", vn.asg.cp.entity.UserRole.viewer.name(), "name", "Người dùng xem tin"));
         return ResponseEntity.ok(ApiResponse.ok(roles));
     }

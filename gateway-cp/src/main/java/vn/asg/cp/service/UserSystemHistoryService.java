@@ -66,7 +66,7 @@ public class UserSystemHistoryService {
         int updated = userSystemHistoryRepository.markAsRead(userId, historyId);
         if (updated == 0) {
             log.warn("No record found for userId: {} and historyId: {}", userId, historyId);
-            throw new RuntimeException("Không tìm thấy bản ghi user_system_history");
+            throw new RuntimeException("User system history record not found");
         }
     }
 

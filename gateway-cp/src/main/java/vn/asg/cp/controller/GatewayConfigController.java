@@ -41,6 +41,17 @@ public class GatewayConfigController {
             throw new ValidationException("value is required");
         }
 
+        if (isIntegerConfigKey(key)) {
+            String val = request.getValue().trim();
+            if (!val.isEmpty()) {
+                try {
+                    Long.parseLong(val);
+                } catch (NumberFormatException e) {
+                    throw new ValidationException("Value for " + key + " must be an integer");
+                }
+            }
+        }
+
         GatewayConfig existing = configRepository.findById(key)
                 .orElseThrow(() -> new ResourceNotFoundException("Config", key));
 
@@ -48,6 +59,15 @@ public class GatewayConfigController {
         existing.setUpdatedAt(LocalDateTime.now());
 
         return ResponseEntity.ok(ApiResponse.ok("Configuration updated successfully", configRepository.save(existing)));
+    }
+
+    private boolean isIntegerConfigKey(String key) {
+        if (key == null) return false;
+        String upper = key.toUpperCase();
+        return upper.contains("DAYS") || upper.contains("PORT") || upper.contains("TIMEOUT") ||
+               upper.contains("INTERVAL") || upper.contains("COUNT") || upper.contains("RETRIES") ||
+               upper.contains("SIZE") || upper.contains("MAX_") || upper.contains("PERIOD") ||
+               upper.contains("LIMIT");
     }
 }
 

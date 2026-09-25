@@ -1,12 +1,18 @@
 package vn.asg.cp.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 @Data
 @Schema(description = "Request to create a new routing rule")
 public class CreateRoutingRequest {
 
+    @NotBlank(message = "Direction is required (IN/OUT)")
+    @Pattern(regexp = "^(IN|OUT)$", message = "Direction must be IN or OUT")
     @Schema(description = "Direction: IN (SWIM→AMHS) or OUT (AMHS→SWIM)",
             example = "OUT",
             allowableValues = {"IN", "OUT"},
@@ -28,6 +34,8 @@ public class CreateRoutingRequest {
     private String sendTopic;
 
     // ========== COMMON PROPERTIES ==========
+    @Min(value = 0, message = "Priority must be between 0 and 255")
+    @Max(value = 255, message = "Priority must be between 0 and 255")
     @Schema(description = "Priority (0-255, lower number = higher priority)",
             example = "100")
     private Integer priority;
@@ -40,3 +48,4 @@ public class CreateRoutingRequest {
             example = "METAR routing to SWIM")
     private String note;
 }
+

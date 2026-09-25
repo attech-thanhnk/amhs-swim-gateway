@@ -31,6 +31,8 @@ public class UnroutedMessagesController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fromTime,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime toTime,
             @RequestParam(required = false) String source,
+            @RequestParam(required = false) String originator,
+            @RequestParam(required = false) String query,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,
             @RequestParam(defaultValue = "time,desc") String sort) {
@@ -42,7 +44,7 @@ public class UnroutedMessagesController {
                 : Sort.Direction.ASC;
 
         Pageable pageable = PageRequest.of(page, size, Sort.by(sortDirection, sortField));
-        Page<Gwin> result = unroutedMessageService.getUnroutedMessages(fromTime, toTime, source, pageable);
+        Page<Gwin> result = unroutedMessageService.getUnroutedMessages(fromTime, toTime, source, originator, query, pageable);
 
         return ResponseEntity.ok(ApiResponse.ok(PageData.from(result)));
     }

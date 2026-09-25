@@ -12,6 +12,10 @@ import vn.asg.cp.service.SystemHistoryService;
 import vn.asg.cp.exception.ResourceNotFoundException;
 import vn.asg.cp.exception.ValidationException;
 import vn.asg.cp.repository.AccountRepository;
+import jakarta.validation.Valid;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -43,18 +47,25 @@ public class AccountsController {
     }
 
     @PostMapping
-    public ResponseEntity<ApiResponse<Account>> create(@RequestBody CreateAccountRequest request) {
+    public ResponseEntity<ApiResponse<Account>> create(@Valid @RequestBody CreateAccountRequest request) {
         if (request.getAccountName() == null || request.getAccountName().isBlank()) {
             throw new ValidationException("account_name is required");
         }
-        if (accountRepository.existsByAccountName(request.getAccountName())) {
+        if (accountRepository.existsByAccountName(request.getAccountName().trim())) {
             throw new ValidationException("account_name already exists");
         }
+        if (request.getHost() == null || request.getHost().isBlank()) {
+            throw new ValidationException("host is required");
+        }
+        if (request.getPort() == null) {
+            throw new ValidationException("port is required");
+        }
+        validateAccountCredentials(request.getConfigJson());
 
         Account account = new Account();
-        account.setAccountName(request.getAccountName());
-        account.setProtocol(request.getProtocol());
-        account.setHost(request.getHost());
+        account.setAccountName(request.getAccountName().trim());
+        account.setProtocol(request.getProtocol() != null ? request.getProtocol() : "AMQP");
+        account.setHost(request.getHost().trim());
         account.setPort(request.getPort());
         account.setConfigJson(request.getConfigJson());
         account.setTlsEnabled(request.getTlsEnabled());
@@ -72,19 +83,46 @@ public class AccountsController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Account created successfully", savedAccount));
     }
 
+    private void validateAccountCredentials(String configJson) {
+        if (configJson == null || configJson.isBlank()) {
+            throw new ValidationException("username and password are required");
+        }
+        try {
+            JsonNode root = new ObjectMapper().readTree(configJson);
+            String username = root.has("username") && !root.get("username").isNull() ? root.get("username").asText().trim() : "";
+            String password = root.has("password") && !root.get("password").isNull() ? root.get("password").asText().trim() : "";
+            if (username.isBlank()) {
+                throw new ValidationException("username is required");
+            }
+            if (password.isBlank()) {
+                throw new ValidationException("password is required");
+            }
+        } catch (ValidationException ve) {
+            throw ve;
+        } catch (Exception e) {
+            throw new ValidationException("Invalid configuration JSON format");
+        }
+    }
+
     @PutMapping("/{id}")
-    public ResponseEntity<ApiResponse<Account>> update(@PathVariable("id") Long id, @RequestBody UpdateAccountRequest request) {
+    public ResponseEntity<ApiResponse<Account>> update(@PathVariable("id") Long id, @Valid @RequestBody UpdateAccountRequest request) {
         Account existing = accountRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", id));
 
         String oldHost = existing.getHost();
 
-        if (request.getHost() != null)
-            existing.setHost(request.getHost());
+        if (request.getHost() != null) {
+            if (request.getHost().isBlank()) {
+                throw new ValidationException("host is required");
+            }
+            existing.setHost(request.getHost().trim());
+        }
         if (request.getPort() != null)
             existing.setPort(request.getPort());
-        if (request.getConfigJson() != null)
+        if (request.getConfigJson() != null) {
+            validateAccountCredentials(request.getConfigJson());
             existing.setConfigJson(request.getConfigJson());
+        }
         if (request.getTlsEnabled() != null)
             existing.setTlsEnabled(request.getTlsEnabled());
         if (request.getSaslMechanism() != null)
@@ -177,20 +215,20 @@ public class AccountsController {
 
         String host = acc.getHost();
         if (host == null || host.isBlank()) {
-            throw new ValidationException("Địa chỉ IP/Host của tài khoản không được để trống");
+            throw new ValidationException("Account host/IP is required");
         }
         if (acc.getPort() == null) {
-            throw new ValidationException("Cổng kết nối (Port) của tài khoản không được để trống");
+            throw new ValidationException("Account port is required");
         }
         int port = acc.getPort();
 
         long latencyMs = tcpPing(host, port);
         if (latencyMs < 0) {
-            throw new ValidationException("Không thể vươn bộ định tuyến qua Địa chỉ IP: " + host + ":" + port + " (Timeout 2s)");
+            throw new ValidationException("Cannot connect to host: " + host + ":" + port + " (Timeout 2s)");
         }
 
-        return ResponseEntity.ok(ApiResponse.ok("Socket Connect tới Node " + host + " thông mạng thành công!",
-                Map.of("result", "success", "latencyMs", latencyMs, "message", "Socket Connect tới Node " + host + " thông mạng thành công!")));
+        return ResponseEntity.ok(ApiResponse.ok("Socket connected to node " + host + " successfully",
+                Map.of("result", "success", "latencyMs", latencyMs, "message", "Socket connected to node " + host + " successfully")));
     }
 
     private long tcpPing(String host, int port) {

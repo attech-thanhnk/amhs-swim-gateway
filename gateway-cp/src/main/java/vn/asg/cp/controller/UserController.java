@@ -31,6 +31,7 @@ public class UserController {
 
     private final UserService userService;
     private final UserSystemHistoryService userSystemHistoryService;
+    private final vn.asg.cp.repository.UserRepository userRepository;
 
     // ==================== CRUD cơ bản ====================
 
@@ -66,8 +67,48 @@ public class UserController {
      */
     @PostMapping
     public ResponseEntity<ApiResponse<User>> createUser(@RequestBody User user) {
+        if (user.getUsername() == null || user.getUsername().isBlank()) {
+            throw new vn.asg.cp.exception.ValidationException("Username is required");
+        }
+        String cleanUsername = user.getUsername().trim();
+        if (cleanUsername.length() < 3 || cleanUsername.length() > 50) {
+            throw new vn.asg.cp.exception.ValidationException("Username must be between 3 and 50 characters");
+        }
+        if (userRepository.existsByUsername(cleanUsername)) {
+            throw new vn.asg.cp.exception.ValidationException("Username already exists");
+        }
+
+        if (user.getPassword() == null || user.getPassword().isBlank()) {
+            throw new vn.asg.cp.exception.ValidationException("Password is required");
+        }
+        if (user.getPassword().length() < 6) {
+            throw new vn.asg.cp.exception.ValidationException("Password must be at least 6 characters");
+        }
+
+        if (user.getEmail() == null || user.getEmail().isBlank()) {
+            throw new vn.asg.cp.exception.ValidationException("Email is required");
+        }
+        String cleanEmail = user.getEmail().trim();
+        if (!cleanEmail.matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
+            throw new vn.asg.cp.exception.ValidationException("Invalid email format");
+        }
+        if (userRepository.existsByEmail(cleanEmail)) {
+            throw new vn.asg.cp.exception.ValidationException("Email already exists");
+        }
+
+        if (user.getFullName() == null || user.getFullName().isBlank()) {
+            throw new vn.asg.cp.exception.ValidationException("Full name is required");
+        }
+
+        if (user.getRole() == null) {
+            user.setRole(UserRole.VIEWER);
+        }
+
+        user.setUsername(cleanUsername);
+        user.setEmail(cleanEmail);
+        user.setFullName(user.getFullName().trim());
         user.setPassword(userService.encodePassword(user.getPassword()));
-        user.setIsActive(true);
+        user.setIsActive(user.getIsActive() != null ? user.getIsActive() : true);
         user.setCreatedAt(LocalDateTime.now());
         user.setUpdatedAt(LocalDateTime.now());
 
@@ -80,6 +121,50 @@ public class UserController {
      */
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<User>> updateUser(@PathVariable Long id, @RequestBody User user) {
+        User existing = userRepository.findById(id)
+                .orElseThrow(() -> new vn.asg.cp.exception.ResourceNotFoundException("User", id));
+
+        if (user.getUsername() != null) {
+            String cleanUsername = user.getUsername().trim();
+            if (cleanUsername.isBlank()) {
+                throw new vn.asg.cp.exception.ValidationException("Username cannot be blank");
+            }
+            if (cleanUsername.length() < 3 || cleanUsername.length() > 50) {
+                throw new vn.asg.cp.exception.ValidationException("Username must be between 3 and 50 characters");
+            }
+            if (!cleanUsername.equalsIgnoreCase(existing.getUsername()) && userRepository.existsByUsername(cleanUsername)) {
+                throw new vn.asg.cp.exception.ValidationException("Username already exists");
+            }
+            user.setUsername(cleanUsername);
+        }
+
+        if (user.getEmail() != null) {
+            String cleanEmail = user.getEmail().trim();
+            if (cleanEmail.isBlank()) {
+                throw new vn.asg.cp.exception.ValidationException("Email cannot be blank");
+            }
+            if (!cleanEmail.matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
+                throw new vn.asg.cp.exception.ValidationException("Invalid email format");
+            }
+            if (!cleanEmail.equalsIgnoreCase(existing.getEmail()) && userRepository.existsByEmail(cleanEmail)) {
+                throw new vn.asg.cp.exception.ValidationException("Email already exists");
+            }
+            user.setEmail(cleanEmail);
+        }
+
+        if (user.getFullName() != null) {
+            if (user.getFullName().isBlank()) {
+                throw new vn.asg.cp.exception.ValidationException("Full name cannot be blank");
+            }
+            user.setFullName(user.getFullName().trim());
+        }
+
+        if (user.getPassword() != null && !user.getPassword().isBlank()) {
+            if (user.getPassword().length() < 6) {
+                throw new vn.asg.cp.exception.ValidationException("Password must be at least 6 characters");
+            }
+        }
+
         user.setId(id);
         User updatedUser = userService.updateUser(user);
         return ResponseEntity.ok(ApiResponse.ok("User updated successfully", updatedUser));
@@ -91,7 +176,7 @@ public class UserController {
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Map<String, String>>> deleteUser(@PathVariable Long id) {
         userService.deleteUser(id);
-        return ResponseEntity.ok(ApiResponse.ok("User deleted successfully", Map.of("message", "User đã được xóa thành công")));
+        return ResponseEntity.ok(ApiResponse.ok("User deleted successfully", Map.of("message", "User deleted successfully")));
     }
 
     // ==================== Tìm kiếm và filter ====================
@@ -131,7 +216,7 @@ public class UserController {
     @PutMapping("/{id}/activate")
     public ResponseEntity<ApiResponse<User>> activateUser(@PathVariable Long id) {
         User user = userService.activateUser(id);
-        return ResponseEntity.ok(ApiResponse.ok("User đã được kích hoạt", user));
+        return ResponseEntity.ok(ApiResponse.ok("User activated successfully", user));
     }
 
     /**
@@ -140,7 +225,7 @@ public class UserController {
     @PutMapping("/{id}/deactivate")
     public ResponseEntity<ApiResponse<User>> deactivateUser(@PathVariable Long id) {
         User user = userService.deactivateUser(id);
-        return ResponseEntity.ok(ApiResponse.ok("User đã bị vô hiệu hóa", user));
+        return ResponseEntity.ok(ApiResponse.ok("User deactivated successfully", user));
     }
 
     /**
@@ -157,14 +242,14 @@ public class UserController {
         String newPwd = newPassword != null ? newPassword : (body != null ? body.get("newPassword") : null);
 
         if (oldPwd == null || newPwd == null) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("Thiếu thông tin mật khẩu"));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Password information is required"));
         }
 
         boolean changed = userService.changePassword(id, oldPwd, newPwd);
         if (changed) {
-            return ResponseEntity.ok(ApiResponse.ok("Đổi mật khẩu thành công", Map.of("message", "Đổi mật khẩu thành công")));
+            return ResponseEntity.ok(ApiResponse.ok("Password changed successfully", Map.of("message", "Password changed successfully")));
         } else {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error("Mật khẩu cũ không đúng"));
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error("Incorrect old password"));
         }
     }
 
@@ -233,7 +318,7 @@ public class UserController {
         }
 
         userSystemHistoryService.markAsRead(userId, historyId);
-        return ResponseEntity.ok(ApiResponse.ok("Đã đánh dấu lịch sử là đã đọc", Map.of("message", "Đã đánh dấu lịch sử là đã đọc", "status", "success")));
+        return ResponseEntity.ok(ApiResponse.ok("Marked history as read successfully", Map.of("message", "Marked history as read successfully", "status", "success")));
     }
 
     /**
@@ -251,7 +336,7 @@ public class UserController {
         userSystemHistoryService.markMultipleAsRead(userId, request.getHistoryIds());
 
         Map<String, Object> response = new HashMap<>();
-        response.put("message", "Đã đánh dấu các lịch sử là đã đọc");
+        response.put("message", "Marked histories as read successfully");
         response.put("status", "success");
         response.put("markedCount", request.getHistoryIds() != null ? request.getHistoryIds().size() : 0);
 

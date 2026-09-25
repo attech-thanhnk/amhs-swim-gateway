@@ -69,7 +69,7 @@ public class MessagesController {
         }
         if (query != null && !query.trim().isEmpty()) {
             String trimmed = query.trim();
-            String kw = "%" + trimmed.toLowerCase() + "%";
+            String kw = "%" + escapeSqlLike(trimmed.toLowerCase()) + "%";
             String numStr = trimmed.startsWith("#") ? trimmed.substring(1).trim() : trimmed;
             Long idVal = null;
             try {
@@ -82,15 +82,15 @@ public class MessagesController {
                 if (finalId != null) {
                     orPredicates.add(cb.equal(r.get("msgid"), finalId));
                 }
-                orPredicates.add(cb.like(cb.lower(r.get("origin")), kw));
-                orPredicates.add(cb.like(cb.lower(r.get("address")), kw));
-                orPredicates.add(cb.like(cb.lower(r.get("amhsRecipients")), kw));
-                orPredicates.add(cb.like(cb.lower(r.get("messageId")), kw));
-                orPredicates.add(cb.like(cb.lower(r.get("subject")), kw));
+                orPredicates.add(cb.like(cb.lower(r.get("origin")), kw, '\\'));
+                orPredicates.add(cb.like(cb.lower(r.get("address")), kw, '\\'));
+                orPredicates.add(cb.like(cb.lower(r.get("amhsRecipients")), kw, '\\'));
+                orPredicates.add(cb.like(cb.lower(r.get("messageId")), kw, '\\'));
+                orPredicates.add(cb.like(cb.lower(r.get("subject")), kw, '\\'));
 
                 if (trimmed.length() >= 3) {
-                    orPredicates.add(cb.like(cb.lower(r.get("payloadContent")), kw));
-                    orPredicates.add(cb.like(cb.lower(r.get("amqpProperties")), kw));
+                    orPredicates.add(cb.like(cb.lower(r.get("payloadContent")), kw, '\\'));
+                    orPredicates.add(cb.like(cb.lower(r.get("amqpProperties")), kw, '\\'));
                 }
 
                 return cb.or(orPredicates.toArray(new Predicate[0]));
@@ -240,7 +240,7 @@ public class MessagesController {
         }
         if (query != null && !query.trim().isEmpty()) {
             String trimmed = query.trim();
-            String kw = "%" + trimmed.toLowerCase() + "%";
+            String kw = "%" + escapeSqlLike(trimmed.toLowerCase()) + "%";
             String numStr = trimmed.startsWith("#") ? trimmed.substring(1).trim() : trimmed;
             Long idVal = null;
             try {
@@ -253,17 +253,17 @@ public class MessagesController {
                 if (finalId != null) {
                     orPredicates.add(cb.equal(r.get("msgid"), finalId));
                 }
-                orPredicates.add(cb.like(cb.lower(r.get("origin")), kw));
-                orPredicates.add(cb.like(cb.lower(r.get("address")), kw));
-                orPredicates.add(cb.like(cb.lower(r.get("amhsid")), kw));
-                orPredicates.add(cb.like(cb.lower(r.get("ipmId")), kw));
-                orPredicates.add(cb.like(cb.lower(r.get("amqpMessageId")), kw));
-                orPredicates.add(cb.like(cb.lower(r.get("subject")), kw));
-                orPredicates.add(cb.like(cb.lower(r.get("filingTime")), kw));
-                orPredicates.add(cb.like(cb.lower(r.get("ftbpFileName")), kw));
+                orPredicates.add(cb.like(cb.lower(r.get("origin")), kw, '\\'));
+                orPredicates.add(cb.like(cb.lower(r.get("address")), kw, '\\'));
+                orPredicates.add(cb.like(cb.lower(r.get("amhsid")), kw, '\\'));
+                orPredicates.add(cb.like(cb.lower(r.get("ipmId")), kw, '\\'));
+                orPredicates.add(cb.like(cb.lower(r.get("amqpMessageId")), kw, '\\'));
+                orPredicates.add(cb.like(cb.lower(r.get("subject")), kw, '\\'));
+                orPredicates.add(cb.like(cb.lower(r.get("filingTime")), kw, '\\'));
+                orPredicates.add(cb.like(cb.lower(r.get("ftbpFileName")), kw, '\\'));
 
                 if (trimmed.length() >= 3) {
-                    orPredicates.add(cb.like(cb.lower(r.get("text")), kw));
+                    orPredicates.add(cb.like(cb.lower(r.get("text")), kw, '\\'));
                 }
 
                 return cb.or(orPredicates.toArray(new Predicate[0]));
@@ -442,6 +442,13 @@ public class MessagesController {
         }
         gwoutRepository.deleteById(msgid);
         return ResponseEntity.ok(ApiResponse.ok("Outbound message deleted", null));
+    }
+
+    private String escapeSqlLike(String input) {
+        if (input == null) return "";
+        return input.replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_");
     }
 
     private LocalDateTime parseDateTime(String value) {
