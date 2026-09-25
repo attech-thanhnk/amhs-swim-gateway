@@ -95,7 +95,7 @@ public class MonitorController {
                 long activeGwinTotal = gwinRepository.countAll();
                 long gwinTotal = Math.max(activeGwinTotal, msgInTotal);
                 long gwinPending = gwinRepository.countByStatus(InboundStatus.PENDING.getValue());
-                long gwinFailed = gwinRepository.countByStatus(InboundStatus.FAILED.getValue()) + gwinRepository.countByStatus(11);
+                long gwinFailed = gwinRepository.countByStatus(InboundStatus.FAILED.getValue()) + gwinRepository.countByStatus(11) + gwinRepository.countByStatus(12);
                 long gwinUnrouted = gwinRepository.countByStatus(InboundStatus.UNROUTED.getValue());
                 long gwinDelivered = gwinRepository.countByStatus(InboundStatus.DELIVERED.getValue()) + gwinRepository.countByStatus(10);
                 long gwinSent = (gwinDelivered > 0) ? gwinDelivered : Math.max(0L, gwinTotal - gwinPending - gwinFailed - gwinUnrouted);

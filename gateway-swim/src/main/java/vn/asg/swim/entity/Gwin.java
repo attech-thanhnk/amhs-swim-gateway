@@ -128,12 +128,19 @@ public class Gwin {
     @Column(name = "rejection_source", length = 20)
     private String rejectionSource;
 
+    /** Lý do lỗi ghi nhận trực tiếp từ AMHS/hệ thống */
+    @Column(name = "errorReason", length = 500)
+    private String errorReason;
+
     /**
      * Global Status:
-     * 0=PENDING, 4=FAILED, 5=UNROUTED, 6=RESOLVED, 7=CANCELLED
+     * 0=PENDING, 4=FAILED, 5=UNROUTED, 6=RESOLVED, 7=CANCELLED, 12=AMHS_CONVERSION_FAILED
      */
     @Column(name = "status")
     private Integer status = InboundStatus.PENDING.getValue();
+
+    public String getErrorReason() { return errorReason; }
+    public void setErrorReason(String errorReason) { this.errorReason = errorReason; }
 
     public Long getMsgid() { return msgid; }
     public void setMsgid(Long msgid) { this.msgid = msgid; }

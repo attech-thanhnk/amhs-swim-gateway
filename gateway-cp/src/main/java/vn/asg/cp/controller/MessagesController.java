@@ -50,7 +50,7 @@ public class MessagesController {
         Specification<Gwin> spec = Specification.where(null);
         if (status != null) {
             if (status == 11 || status == 4) {
-                spec = spec.and((r, q, cb) -> r.get("status").in(4, 11));
+                spec = spec.and((r, q, cb) -> r.get("status").in(4, 11, 12));
             } else if (status == 10 || status == 3) {
                 spec = spec.and((r, q, cb) -> r.get("status").in(3, 10));
             } else {
@@ -148,6 +148,10 @@ public class MessagesController {
         }
         m.put("amqpProperties", g.getAmqpProperties());
         m.put("parsedAmqpProperties", parsedProps);
+        m.put("errorReason", g.getErrorReason());
+        m.put("ipmId", g.getIpmId());
+        m.put("mtsId", g.getMtsId());
+        m.put("atsPriority", g.getAtsPriority());
 
         String rejReason = g.getRejectionReason();
         if ((rejReason == null || rejReason.isBlank()) && parsedProps != null) {
@@ -155,6 +159,9 @@ public class MessagesController {
             if (rejReason == null || rejReason.isBlank()) {
                 rejReason = (String) parsedProps.get("rejectionReason");
             }
+        }
+        if ((rejReason == null || rejReason.isBlank()) && g.getErrorReason() != null && !g.getErrorReason().isBlank()) {
+            rejReason = g.getErrorReason();
         }
         m.put("rejectionReason", rejReason);
 
@@ -168,8 +175,12 @@ public class MessagesController {
                 rejDiag = (String) parsedProps.get("rejectionDiagnostic");
             }
         }
+        if ((rejDiag == null || rejDiag.isBlank()) && g.getErrorReason() != null && !g.getErrorReason().isBlank()) {
+            rejDiag = g.getErrorReason();
+        }
         m.put("rejectionDiagnostic", rejDiag);
-        String rejSrc = g.getRejectionSource() != null ? g.getRejectionSource() : (rejReason != null ? "SWIM" : null);
+        String rejSrc = g.getRejectionSource() != null ? g.getRejectionSource()
+                : ((g.getStatus() != null && g.getStatus() == 12) ? "AMHS" : (rejReason != null ? "SWIM" : null));
         m.put("rejectionSource", rejSrc);
         m.put("errorSource", rejSrc);
 

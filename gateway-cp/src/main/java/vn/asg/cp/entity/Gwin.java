@@ -100,9 +100,25 @@ public class Gwin {
     @Column(name = "rejection_source", length = 20)
     private String rejectionSource;
 
+    /** IPM-Identifier */
+    @Column(name = "ipm_id", length = 255)
+    private String ipmId;
+
+    /** MTS-Identifier do MTA cấp */
+    @Column(name = "mts_id", length = 255)
+    private String mtsId;
+
+    /** ATS Priority (FF, SS...) */
+    @Column(name = "ats_priority", length = 10)
+    private String atsPriority;
+
+    /** Lý do lỗi ghi nhận trực tiếp từ AMHS/hệ thống */
+    @Column(name = "errorReason", length = 500)
+    private String errorReason;
+
     /**
      * Global Status.
-     * 0=PENDING, 1=UNROUTED, 2=TRANSFORMED, 3=DELIVERED, 4=FAILED, 5=RESOLVED, 6=CANCELLED
+     * 0=PENDING, 1=UNROUTED, 2=TRANSFORMED, 3=DELIVERED, 4=FAILED, 5=RESOLVED, 6=CANCELLED, 12=AMHS_CONVERSION_FAILED
      */
     @Column(name = "status")
     private Integer status = InboundStatus.PENDING.getValue();
