@@ -86,6 +86,8 @@ public class MessagesController {
                 orPredicates.add(cb.like(cb.lower(r.get("address")), kw, '\\'));
                 orPredicates.add(cb.like(cb.lower(r.get("amhsRecipients")), kw, '\\'));
                 orPredicates.add(cb.like(cb.lower(r.get("messageId")), kw, '\\'));
+                orPredicates.add(cb.like(cb.lower(r.get("ipmId")), kw, '\\'));
+                orPredicates.add(cb.like(cb.lower(r.get("mtsId")), kw, '\\'));
                 orPredicates.add(cb.like(cb.lower(r.get("subject")), kw, '\\'));
 
                 if (trimmed.length() >= 3) {
